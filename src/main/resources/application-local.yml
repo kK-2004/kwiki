@@ -1,0 +1,86 @@
+# Local development profile. Still credential-free: every secret keeps coming from
+# KWIKI_* environment variables (see .env.example); this file only tunes non-secret
+# defaults and logging for a developer workstation.
+logging:
+  level:
+    com.kwiki: DEBUG
+    org.springframework.web: INFO
+
+spring:
+  application:
+    name: kwiki
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${KWIKI_MYSQL_URL:jdbc:mysql://localhost:3306/kwiki?serverTimezone=UTC&useSSL=false}
+    username: ${KWIKI_MYSQL_USERNAME:root}
+    password: ${KWIKI_MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        # Timestamps are persisted as UTC Instants; align the JDBC connection to UTC
+        # so DATETIME columns round-trip losslessly.
+        jdbc:
+          time_zone: UTC
+  jackson:
+    time-zone: Asia/Shanghai
+  flyway:
+    enabled: true
+  data:
+    redis:
+      # No localhost fallback: enabling the Redis feature (KK_COMMON_REDIS_ENABLED=true)
+      # requires an explicit host so a startup can never silently pick localhost:6379.
+      host: ${KWIKI_REDIS_HOST}
+      port: ${KWIKI_REDIS_PORT:6379}
+      password: ${KWIKI_REDIS_PASSWORD:}
+      database: ${KWIKI_REDIS_DATABASE:0}
+  elasticsearch:
+    uris: ${KWIKI_ELASTICSEARCH_URIS:https://es-louis.ksite.xin}
+    # basic auth (empty -> not applied); API keys use kwiki.elasticsearch.api-key
+
+kwiki:
+  time:
+    display-zone: ${KWIKI_TIME_DISPLAY_ZONE:Asia/Shanghai}
+  security:
+    jwt-secret: ${KWIKI_JWT_SECRET:"kwiki-jwt-secretkwiki-jwt-secret1"}
+    token-ttl: ${KWIKI_JWT_TTL:12h}
+  content-center:
+    base-url: ${KWIKI_CONTENT_CENTER_BASE_URL:https://file.ksite.xin}
+    app-token: ${KWIKI_CONTENT_CENTER_APP_TOKEN}
+    source: ${KWIKI_CONTENT_CENTER_SOURCE:}
+    path: ${KWIKI_CONTENT_CENTER_PATH:}
+    connect-timeout: ${KWIKI_CONTENT_CENTER_CONNECT_TIMEOUT:10s}
+    request-timeout: ${KWIKI_CONTENT_CENTER_REQUEST_TIMEOUT:600s}
+  elasticsearch:
+    api-key: ${KWIKI_ELASTICSEARCH_API_KEY:}
+  answer-llm:
+    base-url: ${KWIKI_ANSWER_LLM_BASE_URL:https://newapi.ksite.xin}
+    api-key: ${KWIKI_ANSWER_LLM_API_KEY}
+    model: ${KWIKI_ANSWER_LLM_MODEL}
+    request-timeout: ${KWIKI_ANSWER_LLM_TIMEOUT:120s}
+  qwen-embedding:
+    base-url: ${KWIKI_QWEN_EMBEDDING_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    api-key: ${KWIKI_QWEN_EMBEDDING_API_KEY}
+    model: text-embedding-v4
+    dimensions: ${KWIKI_QWEN_EMBEDDING_DIMENSIONS:1024}
+    request-timeout: ${KWIKI_QWEN_EMBEDDING_TIMEOUT:30s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        readiness:
+          # dependency connectivity gates readiness; liveness stays process-only
+          include: "readinessState,*"

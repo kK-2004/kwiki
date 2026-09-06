@@ -1,0 +1,108 @@
+spring:
+  application:
+    name: kwiki
+  threads:
+    virtual:
+      enabled: true
+  autoconfigure:
+    exclude:
+      # Redis support is opt-in: com.kwiki.infrastructure.redis.KwikiRedisConfiguration
+      # re-imports these two auto-configurations only when kk.common.redis.enabled=true,
+      # so spring.data.redis.* (and any client) is never read/created while disabled.
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+  datasource:
+    url: ${KWIKI_MYSQL_URL}
+    username: ${KWIKI_MYSQL_USERNAME}
+    password: ${KWIKI_MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        # Timestamps are persisted as UTC Instants; tell Hibernate how to align the
+        # JDBC connection to UTC so DATETIME columns round-trip losslessly.
+        jdbc:
+          time_zone: UTC
+  jackson:
+    time-zone: Asia/Shanghai
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${KWIKI_REDIS_HOST}
+      port: ${KWIKI_REDIS_PORT:6379}
+      password: ${KWIKI_REDIS_PASSWORD:}
+      database: ${KWIKI_REDIS_DATABASE:0}
+  elasticsearch:
+    uris: ${KWIKI_ELASTICSEARCH_URIS}
+    # basic auth (empty -> not applied); API keys use kwiki.elasticsearch.api-key
+    username: ${KWIKI_ELASTICSEARCH_USERNAME:}
+    password: ${KWIKI_ELASTICSEARCH_PASSWORD:}
+
+kwiki:
+  time:
+    display-zone: ${KWIKI_TIME_DISPLAY_ZONE:Asia/Shanghai}
+  security:
+    jwt-secret: ${KWIKI_JWT_SECRET}
+    token-ttl: ${KWIKI_JWT_TTL:12h}
+  content-center:
+    base-url: ${KWIKI_CONTENT_CENTER_BASE_URL}
+    app-token: ${KWIKI_CONTENT_CENTER_APP_TOKEN}
+    source: ${KWIKI_CONTENT_CENTER_SOURCE:}
+    path: ${KWIKI_CONTENT_CENTER_PATH:}
+    connect-timeout: ${KWIKI_CONTENT_CENTER_CONNECT_TIMEOUT:10s}
+    request-timeout: ${KWIKI_CONTENT_CENTER_REQUEST_TIMEOUT:600s}
+  elasticsearch:
+    uris: ${KWIKI_ELASTICSEARCH_URIS}
+    api-key: ${KWIKI_ELASTICSEARCH_API_KEY:}
+    username: ${KWIKI_ELASTICSEARCH_USERNAME:}
+    password: ${KWIKI_ELASTICSEARCH_PASSWORD:}
+  answer-llm:
+    base-url: ${KWIKI_ANSWER_LLM_BASE_URL}
+    api-key: ${KWIKI_ANSWER_LLM_API_KEY}
+    model: ${KWIKI_ANSWER_LLM_MODEL}
+    request-timeout: ${KWIKI_ANSWER_LLM_TIMEOUT:120s}
+  qwen-embedding:
+    base-url: ${KWIKI_QWEN_EMBEDDING_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    api-key: ${KWIKI_QWEN_EMBEDDING_API_KEY}
+    model: text-embedding-v4
+    dimensions: ${KWIKI_QWEN_EMBEDDING_DIMENSIONS:1024}
+    request-timeout: ${KWIKI_QWEN_EMBEDDING_TIMEOUT:30s}
+
+# kk-common SDK feature switches. Web request-context and the shared exception
+# handler are on by default; Redis toolkit and the Redisson lock factory are
+# opt-in and stay fully disconnected until explicitly enabled (a deployment
+# enabling either must also provide KWIKI_REDIS_HOST and friends).
+kk:
+  common:
+    web:
+      enabled: ${KK_COMMON_WEB_ENABLED:true}
+    exception:
+      enabled: ${KK_COMMON_EXCEPTION_ENABLED:true}
+    redis:
+      enabled: ${KK_COMMON_REDIS_ENABLED:false}
+    redisson:
+      enabled: ${KK_COMMON_REDISSON_ENABLED:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        readiness:
+          # dependency connectivity gates readiness; liveness stays process-only
+          include: "readinessState,*"
+  tracing:
+    sampling:
+      # Every request keeps a trace id: no span exporter is configured, sampling
+      # only guarantees a stable traceId for logs, X-Trace-Id, and propagation.
+      probability: 1.0

@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.6</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.kwiki</groupId>
+  <artifactId>kwiki</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>kwiki</name>
+  <description>Enterprise Wiki with agentic RAG retrieval over operator-provided middleware</description>
+
+  <properties>
+    <java.version>21</java.version>
+    <jjwt.version>0.11.5</jjwt.version>
+    <content-center-sdk.version>0.1.3</content-center-sdk.version>
+    <kk-common.version>0.1.2</kk-common.version>
+    <tika.version>2.9.1</tika.version>
+    <commonmark.version>0.24.0</commonmark.version>
+    <archunit.version>1.3.0</archunit.version>
+  </properties>
+
+  <!-- Private GitHub Packages repositories. Authentication comes from Maven settings:
+       a <server> whose <id> matches the repository id below, with a GitHub token that
+       has read:packages permission. The same token can back both server entries via
+       ${env.GITHUB_TOKEN}. Repository ids are unique; no credential is ever stored in
+       this repo.
+         github        -> kK-2004/kk-common  (shared kk-common SDK)
+         github-kfile  -> kK-2004/kFile      (content-center attachment SDK) -->
+  <repositories>
+    <repository>
+      <id>github</id>
+      <name>GitHub kK-2004/kk-common Packages</name>
+      <url>https://maven.pkg.github.com/kK-2004/kk-common</url>
+    </repository>
+    <repository>
+      <id>github-kfile</id>
+      <name>GitHub kK-2004/kFile Packages</name>
+      <url>https://maven.pkg.github.com/kK-2004/kFile</url>
+    </repository>
+  </repositories>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webflux</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <!-- Trace context: Micrometer Tracing over Brave. Server-side extraction and
+         client-side injection of W3C traceparent ride on the observation filters
+         that actuator auto-configures; the bridge only supplies the tracer. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-tracing-bridge-brave</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-mysql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.kk</groupId>
+      <artifactId>content-center-sdk</artifactId>
+      <version>${content-center-sdk.version}</version>
+    </dependency>
+    <!-- Shared cross-project toolkit: TransDTO response envelope, BusinessException +
+         GlobalExceptionHandler, RedisUtil cache-aside helpers and the Redisson-backed
+         DistributedLock factory. Activated through META-INF/spring/...AutoConfiguration.imports
+         and gated by the kk.common.*.enabled feature switches (web/exception default on,
+         redis/redisson default off). -->
+    <dependency>
+      <groupId>com.kK-2004</groupId>
+      <artifactId>kk-common</artifactId>
+      <version>${kk-common.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tika</groupId>
+      <artifactId>tika-core</artifactId>
+      <version>${tika.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tika</groupId>
+      <artifactId>tika-parsers-standard-package</artifactId>
+      <version>${tika.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.commonmark</groupId>
+      <artifactId>commonmark</artifactId>
+      <version>${commonmark.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.commonmark</groupId>
+      <artifactId>commonmark-ext-gfm-tables</artifactId>
+      <version>${commonmark.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.commonmark</groupId>
+      <artifactId>commonmark-ext-gfm-strikethrough</artifactId>
+      <version>${commonmark.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.googlecode.owasp-java-html-sanitizer</groupId>
+      <artifactId>owasp-java-html-sanitizer</artifactId>
+      <version>20220608.1</version>
+    </dependency>
+    <dependency>
+      <groupId>co.elastic.clients</groupId>
+      <artifactId>elasticsearch-java</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-api</artifactId>
+      <version>${jjwt.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-impl</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-jackson</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.squareup.okhttp3</groupId>
+      <artifactId>mockwebserver</artifactId>
+      <version>4.12.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <version>${archunit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!-- Opt-in acceptance runs against operator-provided MySQL/Redis/content center/Elasticsearch/Qwen.
+         The env-gated *ContractTest classes activate through KWIKI_IT_* variables; the default
+         ./mvnw verify stays fully Docker-free and skips them. -->
+    <profile>
+      <id>external-it</id>
+      <properties>
+        <kwiki.external-it.required>true</kwiki.external-it.required>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <phase>validate</phase>
+                <goals><goal>run</goal></goals>
+                <configuration>
+                  <target>
+                    <fail message="external-it requires KWIKI_IT_MYSQL_URL, KWIKI_IT_MYSQL_USERNAME, KWIKI_IT_MYSQL_PASSWORD and the operator-provided service endpoints (run scripts/verify-external-services.sh first)">
+                      <condition>
+                        <not>
+                          <and>
+                            <isset property="env.KWIKI_IT_MYSQL_URL"/>
+                            <isset property="env.KWIKI_IT_MYSQL_USERNAME"/>
+                            <isset property="env.KWIKI_IT_MYSQL_PASSWORD"/>
+                          </and>
+                        </not>
+                      </condition>
+                    </fail>
+                    <echo>external-it: contract tests will run against operator-provided services.</echo>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

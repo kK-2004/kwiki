@@ -1,0 +1,11 @@
+query|history|expectedMode|note
+什么是知识库|NONE|NONE|完整问题无需改写
+它支持哪些数据库|USER:什么是知识库|CONVERSATIONAL|指代加历史触发补全
+the above settings|USER:how to configure redis|CONVERSATIONAL|英文指代触发补全
+部署|NONE|EXPANSION|过短低信息查询扩展
+sso|NONE|EXPANSION|过短低信息查询扩展
+kwiki release 3.2 notes|NONE|NONE|带版本号信息量足够
+什么是知识库？另外怎么导出页面|NONE|DECOMPOSITION|复合问题分解(路由决定)
+compare mysql and es|NONE|NONE|信息量足够不改写
+那个东西多少钱|NONE|NONE|无历史时指代不触发补全
+""",

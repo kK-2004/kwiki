@@ -1,0 +1,13 @@
+{
+  "corpus": "rewrite-corpus.csv",
+  "cases": 9,
+  "expectedModes": {
+    "NONE": 4,
+    "CONVERSATIONAL": 2,
+    "EXPANSION": 2,
+    "DECOMPOSITION": 1
+  },
+  "excludedBehaviors": [
+    "HyDE (hypothetical document embeddings) is intentionally not ported from k-Rag"
+  ]
+}

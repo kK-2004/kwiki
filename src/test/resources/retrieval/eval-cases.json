@@ -1,0 +1,35 @@
+{
+  "description": "Offline retrieval evaluation corpus: exact terms, paraphrases, short queries, multi-part questions, children sharing a parent, ties, and restricted parents",
+  "thresholds": {
+    "childRecallAtK": 0.8,
+    "parentRecallAtK": 0.8,
+    "citationPrecision": 0.9
+  },
+  "cases": [
+    {
+      "query": "mysql 连接配置",
+      "relevantChildKeys": ["PAGE:1:1:P0:C0"],
+      "relevantParentKeys": ["PAGE:1:1:P0"]
+    },
+    {
+      "query": "数据库怎么连",
+      "relevantChildKeys": ["PAGE:1:1:P0:C0"],
+      "relevantParentKeys": ["PAGE:1:1:P0"]
+    },
+    {
+      "query": "redis",
+      "relevantChildKeys": ["PAGE:2:1:P0:C0"],
+      "relevantParentKeys": ["PAGE:2:1:P0"]
+    },
+    {
+      "query": "部署以及备份",
+      "relevantChildKeys": ["PAGE:3:1:P0:C0", "PAGE:4:1:P0:C0"],
+      "relevantParentKeys": ["PAGE:3:1:P0", "PAGE:4:1:P0"]
+    },
+    {
+      "query": "安全",
+      "relevantChildKeys": ["PAGE:1:1:P1:C0", "PAGE:2:1:P1:C0"],
+      "relevantParentKeys": ["PAGE:1:1:P1", "PAGE:2:1:P1"]
+    }
+  ]
+}

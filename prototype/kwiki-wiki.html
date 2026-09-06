@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>kwiki · 企业知识工作区</title>
+  <style>
+    :root {
+      --green:#18bc72; --green-dark:#0e9858; --green-soft:#eaf8f1;
+      --ink:#252a2a; --muted:#858c8c; --line:#e7eae9; --soft:#f7f8f7;
+      --nav:232px; --tree:338px; color-scheme:light;
+      font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    }
+    *{box-sizing:border-box} html,body{height:100%}
+    body{margin:0;overflow:hidden;color:var(--ink);background:#fff;font-size:14px}
+    button,input,textarea{font:inherit} button{border:0;background:none;color:inherit;cursor:pointer}
+    a{color:inherit} button:focus-visible,input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid #7edcaf;outline-offset:2px}
+    .app{display:grid;grid-template-columns:var(--nav) var(--tree) minmax(0,1fr);height:100vh}
+    .global,.tree{min-width:0;border-right:1px solid var(--line);z-index:20}
+    .global{display:flex;flex-direction:column;padding:18px 10px 12px;background:#fafbfa}
+    .brand-row{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;margin-bottom:12px}
+    .brand{display:flex;align-items:center;gap:9px;text-decoration:none;font-size:21px;font-weight:780;letter-spacing:.02em;color:#203537}
+    .logo{position:relative;width:28px;height:28px;display:grid;place-items:center;border:1.5px solid #203537;border-radius:9px 9px 9px 3px;font-size:13px}
+    .logo:after{content:"";position:absolute;right:-3px;bottom:3px;width:7px;height:7px;border-radius:50%;background:var(--green);border:2px solid #fafbfa}
+    .icons{display:flex;gap:2px}.icon{width:32px;height:32px;display:grid;place-items:center;border-radius:7px;color:#737a7a}
+    .icon:hover{background:#eef1ef;color:#303636}
+    .nav{display:grid;gap:4px}.nav button{height:39px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:7px;text-align:left;font-weight:620}
+    .nav button:hover{background:#f0f2f1}.nav .active{background:#edf2ef;color:var(--green-dark)}
+    .nav-mark{width:18px;text-align:center;font-size:16px}.recent-title{margin:16px 12px 6px;color:#b0b5b5;font-size:12px}
+    .recent{display:block;padding:8px 12px;border-radius:6px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#505656}
+    .recent:hover{background:#f0f2f1}.account{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 8px 3px}
+    .avatar{width:28px;height:28px;display:grid;place-items:center;border-radius:50%;background:var(--green);color:#fff;font-size:12px;font-weight:750}
+    .account-copy{min-width:0;flex:1;line-height:1.35}.account-copy strong{display:block;font-size:13px}.account-copy span{color:var(--muted);font-size:11px}
+    .tree{display:flex;flex-direction:column;padding:18px 14px 14px;background:#fff}
+    .tree-title{display:flex;align-items:center;gap:7px;min-height:34px;padding:0 3px;font-weight:700;font-size:15px}
+    .tree-title .faint{color:#a5aaaa}.tree-title .wiki{color:var(--green)}
+    .tree-sub{margin:3px 3px 16px;color:#a0a6a6;font-size:12px}
+    .search{position:relative;margin:0 3px 12px}.search input{width:100%;height:36px;border:1px solid #dfe3e2;border-radius:6px;padding:0 34px;color:#363c3c;outline:none}
+    .search input:focus{border-color:#82dcb0;box-shadow:0 0 0 3px rgba(24,188,114,.08)}
+    .search .lens{position:absolute;left:11px;top:9px;color:#909797}.clear{display:none;position:absolute;right:7px;top:6px;width:24px;height:24px;border-radius:5px;color:#969d9d}
+    .clear.show{display:grid;place-items:center}.clear:hover{background:#f1f3f2}
+    .index{height:36px;display:flex;align-items:center;gap:9px;padding:0 10px;margin:0 3px 7px;border-bottom:1px solid var(--line);color:#505656}
+    .tabs{display:flex;align-items:center;gap:16px;height:40px;padding:0 5px;border-bottom:1px solid var(--line)}
+    .tab{position:relative;height:40px;padding:0 2px;color:#818888}.tab.active{color:var(--green-dark);font-weight:650}
+    .tab.active:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--green)}
+    .count{margin-left:3px;color:#a2a7a7;font-size:11px}.tree-tools{margin-left:auto;display:flex}.tree-tools .icon{width:27px;height:27px;font-size:13px}
+    .tree-scroll{min-height:0;overflow:auto;padding:10px 0 26px;scrollbar-width:thin}
+    .tree-group{margin-bottom:2px}.row{min-height:34px;width:100%;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:7px;text-align:left;color:#404646}
+    .row:hover{background:#f4f6f5}.row.selected{background:#eff2f0;color:var(--green-dark);font-weight:650}
+    .caret{width:14px;color:#9ea4a4;font-size:11px;text-align:center;transition:transform .14s}.collapsed .caret{transform:rotate(-90deg)}
+    .node-icon{width:16px;color:#929999}.selected .node-icon{color:var(--green)}.node-title{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .node-count{color:#afb4b4;font-size:11px}.children{padding-left:15px}.children[hidden]{display:none}.leaf .caret{visibility:hidden}
+    .summary-list{display:none;padding:3px}.summary-list.show{display:block}.summary-card{width:100%;padding:12px;margin-bottom:7px;border:1px solid var(--line);border-radius:8px;text-align:left}
+    .summary-card:hover{border-color:#b9e7d0;background:#fbfefc}.summary-card strong{display:block;margin-bottom:5px}.summary-card span{color:var(--muted);font-size:12px;line-height:1.5}
+    .empty{display:none;padding:34px 18px;text-align:center;color:var(--muted);line-height:1.7}.empty.show{display:block}
+    .content{min-width:0;height:100vh;overflow:auto;position:relative}.mobile{display:none;position:sticky;top:0;z-index:11;height:52px;align-items:center;justify-content:space-between;padding:0 13px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.95);backdrop-filter:blur(12px)}
+    .workspace-head{padding:27px 34px 0}.crumbs{display:flex;align-items:center;gap:9px;flex-wrap:wrap;color:#a0a5a5}.crumbs strong{color:#5a6060}.crumbs .active{color:var(--green);font-weight:650}
+    .workspace-sub{margin-top:7px;color:#a5aaaa;font-size:12px}.document{max-width:1050px;padding:24px 38px 80px}
+    .back{display:inline-flex;margin-bottom:12px;color:#7f8585;text-decoration:none;font-size:12px}.title-row{display:flex;align-items:flex-start;gap:20px}.title-copy{min-width:0;flex:1}
+    h1.page-title{margin:0 0 9px;font-size:29px;line-height:1.15;letter-spacing:-.025em}.meta{display:flex;gap:6px;color:#8f9696;font-size:12px}.pill{padding:3px 7px;border-radius:5px;background:#f3f5f4}
+    .page-actions{display:flex}.updated{margin-top:5px;color:#a4aaaa;font-size:12px;text-align:right}.lead{margin:15px 0 25px;color:#737a7a;font-size:15px;line-height:1.8}
+    .article{font-size:15px;line-height:1.85;color:#343a3a}.article h1{font-size:25px}.article h2{margin:27px 0 9px;font-size:19px}.article h3{margin:23px 0 8px;font-size:17px}.article p{margin:9px 0}
+    .article ol,.article ul{margin:7px 0 12px;padding-left:24px}.article li{margin:4px 0}.article a,.link{color:var(--green-dark);text-decoration:none;border-bottom:1px dashed #5ed19a}
+    table{border-collapse:separate;border-spacing:0;margin:12px 0 16px;border:1px solid #e0e4e3;border-radius:7px;overflow:hidden;font-size:14px}
+    th,td{min-width:88px;padding:8px 12px;border-right:1px solid #e6e9e8;border-bottom:1px solid #e6e9e8;text-align:left}th{background:#f7f8f7}tr:last-child td{border-bottom:0}th:last-child,td:last-child{border-right:0}
+    .callout{margin:16px 0;padding:12px 14px;border-left:3px solid var(--green);border-radius:0 7px 7px 0;background:#f4fbf7;color:#52605a}
+    .provenance{margin-top:32px;padding-top:17px;border-top:1px solid var(--line);display:grid;grid-template-columns:70px 1fr;gap:10px 8px;color:#979d9d;font-size:12px}
+    .prov-links{display:flex;flex-wrap:wrap;gap:9px 18px}
+    .editor{display:none;margin-top:22px;border:1px solid #dfe4e2;border-radius:9px;overflow:hidden;box-shadow:0 8px 30px rgba(27,52,40,.06)}.editor.show{display:block}
+    .toolbar{min-height:47px;display:flex;align-items:center;gap:3px;padding:7px 9px;border-bottom:1px solid var(--line);background:#fafbfa}.tool{min-width:31px;height:31px;padding:0 8px;border-radius:5px;color:#626969}.tool:hover,.tool.active{background:#edf3ef;color:var(--green-dark)}
+    .spacer{flex:1}.editor textarea{width:100%;min-height:400px;padding:22px;border:0;resize:vertical;outline:none;font:13px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace}.preview{display:none;min-height:400px;padding:22px}.preview.show{display:block}
+    .editor-foot{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid var(--line);background:#fafbfa}.draft{color:var(--muted);font-size:12px}.buttons{display:flex;gap:7px}
+    .btn{min-height:34px;padding:0 13px;border:1px solid #dfe3e2;border-radius:6px;background:#fff;font-weight:600;color:#555c5c}.btn:hover{border-color:#bfc7c4}.btn.primary{border-color:var(--green);background:var(--green);color:#fff}
+    .history{position:fixed;top:0;right:0;z-index:50;width:min(390px,92vw);height:100vh;padding:20px;border-left:1px solid var(--line);background:#fff;box-shadow:-18px 0 48px rgba(24,40,32,.11);transform:translateX(105%);transition:transform .22s}.history.open{transform:translateX(0)}
+    .drawer-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:19px}.drawer-head h2{margin:0;font-size:18px}.revision{position:relative;margin-left:9px;padding:0 0 20px 24px;border-left:1px solid #dfe4e2}.revision:before{content:"";position:absolute;left:-5px;top:3px;width:9px;height:9px;border:2px solid #bdc6c2;border-radius:50%;background:#fff}.revision.current:before{border-color:var(--green);background:var(--green-soft)}.revision p{color:var(--muted);line-height:1.55}.rev-meta{color:#a0a6a6;font-size:11px}
+    .overlay{display:none;position:fixed;inset:0;z-index:40;background:rgba(22,31,27,.25);backdrop-filter:blur(1px)}.overlay.show{display:block}
+    .ask{position:fixed;right:24px;bottom:22px;z-index:15;height:42px;padding:0 16px;border-radius:22px;background:#26332d;color:#fff;box-shadow:0 8px 24px rgba(28,47,38,.2);font-weight:650}
+    .toast{position:fixed;left:50%;bottom:28px;z-index:80;padding:10px 14px;border-radius:7px;background:#27322d;color:#fff;opacity:0;transform:translate(-50%,20px);transition:.18s;pointer-events:none}.toast.show{opacity:1;transform:translate(-50%,0)}
+    @media (max-width:1230px){:root{--nav:205px;--tree:310px}.document{padding-left:30px;padding-right:30px}}
+    @media (max-width:1023px){
+      body{overflow:auto}.app{display:block;min-height:100vh}.global,.tree{position:fixed;top:0;bottom:0;width:min(86vw,330px);transform:translateX(-105%);transition:transform .2s;box-shadow:14px 0 42px rgba(25,42,33,.12)}
+      .global.open,.tree.open{transform:translateX(0)}.content{height:auto;min-height:100vh;overflow:visible}.mobile{display:flex}.workspace-head{padding:22px 20px 0}.document{padding:20px 20px 88px}.page-actions{display:none}.updated{text-align:left;margin-top:12px}.ask{right:16px;bottom:16px}
+    }
+    @media (max-width:640px){.workspace-sub{display:none}.title-row{display:block}h1.page-title{font-size:25px}.provenance{grid-template-columns:1fr}.editor-foot{align-items:flex-start;flex-direction:column;gap:10px}.buttons{width:100%}.buttons .btn{flex:1}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="global" id="global-sidebar" aria-label="全局导航">
+      <div class="brand-row">
+        <a class="brand" href="#" aria-label="kwiki 首页"><span class="logo">K</span><span>kwiki</span></a>
+        <div class="icons"><button class="icon" aria-label="全局搜索">⌕</button><button class="icon" aria-label="收起侧边栏">◫</button></div>
+      </div>
+      <nav class="nav" aria-label="主要功能">
+        <button><span class="nav-mark">▣</span>新对话</button>
+        <button class="active"><span class="nav-mark">◇</span>知识库</button>
+        <button><span class="nav-mark">✣</span>智能体</button>
+        <button><span class="nav-mark">∞</span>共享空间</button>
+      </nav>
+      <div class="recent-title">今天</div>
+      <a class="recent" href="#">研发知识库接入规范</a>
+      <a class="recent" href="#">员工差旅与报销指南</a>
+      <a class="recent" href="#">Agentic RAG 召回评估</a>
+      <div class="account"><span class="avatar">K</span><div class="account-copy"><strong>kwiki 管理员</strong><span>admin@kwiki.local</span></div><span>⌄</span></div>
+    </aside>
+
+    <aside class="tree" id="tree-panel" aria-label="Wiki 页面导航">
+      <div class="tree-title"><span>内部知识库</span><span class="faint">›</span><span>文档</span><span>/</span><span class="wiki">Wiki</span></div>
+      <div class="tree-sub">已发布页面自动生成父子块，支持智能检索</div>
+      <div class="search"><span class="lens">⌕</span><input id="wiki-search" type="search" placeholder="搜索 Wiki 页面…" aria-label="搜索 Wiki 页面"><button class="clear" id="search-clear" aria-label="清空搜索">×</button></div>
+      <button class="index"><span>▤</span>索引</button>
+      <div class="tabs" role="tablist" aria-label="Wiki 视图">
+        <button class="tab active" id="knowledge-tab" role="tab" aria-selected="true">知识 <span class="count" id="knowledge-count">18</span></button>
+        <button class="tab" id="summary-tab" role="tab" aria-selected="false">摘要 <span class="count">4</span></button>
+        <div class="tree-tools"><button class="icon" aria-label="树形视图">☷</button><button class="icon" aria-label="新建目录">□+</button><button class="icon" aria-label="新建页面">＋</button></div>
+      </div>
+      <div class="tree-scroll">
+        <div id="knowledge-tree" role="tree" aria-label="知识页面树">
+          <div class="tree-group" data-group="human-resources">
+            <button class="row parent" role="treeitem" aria-expanded="true" data-node-id="human-resources"><span class="caret">⌄</span><span class="node-icon">◆</span><span class="node-title">人力资源</span><span class="node-count">5</span></button>
+            <div class="children" role="group" data-children-for="human-resources">
+              <div class="tree-group" data-group="leave">
+                <button class="row parent" role="treeitem" aria-expanded="true" data-node-id="leave"><span class="caret">⌄</span><span class="node-icon">◇</span><span class="node-title">休假</span><span class="node-count">3</span></button>
+                <div class="children" role="group" data-children-for="leave">
+                  <button class="row leaf selected" role="treeitem" aria-selected="true" data-page-id="annual-leave"><span class="caret">·</span><span class="node-icon">♧</span><span class="node-title">年假制度</span></button>
+                  <button class="row leaf" role="treeitem" aria-selected="false" data-page-id="leave-process"><span class="caret">·</span><span class="node-icon">♧</span><span class="node-title">请假流程</span></button>
+                  <button class="row leaf" role="treeitem" aria-selected="false" data-page-id="overtime"><span class="caret">·</span><span class="node-icon">♧</span><span class="node-title">加班与调休</span></button>
+                </div>
+              </div>
+              <button class="row leaf" role="treeitem" aria-selected="false" data-page-id="onboarding"><span class="caret">·</span><span class="node-icon">♧</span><span class="node-title">新员工入职</span></button>
+              <button class="row leaf" role="treeitem" aria-selected="false" data-page-id="employee-handbook"><span class="caret">·</span><span class="node-icon">◇</span><span class="node-title">员工手册</span></button>
+            </div>
+          </div>
+          <div class="tree-group" data-group="engineering">
+            <button class="row parent collapsed" role="treeitem" aria-expanded="false" data-node-id="engineering"><span class="caret">⌄</span><span class="node-icon">◆</span><span class="node-title">研发效能</span><span class="node-count">6</span></button>
+            <div class="children" role="group" data-children-for="engineering" hidden><button class="row leaf" role="treeitem" data-page-id="release"><span class="caret">·</span><span class="node-icon">♧</span><span class="node-title">发布流程</span></button></div>
+          </div>
+          <div class="tree-group" data-group="finance">
+            <button class="row parent collapsed" role="treeitem" aria-expanded="false" data-node-id="finance"><span class="caret">⌄</span><span class="node-icon">◆</span><span class="node-title">财务制度</span><span class="node-count">4</span></button>
+            <div class="children" role="group" data-children-for="finance" hidden><button class="row leaf" role="treeitem" data-page-id="reimbursement"><span class="caret">·</span><span class="node-icon">♧</span><span class="node-title">差旅报销</span></button></div>
+          </div>
+          <div class="tree-group" data-group="security">
+            <button class="row parent collapsed" role="treeitem" aria-expanded="false" data-node-id="security"><span class="caret">⌄</span><span class="node-icon">◆</span><span class="node-title">信息安全</span><span class="node-count">3</span></button>
+            <div class="children" role="group" data-children-for="security" hidden><button class="row leaf" role="treeitem" data-page-id="data-levels"><span class="caret">·</span><span class="node-icon">♧</span><span class="node-title">数据分级规范</span></button></div>
+          </div>
+        </div>
+        <div class="summary-list" id="summary-list">
+          <button class="summary-card" data-summary-page="annual-leave"><strong>人力资源制度摘要</strong><span>年假、请假、加班与员工手册的关键规则，共 12 条。</span></button>
+          <button class="summary-card" data-summary-page="release"><strong>研发发布规范摘要</strong><span>覆盖灰度、回滚、值班与变更窗口。</span></button>
+          <button class="summary-card" data-summary-page="reimbursement"><strong>财务报销摘要</strong><span>差旅标准、票据要求与审批时限。</span></button>
+        </div>
+        <div class="empty" id="search-empty">没有找到相关页面<br><span>试试更短的关键词</span></div>
+      </div>
+    </aside>
+
+    <section class="content">
+      <div class="mobile"><button class="icon" id="open-global-nav" aria-label="打开全局导航">☰</button><strong>kwiki</strong><button class="icon" id="open-tree-nav" aria-label="打开页面目录">☷</button></div>
+      <header class="workspace-head">
+        <div class="crumbs"><strong>知识库</strong><span>›</span><strong>kwiki 内部知识库</strong><span>›</span><span>文档</span><span>/</span><span class="active">Wiki</span><span>/</span><span>图谱</span></div>
+        <div class="workspace-sub">支持 Markdown、DOCX 等文本型文档解析，以父子块构建可检索、可追溯的企业知识</div>
+      </header>
+      <main class="document" id="page-content" tabindex="-1">
+        <a class="back" href="#" id="parent-link">← 休假</a>
+        <div class="title-row">
+          <div class="title-copy"><h1 class="page-title" id="page-title">年假制度</h1><div class="meta"><span class="pill">♧ 概念</span><span class="pill" id="version-pill">v3</span><span class="pill">已发布</span></div></div>
+          <div><div class="page-actions"><button class="icon" id="edit-page" aria-label="编辑页面">✎</button><button class="icon" id="open-history" aria-label="查看版本历史">↶</button><button class="icon" aria-label="查看页面洞察">⌁</button><button class="icon" aria-label="归档页面">⌫</button></div><div class="updated" id="updated-at">◷ 2026/08/10 10:28</div></div>
+        </div>
+        <p class="lead" id="page-lead">统一说明员工年假额度、折算方式、请假流程与项目交接要求。</p>
+        <article class="article" id="article-body">
+          <p>员工可根据工龄享有带薪年假，额度以入职日期和连续工作年限为准。年假应在不影响业务连续性的前提下提前规划。</p>
+          <div class="callout">检索命中 128～512 字符的子块，再回取所属 1024～4096 字符父块作为完整上下文。</div>
+          <h2>年假天数</h2><p>年假按照累计工作年限计算：</p>
+          <table><thead><tr><th>累计工龄</th><th>年假天数</th></tr></thead><tbody><tr><td>1 年以下</td><td>5 天</td></tr><tr><td>1～10 年</td><td>10 天</td></tr><tr><td>10 年以上</td><td>15 天</td></tr></tbody></table>
+          <p>当年 3 月 31 日前入职的员工，当年额度按剩余月份折算；之后入职的员工次年开始享受完整额度。</p>
+          <h2><a href="#" data-page-link="leave-process">请假流程</a></h2>
+          <ol><li>至少提前一天在 OA 提交请假单，选择假期类型和起止时间。</li><li>3 天以内由直属主管审批；3～7 天增加部门负责人审批。</li><li>超过 7 天需同步 HR，并指定项目或客户工作的交接人。</li></ol>
+          <h2>与项目交付冲突</h2><p>若请假期间存在版本发布、客户验收或值班安排，须在项目群同步并完成交接。</p>
+        </article>
+        <section class="editor" id="editor-shell" aria-label="页面编辑器">
+          <div class="toolbar"><button class="tool">H1</button><button class="tool">H2</button><button class="tool"><strong>B</strong></button><button class="tool">☷</button><button class="tool">⌁</button><button class="tool">▦</button><span class="spacer"></span><button class="tool active" id="edit-mode">编辑</button><button class="tool" id="preview-mode">预览</button></div>
+          <textarea id="editor-textarea" aria-label="Markdown 页面内容"></textarea><div class="preview article" id="editor-preview"></div>
+          <div class="editor-foot"><span class="draft" id="draft-status">尚未修改</span><div class="buttons"><button class="btn" id="cancel-edit">取消</button><button class="btn" id="save-draft">保存草稿</button><button class="btn primary" id="publish-page">发布</button></div></div>
+        </section>
+        <footer class="provenance" id="provenance">
+          <span>被链接</span><div class="prov-links"><a class="link" href="#">员工手册 · 薪酬与休假</a><a class="link" href="#">请假流程</a><a class="link" href="#">新员工入职</a></div>
+          <span>来源文档</span><div class="prov-links"><a class="link" href="#">员工手册-休假制度.docx</a><span>Apache Tika · 6 个父块 / 21 个子块</span></div>
+        </footer>
+      </main>
+    </section>
+  </div>
+
+  <button class="ask" id="ask-button">✣　问问 kwiki</button>
+  <aside class="history" id="history-drawer" aria-label="版本历史" aria-hidden="true">
+    <div class="drawer-head"><h2>版本历史</h2><button class="icon" id="close-history" aria-label="关闭版本历史">×</button></div>
+    <div class="revision current"><strong>v3 · 当前版本</strong><div class="rev-meta">林嘉 · 2026/08/10 10:28</div><p>补充项目交接要求和父子块索引说明。</p><button class="btn">与上一版比较</button></div>
+    <div class="revision"><strong>v2 · 已发布</strong><div class="rev-meta">周晴 · 2026/07/21 16:40</div><p>调整当年入职员工的额度折算规则。</p><button class="btn">查看</button></div>
+    <div class="revision"><strong>v1 · 初始版本</strong><div class="rev-meta">系统导入 · 2026/06/18 09:12</div><p>来源：员工手册-休假制度.docx</p><button class="btn">恢复为新版本</button></div>
+  </aside>
+  <div class="overlay" id="overlay"></div><div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script id="prototype-engine">
+    (function () {
+      var pages = [
+        {id:'annual-leave',title:'年假',displayTitle:'年假制度',path:['人力资源','休假'],parent:'休假',version:'v3',updatedAt:'2026/08/10 10:28',lead:'统一说明员工年假额度、折算方式、请假流程与项目交接要求。',markdown:'# 年假制度\n\n员工可根据工龄享有带薪年假。\n\n## 年假天数\n\n- 1 年以下：5 天\n- 1～10 年：10 天\n- 10 年以上：15 天\n\n## 请假流程\n\n1. 提前在 OA 提交请假单\n2. 完成主管和部门审批\n3. 同步项目交接人'},
+        {id:'leave-process',title:'请假流程',displayTitle:'请假流程',path:['人力资源','休假'],parent:'休假',version:'v5',updatedAt:'2026/08/08 16:18',lead:'从申请、审批到销假的标准操作步骤。',markdown:'# 请假流程\n\n所有假期统一通过 OA 提交。\n\n## 发起申请\n\n- 选择假期类型\n- 填写起止日期\n- 上传必要证明\n\n## 审批层级\n\n1. 直属主管审批\n2. 部门负责人审批\n3. HR 备案'},
+        {id:'overtime',title:'加班与调休',displayTitle:'加班与调休',path:['人力资源','休假'],parent:'休假',version:'v2',updatedAt:'2026/08/02 12:04',lead:'说明加班确认、调休有效期及折算规则。',markdown:'# 加班与调休\n\n加班需提前获得负责人确认。\n\n## 调休\n\n- 调休有效期为 90 天\n- 优先使用即将到期额度'},
+        {id:'onboarding',title:'新员工入职',displayTitle:'新员工入职清单',path:['人力资源'],parent:'人力资源',version:'v4',updatedAt:'2026/07/30 09:30',lead:'覆盖账号、设备、培训和试用期目标设置。',markdown:'# 新员工入职清单\n\n## 第一天\n\n- 领取设备\n- 激活账号\n- 认识导师'},
+        {id:'employee-handbook',title:'员工手册',displayTitle:'员工手册',path:['人力资源'],parent:'人力资源',version:'v9',updatedAt:'2026/07/18 15:42',lead:'公司基本制度与员工行为规范。',markdown:'# 员工手册\n\n本手册适用于所有正式员工。'},
+        {id:'release',title:'发布流程',displayTitle:'研发发布流程',path:['研发效能'],parent:'研发效能',version:'v6',updatedAt:'2026/08/09 21:10',lead:'覆盖变更评审、灰度发布、监控和回滚。',markdown:'# 研发发布流程\n\n## 发布前\n\n- 完成变更评审\n- 准备回滚方案'},
+        {id:'reimbursement',title:'差旅报销',displayTitle:'差旅与报销',path:['财务制度'],parent:'财务制度',version:'v3',updatedAt:'2026/07/25 11:21',lead:'差旅预订标准、票据规范和报销时限。',markdown:'# 差旅与报销\n\n报销应在行程结束后 15 个工作日内提交。'},
+        {id:'data-levels',title:'数据分级规范',displayTitle:'数据分级规范',path:['信息安全'],parent:'信息安全',version:'v1',updatedAt:'2026/07/12 14:06',lead:'定义公开、内部、机密和严格机密四类数据。',markdown:'# 数据分级规范\n\n数据访问遵循最小权限原则。'}
+      ];
+      var state={selectedPageId:'annual-leave',mode:'knowledge',editing:false,previewing:false,historyOpen:false,expandedNodes:['human-resources','leave']};
+      function clone(value){return JSON.parse(JSON.stringify(value));}
+      function filterPages(query){var q=String(query||'').trim().toLowerCase();return pages.filter(function(p){return !q||[p.title,p.displayTitle].concat(p.path).join(' ').toLowerCase().indexOf(q)!==-1;}).map(function(p){return{id:p.id,title:p.title,path:p.path.slice()};});}
+      function selectPage(id){var page=pages.find(function(p){return p.id===id;});if(!page){return null;}state.selectedPageId=id;state.editing=false;state.previewing=false;return clone(page);}
+      function setMode(mode){state.mode=mode==='summary'?'summary':'knowledge';return state.mode;}
+      function toggleNode(id){var i=state.expandedNodes.indexOf(id);if(i>=0){state.expandedNodes.splice(i,1);return false;}state.expandedNodes.push(id);return true;}
+      function startEditing(){state.editing=true;state.previewing=false;return true;}function stopEditing(){state.editing=false;state.previewing=false;return false;}
+      function escapeHtml(value){return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}
+      function inline(value){return escapeHtml(value).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');}
+      function renderMarkdown(markdown){var out=[],list=null;function close(){if(list){out.push('</'+list+'>');list=null;}}String(markdown||'').split(/\r?\n/).forEach(function(line){if(/^###\s+/.test(line)){close();out.push('<h3>'+inline(line.replace(/^###\s+/,''))+'</h3>');}else if(/^##\s+/.test(line)){close();out.push('<h2>'+inline(line.replace(/^##\s+/,''))+'</h2>');}else if(/^#\s+/.test(line)){close();out.push('<h1>'+inline(line.replace(/^#\s+/,''))+'</h1>');}else if(/^[-*]\s+/.test(line)){if(list!=='ul'){close();list='ul';out.push('<ul>');}out.push('<li>'+inline(line.replace(/^[-*]\s+/,''))+'</li>');}else if(/^\d+\.\s+/.test(line)){if(list!=='ol'){close();list='ol';out.push('<ol>');}out.push('<li>'+inline(line.replace(/^\d+\.\s+/,''))+'</li>');}else if(!line.trim()){close();}else{close();out.push('<p>'+inline(line)+'</p>');}});close();return out.join('');}
+      function previewMarkdown(md){state.previewing=true;return renderMarkdown(md);}function openHistory(){state.historyOpen=true;return true;}function closeHistory(){state.historyOpen=false;return false;}
+      function getState(){return clone(state);}function getPages(){return clone(pages);}
+      window.KWikiPrototype={filterPages:filterPages,selectPage:selectPage,setMode:setMode,toggleNode:toggleNode,startEditing:startEditing,stopEditing:stopEditing,previewMarkdown:previewMarkdown,renderMarkdown:renderMarkdown,openHistory:openHistory,closeHistory:closeHistory,getState:getState,getPages:getPages};
+
+      document.addEventListener('DOMContentLoaded',function(){
+        var engine=window.KWikiPrototype,pageById={},dirty=false,timer;engine.getPages().forEach(function(p){pageById[p.id]=p;});
+        var article=document.getElementById('article-body'),title=document.getElementById('page-title'),lead=document.getElementById('page-lead'),parentLink=document.getElementById('parent-link'),version=document.getElementById('version-pill'),updated=document.getElementById('updated-at'),provenance=document.getElementById('provenance'),editor=document.getElementById('editor-shell'),textarea=document.getElementById('editor-textarea'),preview=document.getElementById('editor-preview'),history=document.getElementById('history-drawer'),overlay=document.getElementById('overlay'),toast=document.getElementById('toast');
+        function showToast(message){window.clearTimeout(timer);toast.textContent=message;toast.classList.add('show');timer=window.setTimeout(function(){toast.classList.remove('show');},1800);}
+        function articleFor(page){if(page.id!=='annual-leave'){return engine.renderMarkdown(page.markdown);}return '<p>员工可根据工龄享有带薪年假，额度以入职日期和连续工作年限为准。</p><div class="callout">检索命中 128～512 字符的子块，再按 parentChunkKey 去重回取父块。</div><h2>年假天数</h2><table><tr><th>累计工龄</th><th>年假天数</th></tr><tr><td>1 年以下</td><td>5 天</td></tr><tr><td>1～10 年</td><td>10 天</td></tr><tr><td>10 年以上</td><td>15 天</td></tr></table><h2><a href="#" data-page-link="leave-process">请假流程</a></h2><ol><li>提前在 OA 提交请假单。</li><li>完成主管和部门审批。</li><li>长期请假同步 HR 并完成项目交接。</li></ol><h2>与项目交付冲突</h2><p>存在发布或验收时须指定工作交接人。</p>';}
+        function renderPage(page){if(!page){return;}title.textContent=page.displayTitle;lead.textContent=page.lead;parentLink.textContent='← '+page.parent;version.textContent=page.version;updated.textContent='◷ '+page.updatedAt;article.innerHTML=articleFor(page);article.style.display='';lead.style.display='';provenance.style.display='';editor.classList.remove('show');document.querySelectorAll('[data-page-id]').forEach(function(row){var yes=row.getAttribute('data-page-id')===page.id;row.classList.toggle('selected',yes);row.setAttribute('aria-selected',String(yes));});if(window.innerWidth<1024){closePanels();}}
+        function select(id){if(dirty&&engine.getState().editing&&!window.confirm('当前有未保存的修改，确定离开吗？')){return;}dirty=false;renderPage(engine.selectPage(id));}
+        document.querySelectorAll('[data-page-id]').forEach(function(row){row.addEventListener('click',function(){engine.setMode('knowledge');setTabs('knowledge');select(row.getAttribute('data-page-id'));});});
+        document.addEventListener('click',function(event){var link=event.target.closest('[data-page-link]');if(link){event.preventDefault();engine.setMode('knowledge');setTabs('knowledge');select(link.getAttribute('data-page-link'));}});
+        document.querySelectorAll('.parent').forEach(function(row){row.addEventListener('click',function(){var id=row.getAttribute('data-node-id'),open=engine.toggleNode(id),children=document.querySelector('[data-children-for="'+id+'"]');row.classList.toggle('collapsed',!open);row.setAttribute('aria-expanded',String(open));if(children){children.hidden=!open;}});});
+        var search=document.getElementById('wiki-search'),clear=document.getElementById('search-clear'),empty=document.getElementById('search-empty');
+        function applySearch(){var q=search.value.trim(),ids=engine.filterPages(q).map(function(p){return p.id;}),shown=0;document.querySelectorAll('[data-page-id]').forEach(function(row){var visible=!q||ids.indexOf(row.getAttribute('data-page-id'))>=0;row.style.display=visible?'':'none';if(visible){shown++;}});document.querySelectorAll('[data-group]').forEach(function(group){var visible=Array.from(group.querySelectorAll('[data-page-id]')).some(function(row){return row.style.display!=='none';});group.style.display=!q||visible?'':'none';if(q&&visible){var p=group.querySelector(':scope > .parent'),c=group.querySelector(':scope > .children');if(p&&c){p.classList.remove('collapsed');p.setAttribute('aria-expanded','true');c.hidden=false;}}});document.getElementById('knowledge-count').textContent=q?String(shown):'18';clear.classList.toggle('show',Boolean(q));empty.classList.toggle('show',Boolean(q)&&shown===0);}
+        search.addEventListener('input',applySearch);clear.addEventListener('click',function(){search.value='';applySearch();search.focus();});
+        function setTabs(mode){var knowledge=mode==='knowledge';document.getElementById('knowledge-tab').classList.toggle('active',knowledge);document.getElementById('summary-tab').classList.toggle('active',!knowledge);document.getElementById('knowledge-tab').setAttribute('aria-selected',String(knowledge));document.getElementById('summary-tab').setAttribute('aria-selected',String(!knowledge));document.getElementById('knowledge-tree').style.display=knowledge?'':'none';document.getElementById('summary-list').classList.toggle('show',!knowledge);}
+        function renderSummary(){var page=pageById[engine.getState().selectedPageId]||pageById['annual-leave'];title.textContent=page.path[0]+'知识摘要';lead.textContent='仅基于当前用户有权访问的已发布父块生成。';parentLink.textContent='← 摘要';version.textContent='摘要';updated.textContent='◷ 由 kwiki 自动整理';article.innerHTML='<div class="callout">摘要引用仍定位到实际命中的子块。</div><h2>核心规则</h2><p>年假按累计工龄分为 5 天、10 天和 15 天三档；所有假期通过 OA 发起。</p><h2>相关页面</h2><p><a href="#" data-page-link="annual-leave">年假制度</a> · <a href="#" data-page-link="leave-process">请假流程</a> · <a href="#" data-page-link="overtime">加班与调休</a></p>';}
+        document.getElementById('knowledge-tab').addEventListener('click',function(){engine.setMode('knowledge');setTabs('knowledge');renderPage(pageById[engine.getState().selectedPageId]);});
+        document.getElementById('summary-tab').addEventListener('click',function(){engine.setMode('summary');setTabs('summary');renderSummary();});
+        document.querySelectorAll('[data-summary-page]').forEach(function(card){card.addEventListener('click',function(){engine.selectPage(card.getAttribute('data-summary-page'));renderSummary();});});
+        document.getElementById('edit-page').addEventListener('click',function(){var page=pageById[engine.getState().selectedPageId];engine.startEditing();textarea.value=page.markdown;editor.classList.add('show');article.style.display='none';lead.style.display='none';provenance.style.display='none';textarea.style.display='block';preview.classList.remove('show');dirty=false;document.getElementById('draft-status').textContent='尚未修改';textarea.focus();});
+        textarea.addEventListener('input',function(){dirty=true;document.getElementById('draft-status').textContent='有未保存的修改';});
+        document.getElementById('preview-mode').addEventListener('click',function(){preview.innerHTML=engine.previewMarkdown(textarea.value);preview.classList.add('show');textarea.style.display='none';this.classList.add('active');document.getElementById('edit-mode').classList.remove('active');});
+        document.getElementById('edit-mode').addEventListener('click',function(){textarea.style.display='block';preview.classList.remove('show');this.classList.add('active');document.getElementById('preview-mode').classList.remove('active');});
+        document.getElementById('cancel-edit').addEventListener('click',function(){if(dirty&&!window.confirm('放弃尚未保存的修改吗？')){return;}dirty=false;engine.stopEditing();renderPage(pageById[engine.getState().selectedPageId]);});
+        document.getElementById('save-draft').addEventListener('click',function(){dirty=false;document.getElementById('draft-status').textContent='草稿已保存 · 刚刚';showToast('草稿已保存');});
+        document.getElementById('publish-page').addEventListener('click',function(){var page=pageById[engine.getState().selectedPageId];page.markdown=textarea.value;page.version='v'+((Number(page.version.replace(/\D/g,''))||0)+1);page.updatedAt='2026/08/10 11:05';dirty=false;engine.stopEditing();renderPage(page);showToast('页面已发布，父子块索引任务已创建');});
+        function showHistory(){engine.openHistory();history.classList.add('open');history.setAttribute('aria-hidden','false');overlay.classList.add('show');}function hideHistory(){engine.closeHistory();history.classList.remove('open');history.setAttribute('aria-hidden','true');overlay.classList.remove('show');}
+        document.getElementById('open-history').addEventListener('click',showHistory);document.getElementById('close-history').addEventListener('click',hideHistory);
+        document.getElementById('ask-button').addEventListener('click',function(){showToast('正式页面将通过 SSE 接入 Agentic RAG');});
+        var global=document.getElementById('global-sidebar'),tree=document.getElementById('tree-panel');function closePanels(){global.classList.remove('open');tree.classList.remove('open');if(!history.classList.contains('open')){overlay.classList.remove('show');}}
+        document.getElementById('open-global-nav').addEventListener('click',function(){global.classList.add('open');tree.classList.remove('open');overlay.classList.add('show');});document.getElementById('open-tree-nav').addEventListener('click',function(){tree.classList.add('open');global.classList.remove('open');overlay.classList.add('show');});
+        overlay.addEventListener('click',function(){hideHistory();closePanels();});window.addEventListener('beforeunload',function(event){if(dirty){event.preventDefault();event.returnValue='';}});
+      });
+    }());
+  </script>
+</body>
+</html>
