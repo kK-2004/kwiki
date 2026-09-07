@@ -7,19 +7,18 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.Map;
 
 /**
- * Versioned SSE event: route, rewrite, retrieve, token, citations, done, or
- * error. Every frame carries the stable request id and a monotonic sequence
- * number; one terminal event (done or error) ends the stream.
+ * Versioned SSE event: route, rewrite, retrieve, token, citations, done, or error. Every frame
+ * carries the stable request id and a monotonic sequence number; one terminal event (done or error)
+ * ends the stream.
  */
 public record ChatStreamEvent(String type, long sequence, String requestId, String payloadJson) {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public static ChatStreamEvent of(String type, long sequence, String requestId,
-                                     Object payload) {
+    public static ChatStreamEvent of(String type, long sequence, String requestId, Object payload) {
         try {
-            return new ChatStreamEvent(type, sequence, requestId,
-                    MAPPER.writeValueAsString(payload));
+            return new ChatStreamEvent(
+                    type, sequence, requestId, MAPPER.writeValueAsString(payload));
         } catch (Exception e) {
             throw new IllegalArgumentException("sse payload serialization failed");
         }
@@ -27,6 +26,10 @@ public record ChatStreamEvent(String type, long sequence, String requestId, Stri
 
     /** Wire format: {"seq":n,"requestId":"...","type":"...",<payload fields>} */
     public String toWire() {
+        return "event: " + type + "\ndata: " + toJson() + "\n\n";
+    }
+
+    public String toJson() {
         try {
             ObjectNode wire = MAPPER.createObjectNode();
             wire.put("seq", sequence);
@@ -34,12 +37,17 @@ public record ChatStreamEvent(String type, long sequence, String requestId, Stri
             wire.put("type", type);
             JsonNode payload = MAPPER.readTree(payloadJson);
             if (payload.isObject()) {
-                payload.properties().forEach(entry -> wire.set(entry.getKey(), entry.getValue()));
+                payload.properties()
+                        .forEach(
+                                entry -> {
+                                    if (!java.util.Set.of("seq", "requestId", "type")
+                                            .contains(entry.getKey()))
+                                        wire.set(entry.getKey(), entry.getValue());
+                                });
             }
-            return "event: " + type + "\ndata: " + MAPPER.writeValueAsString(wire) + "\n\n";
+            return MAPPER.writeValueAsString(wire);
         } catch (Exception e) {
-            return "event: " + type + "\ndata: {\"seq\":" + sequence + ",\"requestId\":\""
-                    + requestId + "\"}\n\n";
+            throw new IllegalArgumentException("sse payload serialization failed");
         }
     }
 

@@ -3,7 +3,7 @@
  * progress states, forbids reconnection after a terminal event, and cancels on
  * unmount. Wire format: {"seq":n,"requestId":"...","type":"...",...payload}.
  */
-export type SseEventType = 'route' | 'rewrite' | 'retrieve' | 'token' | 'citations' | 'done' | 'error';
+export type SseEventType = 'route' | 'rewrite' | 'retrieve' | 'tool' | 'quality' | 'retry' | 'token' | 'citations' | 'done' | 'error';
 
 export interface SseFrame {
   type: SseEventType;
@@ -46,6 +46,8 @@ export interface StreamState {
   citations: CitationEntry[];
   error: string | null;
   terminated: boolean;
+  message?: string;
+  outcome?: string;
 }
 
 export function initialState(): StreamState {
@@ -60,6 +62,9 @@ export function reduce(state: StreamState, frame: SseFrame): StreamState {
     case 'route':
     case 'rewrite':
     case 'retrieve':
+    case 'tool':
+    case 'quality':
+    case 'retry':
       return {
         ...state,
         progress: [...state.progress, frame.type],
@@ -72,7 +77,7 @@ export function reduce(state: StreamState, frame: SseFrame): StreamState {
         citations: (frame.payload.citations as CitationEntry[]) ?? [],
       };
     case 'done':
-      return { ...state, terminated: true };
+      return { ...state, terminated: true, message: String(frame.payload.message ?? ''), outcome: String(frame.payload.outcome ?? '') };
     case 'error':
       return { ...state, terminated: true, error: String(frame.payload.error ?? 'error') };
     default:

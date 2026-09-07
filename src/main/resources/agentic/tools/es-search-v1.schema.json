@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "queries",
+    "strategy",
+    "topK"
+  ],
+  "properties": {
+    "queries": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      },
+      "minItems": 1
+    },
+    "strategy": {
+      "type": "string",
+      "enum": [
+        "BM25",
+        "VECTOR",
+        "HYBRID"
+      ]
+    },
+    "topK": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    }
+  }
+}

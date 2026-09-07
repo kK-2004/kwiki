@@ -28,7 +28,7 @@
     </form>
 
     <ol v-if="stream.progress.length" data-testid="agentic-progress" aria-live="polite">
-      <li v-for="step in stream.progress" :key="step">{{ stepLabel(step) }}</li>
+      <li v-for="(step, index) in stream.progress" :key="index">{{ stepLabel(step) }}</li>
     </ol>
 
     <p v-if="stream.answer" data-testid="agentic-answer">{{ stream.answer }}</p>
@@ -45,6 +45,8 @@
       </li>
     </ul>
 
+    <p v-if="stream.error && stream.answer">回答尚未完成，请勿将其视为完整结论。</p>
+    <p v-if="stream.message && !stream.answer" aria-live="polite">{{ stream.message }}</p>
     <p v-if="stream.error" role="alert" data-testid="agentic-error">
       {{ stream.error }}
     </p>
@@ -65,13 +67,16 @@ const stream = ref<StreamState>(initialState());
 let dispose: (() => void) | null = null;
 
 const terminatedNoEvidence = computed(
-  () => stream.value.terminated && !stream.value.answer && !stream.value.error,
+  () => stream.value.terminated && !stream.value.answer && !stream.value.error && !stream.value.message,
 );
 
 const stepLabels: Record<string, string> = {
   route: '意图识别',
   rewrite: '查询改写',
   retrieve: '知识检索',
+  tool: '执行检索工具',
+  quality: '检查证据质量',
+  retry: '补充检索',
 };
 
 function stepLabel(step: string): string {

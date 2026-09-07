@@ -53,6 +53,17 @@ describe('agentic answer panel and SSE state machine', () => {
     expect(state.citations[0].childChunkKey).toBe('C1');
   });
 
+  it('keeps repeated tool, QA and retry progress and ignores unknown events', () => {
+    let state = initialState();
+    for (const type of ['retrieve', 'quality', 'retry', 'tool', 'retrieve', 'quality', 'future-event']) {
+      state = reduce(state, wire(type, '{"seq":1,"requestId":"r"}')!);
+    }
+    expect(state.progress).toEqual(['retrieve', 'quality', 'retry', 'tool', 'retrieve', 'quality']);
+    state = reduce(state, wire('done', '{"seq":2,"outcome":"clarification","message":"请说明版本"}')!);
+    expect(state.message).toBe('请说明版本');
+    expect(state.outcome).toBe('clarification');
+  });
+
   it('terminal types are exactly done and error', () => {
     expect(TERMINAL_TYPES).toEqual(['done', 'error']);
   });

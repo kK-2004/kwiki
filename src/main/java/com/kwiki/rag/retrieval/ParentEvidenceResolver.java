@@ -1,26 +1,25 @@
 package com.kwiki.rag.retrieval;
 
+import org.springframework.stereotype.Component;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.springframework.stereotype.Component;
-
 /**
- * Walks fused child candidates in rank order, groups them by parentChunkKey,
- * and batch-fetches authorized parents at most once. First-child order wins;
- * missing or unauthorized parents (and their children) are omitted without
- * substituting out-of-scope content.
+ * Walks fused child candidates in rank order, groups them by parentChunkKey, and batch-fetches
+ * authorized parents at most once. First-child order wins; missing or unauthorized parents (and
+ * their children) are omitted without substituting out-of-scope content.
  */
 @Component
 public class ParentEvidenceResolver {
 
     /** Port for batch parent fetch; implementations re-apply the scope filter. */
     public interface ParentChunkFetcher {
-        List<ParentEvidenceChunk> fetchByKeys(List<String> parentChunkKeys,
-                                              ScopeFilter scopeFilter);
+        List<ParentEvidenceChunk> fetchByKeys(
+                List<String> parentChunkKeys, ScopeFilter scopeFilter);
     }
 
     private final ParentChunkFetcher parents;
@@ -29,10 +28,11 @@ public class ParentEvidenceResolver {
         this.parents = parents.orElse(null);
     }
 
-    public List<ParentEvidenceChunk> resolve(List<StandardRrfFusion.FusedChunk> fusedChildren,
-                                              Map<String, ChunkHit> hitsByKey,
-                                              ScopeFilter scopeFilter,
-                                              int parentLimit) {
+    public List<ParentEvidenceChunk> resolve(
+            List<StandardRrfFusion.FusedChunk> fusedChildren,
+            Map<String, ChunkHit> hitsByKey,
+            ScopeFilter scopeFilter,
+            int parentLimit) {
         if (parents == null || fusedChildren.isEmpty()) {
             return List.of();
         }
@@ -43,16 +43,17 @@ public class ParentEvidenceResolver {
             if (hit == null) {
                 continue;
             }
-            childrenByParent.computeIfAbsent(hit.parentChunkKey(),
-                    key -> new ArrayList<>()).add(hit);
+            childrenByParent
+                    .computeIfAbsent(hit.parentChunkKey(), key -> new ArrayList<>())
+                    .add(hit);
             bestScoreByParent.merge(hit.parentChunkKey(), fused.score(), Math::max);
         }
         if (childrenByParent.isEmpty()) {
             return List.of();
         }
         Map<String, ParentEvidenceChunk> fetched = new LinkedHashMap<>();
-        for (ParentEvidenceChunk parent : parents.fetchByKeys(
-                new ArrayList<>(childrenByParent.keySet()), scopeFilter)) {
+        for (ParentEvidenceChunk parent :
+                parents.fetchByKeys(new ArrayList<>(childrenByParent.keySet()), scopeFilter)) {
             fetched.put(parent.parentChunkKey(), parent);
         }
 
@@ -62,11 +63,29 @@ public class ParentEvidenceResolver {
             if (parent == null) {
                 continue; // missing or no longer authorized: omit silently
             }
-            evidence.add(new ParentEvidenceChunk(parent.parentChunkKey(), parent.kbId(),
-                    parent.resourceType(), parent.resourceId(), parent.revisionId(),
-                    parent.headingPath(), parent.content(),
-                    bestScoreByParent.getOrDefault(entry.getKey(), 0.0),
-                    entry.getValue()));
+            List<ChunkHit> validChildren =
+                    entry.getValue().stream()
+                            .filter(
+                                    child ->
+                                            child.kbId() == parent.kbId()
+                                                    && child.resourceId() == parent.resourceId()
+                                                    && java.util.Objects.equals(
+                                                            child.revisionId(), parent.revisionId())
+                                                    && child.resourceType()
+                                                            .equals(parent.resourceType()))
+                            .toList();
+            if (validChildren.isEmpty()) continue;
+            evidence.add(
+                    new ParentEvidenceChunk(
+                            parent.parentChunkKey(),
+                            parent.kbId(),
+                            parent.resourceType(),
+                            parent.resourceId(),
+                            parent.revisionId(),
+                            parent.headingPath(),
+                            parent.content(),
+                            bestScoreByParent.getOrDefault(entry.getKey(), 0.0),
+                            validChildren));
             if (evidence.size() == parentLimit) {
                 break;
             }

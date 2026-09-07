@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "action",
+    "sufficient",
+    "supportedEvidenceIds",
+    "missingAspects",
+    "reasonCode",
+    "suggestedQueries",
+    "returnKind"
+  ],
+  "properties": {
+    "action": {
+      "enum": [
+        "GENERATE",
+        "RETRY",
+        "RETURN"
+      ]
+    },
+    "sufficient": {
+      "type": "boolean"
+    },
+    "supportedEvidenceIds": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "missingAspects": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "reasonCode": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "suggestedQueries": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "returnKind": {
+      "enum": [
+        "NONE",
+        "CLARIFICATION",
+        "INSUFFICIENT",
+        "EVIDENCE"
+      ]
+    }
+  }
+}

@@ -1,13 +1,18 @@
 package com.kwiki.infrastructure.observability;
 
-import com.kwiki.testutil.StandardTestProperties;
-import com.kwiki.testutil.WikiMockBeans;
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.kwiki.security.CurrentUser;
 import com.kwiki.security.JwtTokenService;
+import com.kwiki.testutil.StandardTestProperties;
+import com.kwiki.testutil.WikiMockBeans;
+
 import io.micrometer.tracing.Tracer;
+
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -33,8 +38,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /** Real sockets verify server extraction, MDC correlation and both AI clients' injection. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -68,26 +71,44 @@ class TracePropagationIntegrationTest {
         UPSTREAM.shutdown();
     }
 
-    @LocalServerPort
-    int port;
+    @LocalServerPort int port;
 
-    @Autowired
-    JwtTokenService tokens;
+    @Autowired JwtTokenService tokens;
 
     @ParameterizedTest
     @ValueSource(strings = {"answer", "embedding"})
     void incomingTraceContinuesThroughServerAndAiWebClient(String provider) throws Exception {
-        UPSTREAM.enqueue(new MockResponse().setBody("ok"));
+        UPSTREAM.enqueue(
+                new MockResponse()
+                        .setHeader("Content-Type", "application/json")
+                        .setBody(
+                                provider.equals("answer")
+                                        ? "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}"
+                                        : "ok"));
         // A plain JDK client leaves the supplied parent untouched by client instrumentation.
         try (HttpClient client = HttpClient.newHttpClient()) {
-            HttpResponse<String> response = client.send(HttpRequest.newBuilder()
-                            .uri(URI.create("http://localhost:" + port
-                                    + "/api/v1/trace-probe?provider=" + provider))
-                            .timeout(Duration.ofSeconds(10))
-                            .header("traceparent", "00-" + TRACE_ID + "-" + PARENT_SPAN_ID + "-01")
-                            .header("Authorization", "Bearer "
-                                    + tokens.issue(new CurrentUser(7L, "trace-test", false)))
-                            .GET().build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response =
+                    client.send(
+                            HttpRequest.newBuilder()
+                                    .uri(
+                                            URI.create(
+                                                    "http://localhost:"
+                                                            + port
+                                                            + "/api/v1/trace-probe?provider="
+                                                            + provider))
+                                    .timeout(Duration.ofSeconds(10))
+                                    .header(
+                                            "traceparent",
+                                            "00-" + TRACE_ID + "-" + PARENT_SPAN_ID + "-01")
+                                    .header(
+                                            "Authorization",
+                                            "Bearer "
+                                                    + tokens.issue(
+                                                            new CurrentUser(
+                                                                    7L, "trace-test", false)))
+                                    .GET()
+                                    .build(),
+                            HttpResponse.BodyHandlers.ofString());
 
             assertThat(response.statusCode()).isEqualTo(200);
             assertThat(response.headers().firstValue(TraceIdResponseHeaderFilter.HEADER))
@@ -100,24 +121,28 @@ class TracePropagationIntegrationTest {
 
             RecordedRequest outgoing = UPSTREAM.takeRequest(5, TimeUnit.SECONDS);
             assertThat(outgoing).isNotNull();
-            assertThat(outgoing.getPath()).isEqualTo("/trace-probe");
+            assertThat(outgoing.getPath())
+                    .isEqualTo(provider.equals("answer") ? "/chat/completions" : "/trace-probe");
             String traceparent = outgoing.getHeader("traceparent");
             assertThat(traceparent).matches("00-" + TRACE_ID + "-[0-9a-f]{16}-01");
             assertThat(traceparent.split("-")[2])
-                    .isNotEqualTo(PARENT_SPAN_ID).isNotEqualTo(context[2]);
+                    .isNotEqualTo(PARENT_SPAN_ID)
+                    .isNotEqualTo(context[2]);
         }
     }
 
     @TestComponent
     @RestController
     static class ProbeEndpoint {
-        private final WebClient answer;
+        private final dev.langchain4j.model.chat.ChatModel answer;
         private final WebClient embedding;
         private final Tracer tracer;
 
         @Autowired
-        ProbeEndpoint(@Qualifier("kwikiAnswerLlmWebClient") WebClient answer,
-                      @Qualifier("kwikiEmbeddingWebClient") WebClient embedding, Tracer tracer) {
+        ProbeEndpoint(
+                dev.langchain4j.model.chat.ChatModel answer,
+                @Qualifier("kwikiEmbeddingWebClient") WebClient embedding,
+                Tracer tracer) {
             this.answer = answer;
             this.embedding = embedding;
             this.tracer = tracer;
@@ -125,10 +150,20 @@ class TracePropagationIntegrationTest {
 
         @GetMapping("/api/v1/trace-probe")
         String probe(@RequestParam String provider) {
-            String context = tracer.currentSpan().context().traceId() + ":" + MDC.get("traceId")
-                    + ":" + tracer.currentSpan().context().spanId();
-            (provider.equals("answer") ? answer : embedding).get().uri("/trace-probe")
-                    .retrieve().bodyToMono(String.class).block(Duration.ofSeconds(5));
+            String context =
+                    tracer.currentSpan().context().traceId()
+                            + ":"
+                            + MDC.get("traceId")
+                            + ":"
+                            + tracer.currentSpan().context().spanId();
+            if (provider.equals("answer")) answer.chat("trace probe");
+            else
+                embedding
+                        .get()
+                        .uri("/trace-probe")
+                        .retrieve()
+                        .bodyToMono(String.class)
+                        .block(Duration.ofSeconds(5));
             return context;
         }
     }

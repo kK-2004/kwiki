@@ -101,7 +101,7 @@ flowchart TD
 
 所有节点均受 deadline/cancellation/步数守卫；任一阶段的不可恢复错误汇入错误终态，断连只记录取消，不向已断开的连接发终态。图中的确定性 fallback 每轮最多一次；自身校验失败直接 internal-error，不再回到 fallback。图形展示业务分支，硬性守卫在每条边统一执行。
 
-`AgenticState` 保存 `originalQuery`、`normalizedQuery`、`routePlan`、`rewriteResult`、`retrievalStrategy`、`retrievalRound`、`toolMessages`、`candidateRefs`、`evidence`、`qualityDecision`、`attemptSignatures`、`outcome`；各节点返回不可变更新。证据按稳定 child/parent/revision key 合并；工具消息和步骤列表有界追加，其余按声明覆盖。服务、凭据、连接、sink、CurrentUser 不放入可序列化状态，放在仅服务端持有的 `RunContext`（requestId、授权快照、trace、deadline、预算计数、取消令牌）。禁止以模型输出覆盖上下文。
+实际实现采用两层请求状态：LangGraph4j `AgentState` 只保存不可变的 next/round 路由投影；每次订阅独立创建的服务端 `Session` 保存 originalQuery、rewrite、tool history、accumulation、retained evidence、QA decision 和 attempt signatures，列表受模型/工具/轮次预算约束。通过 RunnableConfig metadata 传递 Session，不启用 checkpoint 或通用状态序列化。RunContext 独立保存可信授权快照、trace、deadline、预算和取消登记，模型不能覆盖。此方案避免将 sink、身份或服务对象放进图的可序列化状态；未来若引入持久化恢复，需要另行设计显式状态 DTO 和 reducers。
 
 ### D4. 路由、改写和策略
 

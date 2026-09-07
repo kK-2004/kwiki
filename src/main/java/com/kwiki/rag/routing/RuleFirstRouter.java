@@ -44,15 +44,19 @@ public class RuleFirstRouter {
 
     private RetrievalPlan routeInternal(String rawQuery) {
         String normalized = QueryNormalizer.normalize(rawQuery);
-        KeywordRuleSet.MatchResult match = rules.match(normalized);
-        if (match instanceof KeywordRuleSet.MatchResult.Resolved resolved) {
-            return counted(RetrievalPlan.rule(resolved.intent(), rules.version(),
-                    resolved.ruleIds()));
-        }
-        KeywordRuleSet.MatchResult.NeedsLlm needsLlm = (KeywordRuleSet.MatchResult.NeedsLlm) match;
+        return switch (rules.match(normalized)) {
+            case KeywordRuleSet.MatchResult.Resolved resolved ->
+                    counted(RetrievalPlan.rule(resolved.intent(), rules.version(),
+                            resolved.ruleIds()));
+            case KeywordRuleSet.MatchResult.NeedsLlm needsLlm ->
+                    routeWithLlm(normalized, needsLlm);
+        };
+    }
+
+    private RetrievalPlan routeWithLlm(String normalized,
+                                       KeywordRuleSet.MatchResult.NeedsLlm needsLlm) {
         if (!llmEnabled || llm == null) {
-            return counted(RetrievalPlan.fallback(
-                    "llm-disabled:" + needsLlm.reason()));
+            return counted(RetrievalPlan.fallback("llm-disabled:" + needsLlm.reason()));
         }
         try {
             Optional<Map<String, Object>> decision = llm.askRouter(normalized, needsLlm.reason());
@@ -66,6 +70,7 @@ public class RuleFirstRouter {
             return counted(RetrievalPlan.fallback("llm-error"));
         }
     }
+
 
     private RetrievalPlan counted(RetrievalPlan plan) {
         metrics.counter("kwiki_route_total", "source", plan.source().name()).increment();

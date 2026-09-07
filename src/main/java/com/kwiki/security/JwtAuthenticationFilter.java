@@ -1,10 +1,12 @@
 package com.kwiki.security;
 
 import io.jsonwebtoken.JwtException;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -18,8 +20,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Resolves the Bearer JWT into a CurrentUser principal. Invalid or missing tokens
- * leave the context empty so protected endpoints answer with a sanitized 401.
+ * Resolves the Bearer JWT into a CurrentUser principal. Invalid or missing tokens leave the context
+ * empty so protected endpoints answer with a sanitized 401.
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -30,9 +32,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.tokens = tokens;
     }
 
+    /** MVC resumes SSE on an ASYNC dispatch; restore JWT authentication there too. */
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
-                                    FilterChain filterChain) throws ServletException, IOException {
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header != null && header.startsWith("Bearer ")) {
             try {
@@ -42,9 +51,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (user.admin()) {
                     authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
                 }
-                var authentication = new UsernamePasswordAuthenticationToken(
-                        user, null, authorities);
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                var authentication =
+                        new UsernamePasswordAuthenticationToken(user, null, authorities);
+                authentication.setDetails(
+                        new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             } catch (JwtException | IllegalArgumentException e) {
                 SecurityContextHolder.clearContext();

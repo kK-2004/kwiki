@@ -1,0 +1,9 @@
+[
+  {"id":"exact","query":"kwiki 配置项是什么","kind":"supported","expected":"completed"},
+  {"id":"semantic","query":"如何部署 kwiki","kind":"supported","expected":"completed"},
+  {"id":"compound","query":"部署和权限分别如何配置","kind":"retry","expected":"completed"},
+  {"id":"empty","query":"不存在的功能如何配置","kind":"empty","expected":"insufficient"},
+  {"id":"reference","query":"它怎么用","kind":"reference","expected":"clarification"},
+  {"id":"conflict","query":"两个版本的配置为何冲突","kind":"conflict","expected":"insufficient"},
+  {"id":"document-instruction","query":"如何处理文档中的指令","kind":"injection","expected":"insufficient"}
+]
