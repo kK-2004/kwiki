@@ -145,6 +145,20 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
 
     @Override
     public Flux<ChatStreamEvent> answer(CurrentUser user, String query) {
+        return answer(user, query, List.of());
+    }
+
+    @Override
+    public Flux<ChatStreamEvent> answer(CurrentUser user, String query, List<ChatTurn> conversationHistory) {
+        return streamAnswer(user, query, conversationHistory, true);
+    }
+
+    @Override
+    public Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, List<ChatTurn> conversationHistory) {
+        return streamAnswer(user, query, conversationHistory, false);
+    }
+
+    private Flux<ChatStreamEvent> streamAnswer(CurrentUser user, String query, List<ChatTurn> conversationHistory, boolean persistConversation) {
         Map<String, String> headers = new HashMap<>();
         String id =
                 Optional.ofNullable(org.slf4j.MDC.get("traceId"))
@@ -200,10 +214,10 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                                                                 versions::current,
                                                                                 limits,
                                                                                 headers);
-                                                                s =
+                                                                        s =
                                                                         new Session(
                                                                                 run, user, query,
-                                                                                sink);
+                                                                                conversationHistory, sink, persistConversation);
                                                                 reference.set(s);
                                                                 Session active = s;
                                                                 deadline =
@@ -333,7 +347,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
 
     private void rewrite(Session s) {
         if (s.round == 0) {
-            var rewritten = rewrites.rewrite(s.query, s.route, List.of());
+            var rewritten = rewrites.rewrite(s.query, s.route, s.conversationHistory);
             s.queries = rewritten.effectiveQueries();
             s.emit(
                     "rewrite",
@@ -413,27 +427,28 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 new HashSet<>(s.evidence.stream().map(ParentEvidence::parentChunkKey).toList());
         List<ParentEvidenceChunk> parents = List.of();
         for (var call : s.validated) {
-            s.emit(
-                    "tool",
-                    Map.of(
-                            "toolName",
-                            call.call().name(),
-                            "callId",
-                            call.call().callId(),
-                            "status",
-                            "started"));
+            Map<String, Object> started = new LinkedHashMap<>();
+            started.put("toolName", call.call().name());
+            started.put("callId", call.call().callId());
+            started.put("status", "started");
+            started.put("summary", "调用" + call.call().name() + "工具中");
+            s.emit("tool", started);
             var execution =
                     dispatcher.execute(call, s.run, s.accumulated, s.completed, s.identities);
             s.history.add(new RetrievalPlannerPort.ToolExchange(call.call(), execution.result()));
-            s.emit(
-                    "tool",
-                    Map.of(
-                            "toolName",
-                            call.call().name(),
-                            "callId",
-                            call.call().callId(),
-                            "status",
-                            execution.result().status()));
+            Map<String, Object> completedTool = new LinkedHashMap<>();
+            completedTool.put("toolName", call.call().name());
+            completedTool.put("callId", call.call().callId());
+            completedTool.put("status", execution.result().status().toLowerCase(Locale.ROOT));
+            completedTool.put("summary", execution.result().status().equals("SUCCESS")
+                    ? call.call().name() + "调用成功-命中" + execution.parents().size() + "个可读文档"
+                    : call.call().name() + "调用失败-" + String.valueOf(execution.result().errorCode()));
+            if (!execution.parents().isEmpty()) {
+                double best = execution.parents().stream().mapToDouble(ParentEvidenceChunk::bestRrfScore).max().orElse(0.0);
+                completedTool.put("scoreKind", "rrf");
+                completedTool.put("score", best);
+            }
+            s.emit("tool", completedTool);
             if (execution.result().status().equals("ERROR")) {
                 if ("vector-unavailable".equals(execution.result().errorCode())
                         && s.round < limits.rounds()) {
@@ -454,7 +469,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             parents = execution.parents();
         }
         s.evidence = assembler.assemble(parents, retrieval.budgets().parentContextCharBudget);
-        s.emit("retrieve", Map.of("parentCount", s.evidence.size()));
+        s.emit("retrieve", Map.of("parentCount", s.evidence.size(), "summary", "混合检索工具调用成功-命中" + s.evidence.size() + "个可读文档"));
         s.next = "quality";
     }
 
@@ -486,15 +501,15 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                 List.of(),
                                 QualityDecision.ReturnKind.NONE);
             }
-        s.emit(
-                "quality",
-                Map.of(
-                        "action",
-                        s.decision.action().name(),
-                        "sufficient",
-                        s.decision.sufficient(),
-                        "reasonCode",
-                        s.decision.reasonCode()));
+        Map<String, Object> qualityEvent = new LinkedHashMap<>();
+        qualityEvent.put("action", s.decision.action().name());
+        qualityEvent.put("sufficient", s.decision.sufficient());
+        qualityEvent.put("passed", s.decision.sufficient());
+        qualityEvent.put("reason", s.decision.reasonCode());
+        qualityEvent.put("reasonCode", s.decision.reasonCode());
+        qualityEvent.put("retryRound", s.round);
+        qualityEvent.put("summary", s.decision.sufficient() ? "QA评审通过" : "QA评审不通过，原因：" + s.decision.reasonCode());
+        s.emit("quality", qualityEvent);
         if (s.decision.action() == QualityDecision.Action.GENERATE) {
             s.next = "generate";
             return;
@@ -613,8 +628,10 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
 
     private final class Session {
         final RunContext run;
+        final boolean persistConversation;
         final CurrentUser user;
         final String query;
+        final List<ChatTurn> conversationHistory;
         final FluxSink<ChatStreamEvent> sink;
         final AtomicLong seq = new AtomicLong();
         final AtomicBoolean terminal = new AtomicBoolean(), audited = new AtomicBoolean();
@@ -640,10 +657,12 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         int round, repair, coverage, citationCount;
         boolean fallback;
 
-        Session(RunContext run, CurrentUser user, String query, FluxSink<ChatStreamEvent> sink) {
+        Session(RunContext run, CurrentUser user, String query, List<ChatTurn> conversationHistory, FluxSink<ChatStreamEvent> sink, boolean persistConversation) {
+            this.persistConversation = persistConversation;
             this.run = run;
             this.user = user;
             this.query = query;
+            this.conversationHistory = conversationHistory == null ? List.of() : List.copyOf(conversationHistory);
             this.queries = List.of(query);
             this.sink = sink;
         }
@@ -715,8 +734,9 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 trace.put("rounds", round);
                 trace.put("nodes", List.copyOf(nodes));
                 trace.put("toolSchemaVersion", "1");
-                persistence.persistTurn(
+                if (persistConversation) persistence.persistTurn(
                         run.requestId, user.id(), query, text.toString(), trace, run.requestId);
+                else persistence.persistTrace(user.id(), trace, run.requestId);
                 metrics.counter("kwiki_answer_total", "outcome", outcome).increment();
             }
         }

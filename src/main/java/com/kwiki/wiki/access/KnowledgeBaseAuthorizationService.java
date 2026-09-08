@@ -54,6 +54,16 @@ public class KnowledgeBaseAuthorizationService {
                 WikiAction.MANAGE_MEMBERS,
                 WikiAction.UPDATE_KNOWLEDGE_BASE,
                 WikiAction.ARCHIVE_KNOWLEDGE_BASE));
+        matrix.put(KnowledgeBaseRole.ADMIN, Set.of(
+                WikiAction.READ_PAGE,
+                WikiAction.VIEW_REVISION_HISTORY,
+                WikiAction.SEARCH_AND_RETRIEVE,
+                WikiAction.CREATE_PAGE,
+                WikiAction.EDIT_PAGE,
+                WikiAction.ARCHIVE_PAGE,
+                WikiAction.RESTORE_REVISION,
+                WikiAction.UPLOAD_ATTACHMENT,
+                WikiAction.MANAGE_MEMBERS));
         return java.util.Collections.unmodifiableMap(matrix);
     }
 

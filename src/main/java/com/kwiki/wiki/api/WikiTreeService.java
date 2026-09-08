@@ -4,6 +4,8 @@ import com.kk2004.common.exception.NotFoundException;
 
 import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.KnowledgeBaseAuthorizationService;
+import com.kwiki.wiki.access.ResourceAuthorizationService;
+import com.kwiki.wiki.access.ResourceAction;
 import com.kwiki.wiki.access.WikiAction;
 import com.kwiki.wiki.domain.WikiPage;
 import com.kwiki.wiki.persistence.WikiPageRepository;
@@ -27,11 +29,20 @@ public class WikiTreeService {
 
     private final WikiPageRepository pages;
     private final KnowledgeBaseAuthorizationService authorization;
+    private final ResourceAuthorizationService resources;
 
     public WikiTreeService(WikiPageRepository pages,
                            KnowledgeBaseAuthorizationService authorization) {
+        this(pages, authorization, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public WikiTreeService(WikiPageRepository pages,
+                           KnowledgeBaseAuthorizationService authorization,
+                           ResourceAuthorizationService resources) {
         this.pages = pages;
         this.authorization = authorization;
+        this.resources = resources;
     }
 
     @Transactional
@@ -83,9 +94,22 @@ public class WikiTreeService {
 
     /** Nested tree of ACTIVE pages for navigation, ordered by sibling_order. */
     public List<TreeNodeView> tree(CurrentUser user, long kbId) {
-        authorization.require(user, kbId, WikiAction.READ_PAGE);
         List<WikiPage> ordered = pages
                 .findByKbIdAndStatusOrderByParentIdAscSiblingOrderAsc(kbId, WikiPage.STATUS_ACTIVE);
+        if (resources != null) {
+            ordered = ordered.stream()
+                    .filter(page -> resources.can(user, page.getId(), ResourceAction.READ))
+                    .toList();
+            // A user shared on one page may browse that page without being a
+            // knowledge-base member. Return a tree containing only readable
+            // nodes; deny an entirely unreadable/non-member workspace without
+            // exposing parent metadata.
+            if (ordered.isEmpty() && !authorization.can(user, kbId, WikiAction.READ_PAGE)) {
+                throw new org.springframework.security.access.AccessDeniedException("access denied");
+            }
+        } else {
+            authorization.require(user, kbId, WikiAction.READ_PAGE);
+        }
         return buildTree(ordered);
     }
 

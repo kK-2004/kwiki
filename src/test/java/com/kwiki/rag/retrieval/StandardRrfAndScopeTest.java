@@ -95,6 +95,16 @@ class StandardRrfAndScopeTest {
     }
 
     @Test
+    void pageScopeKeepsDirectlySharedPagesAndExcludesOtherPageChunks() {
+        var query = EsScopeFilterBuilder.build(ScopeFilter.from(new AuthorizationScope(
+                7L, false, Set.of(3L), Map.of(), Set.of(42L))));
+        String json = co.elastic.clients.json.JsonpUtils.toJsonString(
+                query, new co.elastic.clients.json.jackson.JacksonJsonpMapper());
+        assertThat(json).contains("resourceType", "resourceId", "42", "kbId", "3");
+        assertThat(json).contains("minimum_should_match");
+    }
+
+    @Test
     void superuserScopeUsesMatchAll() {
         var query = EsScopeFilterBuilder.build(ScopeFilter.from(new AuthorizationScope(1L, true, Set.of(), Map.of())));
         String json = co.elastic.clients.json.JsonpUtils.toJsonString(

@@ -31,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { TreeNodeDto } from '../api';
 import { flattenTree } from '../tree-filter';
 import { useWikiStore } from '../store';
@@ -41,6 +41,12 @@ const store = useWikiStore();
 const selectedId = computed(() => store.selectedPageId);
 const expanded = ref(new Set<number>());
 
+watch(() => [props.tree, selectedId.value], () => {
+  function reveal(nodes: TreeNodeDto[]): boolean {
+    return nodes.some(node => { const found = node.id === selectedId.value || reveal(node.children || []); if (found && node.children.length) expanded.value.add(node.id); return found; });
+  }
+  reveal(props.tree);
+}, { immediate: true });
 const rows = computed(() => flattenTree(props.tree, expanded.value));
 
 function countPages(nodes: TreeNodeDto[]): number {
@@ -65,7 +71,15 @@ function select(node: TreeNodeDto) {
   if (node.children.length > 0) {
     toggle(node.id);
   }
-  store.selectPage(node.nodeType === 'PAGE' ? node.id : null);
+  if (node.nodeType === 'PAGE') {
+    store.selectPage(node.id);
+    const match = window.location.hash.match(/#\/?knowledge-bases\/(\d+)/);
+    if (match) window.location.hash = `#/knowledge-bases/${match[1]}/${node.id}`;
+  } else {
+    store.selectPage(null);
+    const match = window.location.hash.match(/#\/?knowledge-bases\/(\d+)/);
+    if (match) window.location.hash = `#/knowledge-bases/${match[1]}/${node.id}`;
+  }
 }
 
 function onKeyDown(event: KeyboardEvent, node: TreeNodeDto) {

@@ -21,6 +21,8 @@ public class Attachment {
     public static final String STATUS_PENDING = "PENDING";
     public static final String STATUS_STORED = "STORED";
     public static final String STATUS_ARCHIVED = "ARCHIVED";
+    public static final String PURPOSE_GENERAL = "GENERAL";
+    public static final String PURPOSE_WIKI_IMPORT_SOURCE = "WIKI_IMPORT_SOURCE";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -38,6 +40,7 @@ public class Attachment {
     // persisted content identity — storage keys/sources stay inside the content center.
     private Long contentCenterFileId;
     private String status = STATUS_PENDING;
+    private String purpose = PURPOSE_GENERAL;
 
     @Version
     private Long lockVersion;
@@ -122,5 +125,13 @@ public class Attachment {
 
     public void archive() {
         this.status = STATUS_ARCHIVED;
+    }
+
+    public void markWikiImportSource() {
+        this.purpose = PURPOSE_WIKI_IMPORT_SOURCE;
+    }
+
+    public String getPurpose() {
+        return purpose;
     }
 }

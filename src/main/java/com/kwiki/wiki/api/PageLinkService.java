@@ -7,6 +7,9 @@ import com.kwiki.wiki.persistence.WikiPageRepository;
 import com.kwiki.wiki.render.InternalLinks;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.kwiki.security.CurrentUser;
+import com.kwiki.wiki.access.ResourceAction;
+import com.kwiki.wiki.access.ResourceAuthorizationService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,11 +27,15 @@ public class PageLinkService {
 
     private final WikiLinkRepository links;
     private final WikiPageRepository pages;
+    private ResourceAuthorizationService resources;
 
     public PageLinkService(WikiLinkRepository links, WikiPageRepository pages) {
         this.links = links;
         this.pages = pages;
     }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setResources(ResourceAuthorizationService resources) { this.resources = resources; }
 
     /** Replaces the outgoing link set of a page from its published Markdown. */
     @Transactional
@@ -55,5 +62,13 @@ public class PageLinkService {
                     .ifPresent(result::add);
         }
         return result;
+    }
+
+    /** Backlinks are filtered one by one because sharing the target page must not
+     * expose the source page's title or id. */
+    public List<WikiPage> backlinks(CurrentUser user, long pageId) {
+        return backlinks(pageId).stream()
+                .filter(page -> resources == null || resources.can(user, page.getId(), ResourceAction.READ))
+                .toList();
     }
 }

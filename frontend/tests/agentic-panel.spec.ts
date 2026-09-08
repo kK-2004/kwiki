@@ -37,7 +37,7 @@ describe('agentic answer panel and SSE state machine', () => {
     let state = initialState();
     state = reduce(state, wire('error', '{"seq":2,"type":"error","error":"retrieval-failed"}')!);
     expect(state.terminated).toBe(true);
-    expect(state.error).toBe('retrieval-failed');
+    expect(state.error).toBe('知识检索暂时不可用，请稍后重试');
   });
 
   it('parses citations frames into citation entries', () => {

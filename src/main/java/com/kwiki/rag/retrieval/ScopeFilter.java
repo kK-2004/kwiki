@@ -9,12 +9,16 @@ import java.util.List;
  * adapters translate it into their native query filter; the domain never sees
  * an Elasticsearch DSL type.
  */
-public record ScopeFilter(boolean superuser, List<Long> kbIds) {
+public record ScopeFilter(boolean superuser, List<Long> kbIds, List<Long> pageIds) {
+
+    public ScopeFilter(boolean superuser, List<Long> kbIds) {
+        this(superuser, kbIds, List.of());
+    }
 
     public static ScopeFilter from(AuthorizationScope scope) {
         if (scope.superuser()) {
-            return new ScopeFilter(true, List.of());
+            return new ScopeFilter(true, List.of(), List.of());
         }
-        return new ScopeFilter(false, List.copyOf(scope.accessibleKbIds()));
+        return new ScopeFilter(false, List.copyOf(scope.accessibleKbIds()), List.copyOf(scope.accessiblePageIds()));
     }
 }

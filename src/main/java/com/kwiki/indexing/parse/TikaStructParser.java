@@ -26,10 +26,19 @@ public class TikaStructParser {
         try {
             StructHandler handler = new StructHandler();
             AutoDetectParser parser = new AutoDetectParser();
-            parser.parse(content, handler, new Metadata(), new ParseContext());
+            ParseContext context = new ParseContext();
+            // Only import the main document text. Embedded media must never invoke
+            // image parsers/OCR or fail an otherwise valid Word document.
+            context.set(org.apache.tika.extractor.EmbeddedDocumentExtractor.class,
+                    new org.apache.tika.extractor.EmbeddedDocumentExtractor() {
+                        @Override public boolean shouldParseEmbedded(Metadata metadata) { return false; }
+                        @Override public void parseEmbedded(InputStream stream, org.xml.sax.ContentHandler target,
+                                                            Metadata metadata, boolean outputHtml) { }
+                    });
+            parser.parse(content, handler, new Metadata(), context);
             return handler.assembler.build();
         } catch (Exception e) {
-            throw new UnsupportedInputException("document could not be parsed as text");
+            throw new UnsupportedInputException("document could not be parsed as text", e);
         }
     }
 

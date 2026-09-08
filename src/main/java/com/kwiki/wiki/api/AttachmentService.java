@@ -6,6 +6,8 @@ import com.kwiki.indexing.job.IndexingJobEnqueuer;
 import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.KnowledgeBaseAuthorizationService;
 import com.kwiki.wiki.access.WikiAction;
+import com.kwiki.wiki.access.ResourceAction;
+import com.kwiki.wiki.access.ResourceAuthorizationService;
 import com.kwiki.wiki.attach.AttachmentFileNames;
 import com.kwiki.wiki.attach.AttachmentStorage;
 import com.kwiki.wiki.attach.AttachmentUpload;
@@ -13,6 +15,8 @@ import com.kwiki.wiki.attach.StoredAttachment;
 import com.kwiki.wiki.domain.Attachment;
 import com.kwiki.wiki.persistence.AttachmentRepository;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +50,8 @@ public class AttachmentService {
     private final long maxBytes;
     private final Duration presignTtl;
     private final Set<String> allowedContentTypes;
+    private final ResourceAuthorizationService resources;
+    private final JdbcOperations jdbc;
 
     public AttachmentService(AttachmentRepository attachments,
                              AttachmentStorage storage,
@@ -54,6 +60,19 @@ public class AttachmentService {
                              @Value("${kwiki.attachments.max-bytes:52428800}") long maxBytes,
                              @Value("${kwiki.attachments.presign-ttl:300s}") Duration presignTtl,
                              @Value("${kwiki.attachments.allowed-content-types:}") List<String> allowedContentTypes) {
+        this(attachments, storage, authorization, indexingJobs, maxBytes, presignTtl, allowedContentTypes, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AttachmentService(AttachmentRepository attachments,
+                             AttachmentStorage storage,
+                             KnowledgeBaseAuthorizationService authorization,
+                             IndexingJobEnqueuer indexingJobs,
+                             @Value("${kwiki.attachments.max-bytes:52428800}") long maxBytes,
+                             @Value("${kwiki.attachments.presign-ttl:300s}") Duration presignTtl,
+                             @Value("${kwiki.attachments.allowed-content-types:}") List<String> allowedContentTypes,
+                             ResourceAuthorizationService resources,
+                             ObjectProvider<JdbcOperations> jdbc) {
         this.attachments = attachments;
         this.storage = storage;
         this.authorization = authorization;
@@ -65,6 +84,8 @@ public class AttachmentService {
                 : Set.copyOf(allowedContentTypes.stream()
                         .map(type -> type.toLowerCase(Locale.ROOT))
                         .toList());
+        this.resources = resources;
+        this.jdbc = jdbc == null ? null : jdbc.getIfAvailable();
     }
 
     /**
@@ -117,12 +138,24 @@ public class AttachmentService {
                 .filter(candidate -> candidate.getKbId() == kbId)
                 .filter(candidate -> Attachment.STATUS_STORED.equals(candidate.getStatus()))
                 .orElseThrow(() -> new NotFoundException("attachment not found"));
+        if (Attachment.PURPOSE_WIKI_IMPORT_SOURCE.equals(attachment.getPurpose()) && resources != null) {
+            Integer visible = jdbcVisibleImportPages(attachment.getId(), user);
+            if (visible == 0) throw new NotFoundException("attachment not found");
+        }
         Long fileId = attachment.getContentCenterFileId();
         if (fileId == null || fileId <= 0) {
             // Fail closed: a STORED row without a file id is unusable.
             throw new NotFoundException("attachment not found");
         }
         return storage.downloadLink(fileId, attachment.getFileName(), presignTtl);
+    }
+
+    private int jdbcVisibleImportPages(Long attachmentId, CurrentUser user) {
+        // The provenance query is deliberately narrow: an import source is readable
+        // only when at least one derived page is readable to the current user.
+        if (jdbc == null) return 0;
+        List<Long> pageIds = jdbc.query("SELECT p.id FROM source_document s JOIN wiki_page p ON p.id = s.page_id WHERE s.attachment_id = ? AND p.status = 'ACTIVE'", (rs, row) -> rs.getLong(1), attachmentId);
+        return pageIds.stream().anyMatch(pageId -> resources.can(user, pageId, ResourceAction.READ)) ? 1 : 0;
     }
 
     /**

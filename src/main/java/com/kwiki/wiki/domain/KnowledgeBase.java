@@ -32,6 +32,7 @@ public class KnowledgeBase {
     private String description;
     private String status = STATUS_ACTIVE;
     private Long createdBy;
+    private Long ownerId;
 
     @Version
     private Long lockVersion;
@@ -49,6 +50,7 @@ public class KnowledgeBase {
         this.name = name;
         this.description = description;
         this.createdBy = createdBy;
+        this.ownerId = createdBy;
     }
 
     @PrePersist
@@ -97,5 +99,9 @@ public class KnowledgeBase {
 
     public Long getCreatedBy() {
         return createdBy;
+    }
+
+    public Long getOwnerId() {
+        return ownerId;
     }
 }

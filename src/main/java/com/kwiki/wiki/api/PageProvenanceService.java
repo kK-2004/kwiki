@@ -4,6 +4,8 @@ import com.kk2004.common.exception.NotFoundException;
 
 import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.KnowledgeBaseAuthorizationService;
+import com.kwiki.wiki.access.ResourceAction;
+import com.kwiki.wiki.access.ResourceAuthorizationService;
 import com.kwiki.wiki.access.WikiAction;
 import com.kwiki.wiki.domain.Attachment;
 import com.kwiki.wiki.domain.WikiPage;
@@ -26,19 +28,30 @@ public class PageProvenanceService {
     private final AttachmentRepository attachments;
     private final WikiPageRepository pages;
     private final KnowledgeBaseAuthorizationService authorization;
+    private final ResourceAuthorizationService resources;
 
     public PageProvenanceService(SourceDocumentRepository sources,
                                  AttachmentRepository attachments,
                                  WikiPageRepository pages,
                                  KnowledgeBaseAuthorizationService authorization) {
+        this(sources, attachments, pages, authorization, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PageProvenanceService(SourceDocumentRepository sources,
+                                 AttachmentRepository attachments,
+                                 WikiPageRepository pages,
+                                 KnowledgeBaseAuthorizationService authorization,
+                                 ResourceAuthorizationService resources) {
         this.sources = sources;
         this.attachments = attachments;
         this.pages = pages;
         this.authorization = authorization;
+        this.resources = resources;
     }
 
     public List<SourceView> readableSources(CurrentUser user, long kbId, long pageId) {
-        authorization.require(user, kbId, WikiAction.READ_PAGE);
+        requirePage(user, kbId, pageId, ResourceAction.READ, WikiAction.READ_PAGE);
         requireActivePageIn(kbId, pageId);
         return sources.findByPageId(pageId).stream()
                 .map(source -> attachments.findById(source.getAttachmentId())
@@ -55,14 +68,11 @@ public class PageProvenanceService {
 
     /** Attachments readable for the page (metadata only; downloads are presigned separately). */
     public List<SourceView> readableAttachments(CurrentUser user, long kbId, long pageId) {
-        authorization.require(user, kbId, WikiAction.READ_PAGE);
+        requirePage(user, kbId, pageId, ResourceAction.READ, WikiAction.READ_PAGE);
         requireActivePageIn(kbId, pageId);
-        return attachments.findByKbIdAndStatusOrderByIdDesc(kbId, Attachment.STATUS_STORED)
-                .stream()
-                .map(attachment -> new SourceView(attachment.getUuid(), attachment.getFileName(),
-                        attachment.getContentType(), attachment.getByteSize(),
-                        Attachment.STATUS_STORED))
-                .toList();
+        // A shared page must expose only attachments cited by that page, never the
+        // entire owning knowledge base's attachment catalog.
+        return readableSources(user, kbId, pageId);
     }
 
     private void requireActivePageIn(long kbId, long pageId) {
@@ -71,6 +81,12 @@ public class PageProvenanceService {
         if (page.getKbId() != kbId) {
             throw new NotFoundException("page not found");
         }
+    }
+
+    private void requirePage(CurrentUser user, long kbId, long pageId,
+                             ResourceAction action, WikiAction fallback) {
+        if (resources != null) resources.requireInKnowledgeBase(user, kbId, pageId, action);
+        else authorization.require(user, kbId, fallback);
     }
 
     public record SourceView(String attachmentUuid, String fileName, String contentType,

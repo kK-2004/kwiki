@@ -33,6 +33,7 @@ class ChatHttpWireTest {
 
     @LocalServerPort int port;
     @Autowired JwtTokenService tokens;
+    @Autowired com.kwiki.wiki.persistence.AppUserRepository users;
     @MockitoBean AgenticWorkflowPort workflow;
 
     @Test
@@ -58,6 +59,9 @@ class ChatHttpWireTest {
 
     @Test
     void httpDataIsFlatJsonWithExactlyOneSseEnvelope() throws Exception {
+        var account = new com.kwiki.wiki.domain.AppUser("root", "Root", null, true);
+        org.springframework.test.util.ReflectionTestUtils.setField(account, "id", 1L);
+        when(users.findById(1L)).thenReturn(Optional.of(account));
         when(workflow.answer(any(), anyString()))
                 .thenReturn(
                         Flux.just(

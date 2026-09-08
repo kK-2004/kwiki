@@ -45,6 +45,7 @@ public class WikiPage {
     private Long currentDraftRevisionId;
     private Long currentPublishedRevisionId;
     private Long createdBy;
+    private Long ownerId;
 
     @Version
     private Long lockVersion;
@@ -66,6 +67,7 @@ public class WikiPage {
         this.nodeType = nodeType;
         this.siblingOrder = siblingOrder;
         this.createdBy = createdBy;
+        this.ownerId = createdBy;
     }
 
     @PrePersist
@@ -150,6 +152,10 @@ public class WikiPage {
 
     public Long getCreatedBy() {
         return createdBy;
+    }
+
+    public Long getOwnerId() {
+        return ownerId;
     }
 
     public int getLockVersion() {

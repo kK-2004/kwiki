@@ -4,6 +4,8 @@ import com.kk2004.common.exception.NotFoundException;
 
 import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.KnowledgeBaseAuthorizationService;
+import com.kwiki.wiki.access.ResourceAction;
+import com.kwiki.wiki.access.ResourceAuthorizationService;
 import com.kwiki.wiki.access.WikiAction;
 import com.kwiki.wiki.domain.WikiPage;
 import com.kwiki.wiki.domain.WikiPageTag;
@@ -27,19 +29,29 @@ public class PageTagService {
     private final WikiPageTagRepository pageTags;
     private final WikiPageRepository pages;
     private final KnowledgeBaseAuthorizationService authorization;
+    private final ResourceAuthorizationService resources;
 
     public PageTagService(WikiTagRepository tags, WikiPageTagRepository pageTags,
                           WikiPageRepository pages,
                           KnowledgeBaseAuthorizationService authorization) {
+        this(tags, pageTags, pages, authorization, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PageTagService(WikiTagRepository tags, WikiPageTagRepository pageTags,
+                          WikiPageRepository pages,
+                          KnowledgeBaseAuthorizationService authorization,
+                          ResourceAuthorizationService resources) {
         this.tags = tags;
         this.pageTags = pageTags;
         this.pages = pages;
         this.authorization = authorization;
+        this.resources = resources;
     }
 
     @Transactional
     public List<String> setTags(CurrentUser user, long kbId, long pageId, List<String> names) {
-        authorization.require(user, kbId, WikiAction.EDIT_PAGE);
+        requirePage(user, kbId, pageId, ResourceAction.EDIT, WikiAction.EDIT_PAGE);
         requireActivePageIn(kbId, pageId);
 
         Set<String> normalized = new LinkedHashSet<>();
@@ -60,7 +72,7 @@ public class PageTagService {
     }
 
     public List<String> listTags(CurrentUser user, long kbId, long pageId) {
-        authorization.require(user, kbId, WikiAction.READ_PAGE);
+        requirePage(user, kbId, pageId, ResourceAction.READ, WikiAction.READ_PAGE);
         requireActivePageIn(kbId, pageId);
         return pageTags.findByPageId(pageId).stream()
                 .map(pageTag -> tags.findById(pageTag.getTagId())
@@ -77,5 +89,11 @@ public class PageTagService {
         if (page.getKbId() != kbId) {
             throw new NotFoundException("page not found");
         }
+    }
+
+    private void requirePage(CurrentUser user, long kbId, long pageId,
+                             ResourceAction action, WikiAction fallback) {
+        if (resources != null) resources.requireInKnowledgeBase(user, kbId, pageId, action);
+        else authorization.require(user, kbId, fallback);
     }
 }

@@ -76,18 +76,26 @@ public class ScopeCache {
      * serializer round-trips it; no second ObjectMapper lives on the Redis path.
      */
     record CachedScope(long userId, boolean superuser,
-                       List<Long> accessibleKbIds, Map<Long, Long> kbVersions) {
+                       List<Long> accessibleKbIds, Map<Long, Long> kbVersions,
+                       List<Long> accessiblePageIds) {
+
+        CachedScope {
+            accessibleKbIds = accessibleKbIds == null ? List.of() : accessibleKbIds;
+            kbVersions = kbVersions == null ? Map.of() : kbVersions;
+            accessiblePageIds = accessiblePageIds == null ? List.of() : accessiblePageIds;
+        }
 
         static CachedScope of(AuthorizationScope scope) {
             // plain ArrayList/HashMap so the SDK's default-typing serializer stores and
             // restores concrete JDK types it can actually construct
             return new CachedScope(scope.userId(), scope.superuser(),
-                    new ArrayList<>(scope.accessibleKbIds()), new HashMap<>(scope.kbVersions()));
+                    new ArrayList<>(scope.accessibleKbIds()), new HashMap<>(scope.kbVersions()),
+                    new ArrayList<>(scope.accessiblePageIds()));
         }
 
         AuthorizationScope toScope() {
             return new AuthorizationScope(userId, superuser,
-                    Set.copyOf(accessibleKbIds), kbVersions);
+                    Set.copyOf(accessibleKbIds), kbVersions, Set.copyOf(accessiblePageIds));
         }
     }
 }

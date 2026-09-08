@@ -25,10 +25,21 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class ApiControllerAdvice {
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    ResponseEntity<TransDTO<String>> uploadTooLarge() {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(TransDTO.failure(413, "文件过大，请选择不超过 20 MB 的文件"));
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<TransDTO<String>> forbidden(AccessDeniedException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(TransDTO.failure(HttpStatus.FORBIDDEN.value(), "forbidden"));
+    }
+
+    @ExceptionHandler(WikiImportValidationException.class)
+    ResponseEntity<TransDTO<String>> invalidImport(WikiImportValidationException e) {
+        return ResponseEntity.badRequest().body(TransDTO.failure(400, e.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

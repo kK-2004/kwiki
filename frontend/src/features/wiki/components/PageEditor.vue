@@ -69,6 +69,7 @@ async function save() {
   try {
     conflict.value = false;
     await store.saveDraft(props.kbId, props.pageId, draft.value);
+    await store.loadPage(props.kbId, props.pageId);
   } catch (error) {
     if (
       typeof error === 'object' &&
@@ -82,6 +83,7 @@ async function save() {
 
 async function publish() {
   await store.publishPage(props.kbId, props.pageId);
+  await Promise.all([store.loadPage(props.kbId, props.pageId), store.loadTree(props.kbId)]);
   emit('published');
 }
 </script>

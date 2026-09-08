@@ -5,6 +5,8 @@ import com.kk2004.common.exception.NotFoundException;
 import com.kwiki.indexing.job.IndexingJobEnqueuer;
 import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.KnowledgeBaseAuthorizationService;
+import com.kwiki.wiki.access.ResourceAction;
+import com.kwiki.wiki.access.ResourceAuthorizationService;
 import com.kwiki.wiki.access.WikiAction;
 import com.kwiki.wiki.domain.WikiPage;
 import com.kwiki.wiki.domain.WikiPageRevision;
@@ -31,6 +33,7 @@ public class PageRevisionService {
     private final MarkdownPort markdown;
     private final IndexingJobEnqueuer indexingJobs;
     private final PageLinkService pageLinks;
+    private final ResourceAuthorizationService resources;
 
     public PageRevisionService(WikiPageRepository pages,
                                WikiPageRevisionRepository revisions,
@@ -38,18 +41,30 @@ public class PageRevisionService {
                                MarkdownPort markdown,
                                IndexingJobEnqueuer indexingJobs,
                                PageLinkService pageLinks) {
+        this(pages, revisions, authorization, markdown, indexingJobs, pageLinks, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PageRevisionService(WikiPageRepository pages,
+                               WikiPageRevisionRepository revisions,
+                               KnowledgeBaseAuthorizationService authorization,
+                               MarkdownPort markdown,
+                               IndexingJobEnqueuer indexingJobs,
+                               PageLinkService pageLinks,
+                               ResourceAuthorizationService resources) {
         this.pages = pages;
         this.revisions = revisions;
         this.authorization = authorization;
         this.markdown = markdown;
         this.indexingJobs = indexingJobs;
         this.pageLinks = pageLinks;
+        this.resources = resources;
     }
 
     @Transactional
     public WikiPageRevision saveDraft(CurrentUser user, long kbId, long pageId, String markdownText,
                                       String changeNote, Integer expectedLockVersion) {
-        authorization.require(user, kbId, WikiAction.EDIT_PAGE);
+        requirePage(user, kbId, pageId, ResourceAction.EDIT, WikiAction.EDIT_PAGE);
         WikiPage page = requireActivePage(kbId, pageId);
         if (expectedLockVersion != null && page.getLockVersion() != expectedLockVersion) {
             throw new ConflictException("page was modified concurrently");
@@ -68,7 +83,7 @@ public class PageRevisionService {
 
     @Transactional
     public WikiPageRevision publish(CurrentUser user, long kbId, long pageId) {
-        authorization.require(user, kbId, WikiAction.EDIT_PAGE);
+        requirePage(user, kbId, pageId, ResourceAction.EDIT, WikiAction.EDIT_PAGE);
         WikiPage page = requireActivePage(kbId, pageId);
         Long draftId = page.getCurrentDraftRevisionId();
         if (draftId == null) {
@@ -86,7 +101,7 @@ public class PageRevisionService {
 
     /** Readers always receive the current published revision, never drafts. */
     public WikiPageRevision publishedContent(CurrentUser user, long kbId, long pageId) {
-        authorization.require(user, kbId, WikiAction.READ_PAGE);
+        requirePage(user, kbId, pageId, ResourceAction.READ, WikiAction.READ_PAGE);
         WikiPage page = requireActivePage(kbId, pageId);
         Long publishedId = page.getCurrentPublishedRevisionId();
         if (publishedId == null) {
@@ -96,8 +111,13 @@ public class PageRevisionService {
                 .orElseThrow(() -> new NotFoundException("published revision not found"));
     }
 
+    public String title(CurrentUser user, long kbId, long pageId) {
+        requirePage(user, kbId, pageId, ResourceAction.READ, WikiAction.READ_PAGE);
+        return requireActivePage(kbId, pageId).getTitle();
+    }
+
     public WikiPageRevision draft(CurrentUser user, long kbId, long pageId) {
-        authorization.require(user, kbId, WikiAction.EDIT_PAGE);
+        requirePage(user, kbId, pageId, ResourceAction.EDIT, WikiAction.EDIT_PAGE);
         WikiPage page = requireActivePage(kbId, pageId);
         Long draftId = page.getCurrentDraftRevisionId();
         if (draftId == null) {
@@ -108,7 +128,7 @@ public class PageRevisionService {
     }
 
     public List<WikiPageRevision> revisionHistory(CurrentUser user, long kbId, long pageId) {
-        authorization.require(user, kbId, WikiAction.VIEW_REVISION_HISTORY);
+        requirePage(user, kbId, pageId, ResourceAction.READ, WikiAction.VIEW_REVISION_HISTORY);
         requireActivePage(kbId, pageId);
         return revisions.findByPageIdOrderByRevisionNoDesc(pageId);
     }
@@ -116,13 +136,13 @@ public class PageRevisionService {
     /** Restoration copies older content into a NEW revision; history stays immutable. */
     @Transactional
     public WikiPageRevision restore(CurrentUser user, long kbId, long pageId, int revisionNo) {
+        requirePage(user, kbId, pageId, ResourceAction.EDIT, WikiAction.RESTORE_REVISION);
         WikiPageRevision old = revisions.findByPageIdAndRevisionNo(pageId, revisionNo)
                 .orElseThrow(() -> new NotFoundException("revision not found"));
         WikiPageRevision restored = revisions.save(new WikiPageRevision(
                 pageId, nextRevisionNo(pageId), old.getMarkdown(),
                 old.getPlainText(), "restored from revision " + revisionNo, user.id()));
         WikiPage page = requireActivePage(kbId, pageId);
-        authorization.require(user, kbId, WikiAction.RESTORE_REVISION);
         page.setCurrentDraftRevisionId(restored.getId());
         pages.save(page);
         return restored;
@@ -130,7 +150,7 @@ public class PageRevisionService {
 
     @Transactional
     public void archive(CurrentUser user, long kbId, long pageId) {
-        authorization.require(user, kbId, WikiAction.ARCHIVE_PAGE);
+        requirePage(user, kbId, pageId, ResourceAction.MANAGE, WikiAction.ARCHIVE_PAGE);
         WikiPage page = requireActivePage(kbId, pageId);
         page.archive();
         pages.save(page);
@@ -150,5 +170,11 @@ public class PageRevisionService {
         return revisions.findFirstByPageIdOrderByRevisionNoDesc(pageId)
                 .map(previous -> previous.getRevisionNo() + 1)
                 .orElse(1);
+    }
+
+    private void requirePage(CurrentUser user, long kbId, long pageId,
+                              ResourceAction action, WikiAction fallback) {
+        if (resources != null) resources.requireInKnowledgeBase(user, kbId, pageId, action);
+        else authorization.require(user, kbId, fallback);
     }
 }

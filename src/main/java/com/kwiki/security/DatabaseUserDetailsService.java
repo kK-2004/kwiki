@@ -5,6 +5,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import java.util.Locale;
 
 /** Loads login credentials from the app_user table instead of Boot's generated user. */
 @Service
@@ -18,7 +19,7 @@ public class DatabaseUserDetailsService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        String normalized = username == null ? "" : username.trim();
+        String normalized = username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
         return users.findByUsername(normalized)
                 .map(DatabaseUserDetails::new)
                 .orElseThrow(() -> new UsernameNotFoundException("user not found"));

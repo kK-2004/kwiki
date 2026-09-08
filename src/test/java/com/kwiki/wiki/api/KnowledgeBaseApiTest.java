@@ -51,6 +51,9 @@ class KnowledgeBaseApiTest {
     }
 
     @Autowired
+    com.kwiki.wiki.persistence.AppUserRepository users;
+
+    @Autowired
     MockMvc mockMvc;
 
     @Autowired
@@ -81,6 +84,12 @@ class KnowledgeBaseApiTest {
 
     @BeforeEach
     void stubCommon() {
+        for (CurrentUser actor : List.of(OWNER, OUTSIDER, VIEWER, new CurrentUser(42L, "editor", false))) {
+            var account = new com.kwiki.wiki.domain.AppUser(actor.username(), actor.username(), null, false);
+            ReflectionTestUtils.setField(account, "id", actor.id());
+            when(users.findById(actor.id())).thenReturn(Optional.of(account));
+            when(users.findByUsername(actor.username())).thenReturn(Optional.of(account));
+        }
         when(knowledgeBases.save(any(KnowledgeBase.class)))
                 .thenAnswer(inv -> {
                     KnowledgeBase saved = inv.getArgument(0);
@@ -177,6 +186,26 @@ class KnowledgeBaseApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].uuid").value("uuid-21"));
+    }
+
+    @Test
+    void ownerCannotBeDemotedThroughMemberEndpoint() throws Exception {
+        when(knowledgeBases.findById(11L)).thenReturn(Optional.of(kb(11L)));
+        when(members.findByKbIdAndUserId(11L, OWNER.id())).thenReturn(Optional.of(
+                new KnowledgeBaseMember(11L, OWNER.id(), KnowledgeBaseRole.OWNER, OWNER.id())));
+        mockMvc.perform(put("/api/v1/knowledge-bases/11/members").header("Authorization", auth(OWNER))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"userId\":7,\"role\":\"EDITOR\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void ownerCanUpdateKnowledgeBaseInformation() throws Exception {
+        when(knowledgeBases.findById(11L)).thenReturn(Optional.of(kb(11L)));
+        when(members.findByKbIdAndUserId(11L, OWNER.id())).thenReturn(Optional.of(
+                new KnowledgeBaseMember(11L, OWNER.id(), KnowledgeBaseRole.OWNER, OWNER.id())));
+        mockMvc.perform(put("/api/v1/knowledge-bases/11").header("Authorization", auth(OWNER))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"产品手册\",\"description\":\"使用指南\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.name").value("产品手册"));
     }
 
     @Test

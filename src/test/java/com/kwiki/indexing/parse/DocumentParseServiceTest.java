@@ -59,6 +59,29 @@ class DocumentParseServiceTest {
     }
 
     @Test
+    void largeDocxWithAnImageKeepsTextAndSkipsEmbeddedMedia() throws Exception {
+        var picture = new java.awt.image.BufferedImage(640, 640, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var random = new java.util.Random(42);
+        for (int y = 0; y < 640; y++) for (int x = 0; x < 640; x++) picture.setRGB(x, y, random.nextInt());
+        var png = new ByteArrayOutputStream(); javax.imageio.ImageIO.write(picture, "png", png);
+        byte[] bytes;
+        try (var doc = new XWPFDocument(); var out = new ByteArrayOutputStream()) {
+            doc.createParagraph().createRun().setText("含图片文档的中文正文");
+            doc.createParagraph().createRun().addPicture(new ByteArrayInputStream(png.toByteArray()),
+                    org.apache.poi.xwpf.usermodel.Document.PICTURE_TYPE_PNG, "image.png", 1000, 1000);
+            var table = doc.createTable(2, 2);
+            table.getRow(0).getCell(0).setText("项目"); table.getRow(0).getCell(1).setText("说明");
+            table.getRow(1).getCell(0).setText("导入"); table.getRow(1).getCell(1).setText("保留表格文字");
+            doc.write(out); bytes = out.toByteArray();
+        }
+        assertThat(bytes.length).isGreaterThan(1024 * 1024);
+        var result = service.parse("image.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", new ByteArrayInputStream(bytes));
+        assertThat(result.plainText()).contains("中文正文", "项目", "保留表格文字");
+        var fixture = java.nio.file.Path.of("target", "qa-fixtures", "含图片与表格的大文档.docx");
+        java.nio.file.Files.createDirectories(fixture.getParent()); java.nio.file.Files.write(fixture, bytes);
+    }
+
+    @Test
     void htmlHeadingsAreExtracted() {
         String html = "<html><body><h1>架构</h1><p>分层说明。</p><h2>模块</h2><p>模块说明。</p></body></html>";
         StructuredDocument document = service.parse("page.html", "text/html",

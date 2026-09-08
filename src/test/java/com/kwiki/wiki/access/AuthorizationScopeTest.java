@@ -26,6 +26,13 @@ class AuthorizationScopeTest {
     }
 
     @Test
+    void pageScopeDoesNotWidenToSiblingPages() {
+        AuthorizationScope scope = new AuthorizationScope(7L, false, Set.of(), Map.of(), Set.of(42L));
+        assertThat(scope.includesPage(42L)).isTrue();
+        assertThat(scope.includesPage(43L)).isFalse();
+    }
+
+    @Test
     void scopeIsImmutableAgainstCallerMutations() {
         Set<Long> kbIds = new java.util.HashSet<>(Set.of(1L));
         Map<Long, Long> versions = new HashMap<>(Map.of(1L, 1L));

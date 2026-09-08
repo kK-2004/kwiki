@@ -4,6 +4,8 @@ import com.kwiki.infrastructure.redis.ScopeCache;
 import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.domain.KnowledgeBaseMember;
 import com.kwiki.wiki.persistence.KnowledgeBaseMemberRepository;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
@@ -23,13 +25,23 @@ public class AuthorizationScopeResolver {
     private final KnowledgeBaseMemberRepository members;
     private final ScopeVersionService scopeVersions;
     private final ScopeCache scopeCache;
+    private final JdbcOperations jdbc;
 
     public AuthorizationScopeResolver(KnowledgeBaseMemberRepository members,
                                       ScopeVersionService scopeVersions,
                                       ScopeCache scopeCache) {
+        this(members, scopeVersions, scopeCache, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AuthorizationScopeResolver(KnowledgeBaseMemberRepository members,
+                                      ScopeVersionService scopeVersions,
+                                      ScopeCache scopeCache,
+                                      ObjectProvider<JdbcOperations> jdbc) {
         this.members = members;
         this.scopeVersions = scopeVersions;
         this.scopeCache = scopeCache;
+        this.jdbc = jdbc == null ? null : jdbc.getIfAvailable();
     }
 
     public AuthorizationScope resolve(CurrentUser user) {
@@ -48,7 +60,17 @@ public class AuthorizationScopeResolver {
         for (Long kbId : kbIds) {
             versions.put(kbId, scopeVersions.current(kbId));
         }
-        return new AuthorizationScope(userId, false, kbIds, versions);
+        Set<Long> pageIds = jdbc == null ? Set.of() : new java.util.HashSet<>(jdbc.query(
+                "SELECT DISTINCT p.id FROM wiki_page p "
+                        + "LEFT JOIN wiki_page_member pm ON pm.page_id = p.id AND pm.user_id = ? "
+                        + "LEFT JOIN wiki_page_audience_member pa ON pa.page_id = p.id AND pa.user_id = ? "
+                        + "WHERE p.status = 'ACTIVE' AND (p.owner_id = ? OR pm.user_id IS NOT NULL "
+                        + "OR (p.audience_mode = 'KB_MEMBERS' AND EXISTS (SELECT 1 FROM knowledge_base_member km "
+                        + "WHERE km.kb_id = p.kb_id AND km.user_id = ?)) "
+                        + "OR (p.audience_mode = 'SELECTED_MEMBERS' AND EXISTS (SELECT 1 FROM knowledge_base_member sm "
+                        + "WHERE sm.kb_id = pa.source_kb_id AND sm.user_id = ?)))",
+                (rs, row) -> rs.getLong(1), userId, userId, userId, userId, userId));
+        return new AuthorizationScope(userId, false, kbIds, versions, pageIds);
     }
 
     public void invalidate(long userId) {

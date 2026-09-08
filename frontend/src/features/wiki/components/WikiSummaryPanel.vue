@@ -6,6 +6,7 @@
       :key="summary.pageId"
       type="button"
       class="summary-card"
+      @click="open(summary.pageId)"
     >
       <strong>{{ summary.title }}</strong>
       <span>来源：{{ summary.source }}</span>
@@ -15,10 +16,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed } from 'vue';
+import { useWikiStore } from '../store';
 
-/** Summaries are manual content for MVP; the store feeds them later. */
-const summaries = ref<Array<{ pageId: number; title: string; source: string }>>([]);
+const summaries = computed(() => useWikiStore().summaries);
+function open(pageId: number) {
+  const match = window.location.hash.match(/#\/?knowledge-bases\/(\d+)/);
+  if (match) window.location.hash = `#/knowledge-bases/${match[1]}/${pageId}`;
+}
 </script>
 
 <style scoped>

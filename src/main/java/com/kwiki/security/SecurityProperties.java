@@ -19,5 +19,6 @@ public record SecurityProperties(
         @NotBlank
         @Size(min = 32, max = 512, message = "HS256 secret must be at least 32 characters")
         String jwtSecret,
-        @NotNull @DefaultValue("12h") Duration tokenTtl) {
+        @NotNull @DefaultValue("7d") Duration tokenTtl,
+        @NotNull @DefaultValue("5d") Duration tokenRenewalWindow) {
 }

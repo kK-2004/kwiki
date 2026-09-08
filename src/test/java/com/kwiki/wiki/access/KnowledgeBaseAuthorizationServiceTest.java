@@ -39,7 +39,11 @@ class KnowledgeBaseAuthorizationServiceTest {
     private static final Map<KnowledgeBaseRole, Set<WikiAction>> EXPECTED = Map.of(
             KnowledgeBaseRole.VIEWER, VIEWER_CAN,
             KnowledgeBaseRole.EDITOR, EDITOR_CAN,
-            KnowledgeBaseRole.OWNER, OWNER_CAN);
+            KnowledgeBaseRole.OWNER, OWNER_CAN,
+            KnowledgeBaseRole.ADMIN, Set.of(WikiAction.READ_PAGE, WikiAction.VIEW_REVISION_HISTORY,
+                    WikiAction.SEARCH_AND_RETRIEVE, WikiAction.CREATE_PAGE, WikiAction.EDIT_PAGE,
+                    WikiAction.ARCHIVE_PAGE, WikiAction.RESTORE_REVISION, WikiAction.UPLOAD_ATTACHMENT,
+                    WikiAction.MANAGE_MEMBERS));
 
     private final KnowledgeBaseAuthorizationService service =
             new KnowledgeBaseAuthorizationService(stubLookup(Optional.empty()));

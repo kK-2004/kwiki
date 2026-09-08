@@ -6,6 +6,7 @@ package com.kwiki.wiki.access;
  */
 public enum KnowledgeBaseRole {
     OWNER,
+    ADMIN,
     EDITOR,
     VIEWER
 }

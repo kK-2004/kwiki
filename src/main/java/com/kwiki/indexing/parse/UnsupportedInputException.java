@@ -7,6 +7,8 @@ package com.kwiki.indexing.parse;
  */
 public class UnsupportedInputException extends RuntimeException {
 
+    public UnsupportedInputException(String message, Throwable cause) { super(message, cause); }
+
     public UnsupportedInputException(String message) {
         super(message);
     }

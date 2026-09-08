@@ -34,12 +34,22 @@ public class ChatController {
         this.citations = citations;
     }
 
-    public record ChatRequest(@NotBlank String query) {}
+    public record ChatRequest(@NotBlank String query,
+                              String sessionId,
+                              String clientMessageId,
+                              String agentId) {
+        public ChatRequest(String query) {
+            this(query, null, null, null);
+        }
+    }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     Flux<ServerSentEvent<String>> stream(
             @AuthenticationPrincipal CurrentUser user, @Valid @RequestBody ChatRequest request) {
-        return answers.answer(user, request.query())
+        Flux<ChatStreamEvent> events = request.sessionId() == null && request.clientMessageId() == null
+                ? answers.answer(user, request.query())
+                : answers.answer(user, request.query(), request.sessionId(), request.clientMessageId(), request.agentId());
+        return events
                 .map(
                         event ->
                                 ServerSentEvent.<String>builder()

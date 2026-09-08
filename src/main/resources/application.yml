@@ -1,4 +1,8 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
   application:
     name: kwiki
   threads:
@@ -47,7 +51,8 @@ kwiki:
     display-zone: ${KWIKI_TIME_DISPLAY_ZONE:Asia/Shanghai}
   security:
     jwt-secret: ${KWIKI_JWT_SECRET}
-    token-ttl: ${KWIKI_JWT_TTL:12h}
+    token-ttl: ${KWIKI_JWT_TTL:7d}
+    token-renewal-window: ${KWIKI_JWT_RENEWAL_WINDOW:5d}
   content-center:
     base-url: ${KWIKI_CONTENT_CENTER_BASE_URL}
     app-token: ${KWIKI_CONTENT_CENTER_APP_TOKEN}

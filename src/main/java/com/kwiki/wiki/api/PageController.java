@@ -3,6 +3,8 @@ package com.kwiki.wiki.api;
 import com.kk2004.common.exception.NotFoundException;
 import com.kk2004.common.response.TransDTO;
 import com.kwiki.security.CurrentUser;
+import com.kwiki.wiki.access.ResourceAction;
+import com.kwiki.wiki.access.ResourceAuthorizationService;
 import com.kwiki.wiki.domain.WikiPageRevision;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -30,17 +32,29 @@ public class PageController {
     private final PageLinkService pageLinks;
     private final PageTagService pageTags;
     private final PageProvenanceService pageProvenance;
+    private final ResourceAuthorizationService resources;
 
     public PageController(PageRevisionService pageRevisions,
                           com.kwiki.wiki.render.MarkdownPort renderer,
                           PageLinkService pageLinks,
                           PageTagService pageTags,
                           PageProvenanceService pageProvenance) {
+        this(pageRevisions, renderer, pageLinks, pageTags, pageProvenance, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PageController(PageRevisionService pageRevisions,
+                          com.kwiki.wiki.render.MarkdownPort renderer,
+                          PageLinkService pageLinks,
+                          PageTagService pageTags,
+                          PageProvenanceService pageProvenance,
+                          ResourceAuthorizationService resources) {
         this.pageRevisions = pageRevisions;
         this.renderer = renderer;
         this.pageLinks = pageLinks;
         this.pageTags = pageTags;
         this.pageProvenance = pageProvenance;
+        this.resources = resources;
     }
 
     public record SaveDraftRequest(
@@ -54,7 +68,8 @@ public class PageController {
     }
 
     public record PublishedView(long revisionNo, String markdown, String html,
-                                long createdBy, java.time.Instant createdAt) {
+                                long createdBy, java.time.Instant createdAt,
+                                boolean canEdit, boolean canManage) {
     }
 
     public record CompareView(RevisionView from, RevisionView to) {
@@ -67,7 +82,9 @@ public class PageController {
         WikiPageRevision published = pageRevisions.publishedContent(user, kbId, pageId);
         PublishedView view = new PublishedView(published.getRevisionNo(),
                 published.getMarkdown(), renderer.renderToHtml(published.getMarkdown()),
-                published.getCreatedBy(), published.getCreatedAt());
+                published.getCreatedBy(), published.getCreatedAt(),
+                resources != null && resources.can(user, pageId, ResourceAction.EDIT),
+                resources != null && resources.can(user, pageId, ResourceAction.MANAGE));
         String etag = "\"rev-" + published.getRevisionNo() + "\"";
         return ResponseEntity.ok().header(HttpHeaders.ETAG, etag).body(TransDTO.success(view));
     }
@@ -143,7 +160,7 @@ public class PageController {
                                            @PathVariable long kbId,
                                            @PathVariable long pageId) {
         pageRevisions.revisionHistory(user, kbId, pageId);
-        return TransDTO.success(pageLinks.backlinks(pageId).stream()
+        return TransDTO.success(pageLinks.backlinks(user, pageId).stream()
                 .map(source -> new BacklinkView(source.getId(), source.getUuid(),
                         source.getTitle()))
                 .toList());

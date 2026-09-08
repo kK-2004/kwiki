@@ -2,14 +2,17 @@
   <section
     v-show="open"
     class="agentic"
+    ref="panel"
     data-testid="agentic-panel"
     aria-label="智能问答"
+    @scroll="onPanelScroll"
   >
-    <div class="panel-head">
-      <strong>问问 kwiki</strong>
-      <button type="button" class="icon" aria-label="收起问答面板" @click="open = false">
-        <i class="i-lucide-x" aria-hidden="true"></i>
-      </button>
+      <div class="panel-head">
+        <strong>问问 kwiki</strong>
+        <div class="panel-actions">
+          <button type="button" class="icon" aria-label="最大化到会话页" @click="maximize"><i class="i-lucide-maximize-2" aria-hidden="true"></i></button>
+          <button type="button" class="icon" aria-label="最小化问答面板" @click="open = false"><i class="i-lucide-minus" aria-hidden="true"></i></button>
+        </div>
     </div>
     <form @submit.prevent="ask">
       <input
@@ -27,11 +30,23 @@
       </button>
     </form>
 
-    <ol v-if="stream.progress.length" data-testid="agentic-progress" aria-live="polite">
-      <li v-for="(step, index) in stream.progress" :key="index">{{ stepLabel(step) }}</li>
+    <ol v-if="stream.progressItems.length || stream.progress.length" data-testid="agentic-progress" aria-live="polite">
+      <li v-for="item in stream.progressItems" :key="item.key" :class="`status-${item.status ?? 'running'}`">
+        <span class="progress-main"><strong>{{ stepLabel(item.type) }}</strong><span>{{ item.status ?? 'running' }}</span></span>
+        <span>{{ item.summary }}</span>
+        <small v-if="item.score !== undefined">{{ item.scoreKind ?? 'score' }} {{ item.score.toFixed(4) }}</small>
+        <small v-else-if="item.confidence !== undefined">置信度 {{ item.confidence.toFixed(2) }}</small>
+        <small v-if="item.passed === false">QA 未通过：{{ item.reason ?? '未提供原因' }}<template v-if="item.retryRound !== undefined">（重试 {{ item.retryRound }}）</template></small>
+      </li>
+      <li v-if="!stream.progressItems.length" v-for="(step, index) in stream.progress" :key="`legacy-${index}`">{{ stream.progressDetails[index] || stepLabel(step) }}</li>
     </ol>
 
     <p v-if="stream.answer" data-testid="agentic-answer">{{ stream.answer }}</p>
+    <details v-if="stream.reasoning.length" class="reasoning">
+      <summary>{{ stream.reasoning[stream.reasoning.length - 1] }}</summary>
+      <div ref="reasoningPanel" class="reasoning-scroll" @scroll="onReasoningScroll"><p v-for="(item, index) in stream.reasoning" :key="index">{{ item }}</p></div>
+      <button v-if="showNewReasoning" type="button" class="follow-tail" @click="followReasoning">有新解释 · 回到底部</button>
+    </details>
 
     <p v-if="terminatedNoEvidence" data-testid="agentic-no-evidence">
       未在当前可访问知识中找到依据
@@ -50,6 +65,7 @@
     <p v-if="stream.error" role="alert" data-testid="agentic-error">
       {{ stream.error }}
     </p>
+    <button v-if="showNewContent" type="button" class="follow-tail" @click="followLatest">有新内容 · 回到底部</button>
   </section>
 
   <button type="button" class="ask" :aria-expanded="open" @click="open = !open">
@@ -58,12 +74,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { initialState, openStream, reduce, type CitationEntry, type StreamState } from '../sse';
 
 const open = ref(false);
 const question = ref('');
 const stream = ref<StreamState>(initialState());
+const panel = ref<HTMLElement | null>(null);
+const reasoningPanel = ref<HTMLElement | null>(null);
+const followTail = ref(true);
+const showNewContent = ref(false);
+const reasoningFollowTail = ref(true);
+const showNewReasoning = ref(false);
 let dispose: (() => void) | null = null;
 
 const terminatedNoEvidence = computed(
@@ -89,9 +111,66 @@ function ask() {
   }
   dispose?.();
   stream.value = initialState();
+  followTail.value = true;
+  showNewContent.value = false;
+  reasoningFollowTail.value = true;
+  showNewReasoning.value = false;
   dispose = openStream(question.value, (frame) => {
     stream.value = reduce(stream.value, frame);
   });
+}
+
+function onPanelScroll() {
+  const element = panel.value;
+  if (!element) return;
+  const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
+  followTail.value = atBottom;
+  if (atBottom) showNewContent.value = false;
+}
+
+function followLatest() {
+  const element = panel.value;
+  if (!element) return;
+  followTail.value = true;
+  showNewContent.value = false;
+  element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
+}
+
+function onReasoningScroll() {
+  const element = reasoningPanel.value;
+  if (!element) return;
+  const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= 32;
+  reasoningFollowTail.value = atBottom;
+  if (atBottom) showNewReasoning.value = false;
+}
+
+function followReasoning() {
+  const element = reasoningPanel.value;
+  if (!element) return;
+  reasoningFollowTail.value = true;
+  showNewReasoning.value = false;
+  element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
+}
+
+watch(
+  () => [stream.value.answer.length, stream.value.progressItems.length, stream.value.reasoning.length, stream.value.terminated],
+  async () => {
+    await nextTick();
+    const element = panel.value;
+    if (!element) return;
+    if (followTail.value) element.scrollTop = element.scrollHeight;
+    else showNewContent.value = true;
+    const reasoningElement = reasoningPanel.value;
+    if (reasoningElement) {
+      if (reasoningFollowTail.value) reasoningElement.scrollTop = reasoningElement.scrollHeight;
+      else showNewReasoning.value = true;
+    }
+  },
+);
+
+function maximize() {
+  open.value = false;
+  window.location.hash = '#/conversations?compose=1';
 }
 
 onBeforeUnmount(() => dispose?.());
@@ -119,6 +198,10 @@ const emit = defineEmits<{ citation: [citation: CitationEntry] }>();
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
+}
+.panel-actions {
+  display: flex;
+  gap: 2px;
 }
 .icon {
   width: 28px;
@@ -174,6 +257,37 @@ ul {
   color: #52605a;
   font-size: 13px;
 }
+ol li {
+  display: grid;
+  gap: 3px;
+}
+.progress-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.progress-main span,
+ol li small {
+  color: #7a877f;
+  font-size: 11px;
+}
+.status-succeeded { color: #227c4d; }
+.status-failed { color: #ad4c4c; }
+.status-cancelled { color: #8a6c42; }
+.reasoning {
+  margin-top: 10px;
+  color: #66756d;
+  font-size: 12px;
+}
+.reasoning-scroll {
+  max-height: 220px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.reasoning p {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
 .agentic-answer,
 .agentic-no-evidence,
 .agentic-error {
@@ -187,6 +301,19 @@ ul {
 }
 .agentic-error {
   color: var(--kwiki-danger);
+}
+.follow-tail {
+  position: sticky;
+  bottom: 0;
+  display: block;
+  margin: 10px auto 0;
+  padding: 6px 10px;
+  border: 1px solid #b8dfc8;
+  border-radius: 99px;
+  background: #f0faf4;
+  color: #187b4a;
+  cursor: pointer;
+  font-size: 12px;
 }
 .agentic-citations button {
   border: 0;

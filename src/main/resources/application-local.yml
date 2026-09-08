@@ -13,7 +13,7 @@ spring:
     virtual:
       enabled: true
   datasource:
-    url: ${KWIKI_MYSQL_URL:jdbc:mysql://localhost:3306/kwiki?serverTimezone=UTC&useSSL=false}
+    url: ${KWIKI_MYSQL_URL:jdbc:mysql://localhost:3306/kwiki?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${KWIKI_MYSQL_USERNAME:root}
     password: ${KWIKI_MYSQL_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -48,7 +48,8 @@ kwiki:
     display-zone: ${KWIKI_TIME_DISPLAY_ZONE:Asia/Shanghai}
   security:
     jwt-secret: ${KWIKI_JWT_SECRET:"kwiki-jwt-secretkwiki-jwt-secret1"}
-    token-ttl: ${KWIKI_JWT_TTL:12h}
+    token-ttl: ${KWIKI_JWT_TTL:7d}
+    token-renewal-window: ${KWIKI_JWT_RENEWAL_WINDOW:5d}
   content-center:
     base-url: ${KWIKI_CONTENT_CENTER_BASE_URL:https://file.ksite.xin}
     app-token: ${KWIKI_CONTENT_CENTER_APP_TOKEN}
@@ -61,7 +62,7 @@ kwiki:
   answer-llm:
     base-url: ${KWIKI_ANSWER_LLM_BASE_URL:https://newapi.ksite.xin}
     api-key: ${KWIKI_ANSWER_LLM_API_KEY}
-    model: ${KWIKI_ANSWER_LLM_MODEL}
+    model: ${KWIKI_ANSWER_LLM_MODEL:glm-5.3-flash}
     request-timeout: ${KWIKI_ANSWER_LLM_TIMEOUT:120s}
   qwen-embedding:
     base-url: ${KWIKI_QWEN_EMBEDDING_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}

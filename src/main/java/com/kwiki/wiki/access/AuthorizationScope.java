@@ -14,16 +14,27 @@ public record AuthorizationScope(
         long userId,
         boolean superuser,
         Set<Long> accessibleKbIds,
-        Map<Long, Long> kbVersions) {
+        Map<Long, Long> kbVersions,
+        Set<Long> accessiblePageIds) {
+
+    public AuthorizationScope(long userId, boolean superuser, Set<Long> accessibleKbIds,
+                              Map<Long, Long> kbVersions) {
+        this(userId, superuser, accessibleKbIds, kbVersions, Set.of());
+    }
 
     public AuthorizationScope {
         accessibleKbIds = Set.copyOf(accessibleKbIds);
         kbVersions = Map.copyOf(kbVersions);
+        accessiblePageIds = Set.copyOf(accessiblePageIds == null ? Set.of() : accessiblePageIds);
     }
 
     /** Superusers see everything; everyone else only their member knowledge bases. */
     public boolean includes(long kbId) {
         return superuser || accessibleKbIds.contains(kbId);
+    }
+
+    public boolean includesPage(long pageId) {
+        return superuser || accessiblePageIds.contains(pageId);
     }
 
     /**

@@ -14,6 +14,7 @@ import com.kwiki.wiki.persistence.KnowledgeBaseMemberRepository;
 import com.kwiki.wiki.persistence.KnowledgeBaseRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.util.List;
 import java.util.UUID;
@@ -77,6 +78,14 @@ public class KnowledgeBaseService {
         return kb;
     }
 
+    public boolean canManage(CurrentUser user, long kbId) {
+        return authorization.can(user, kbId, WikiAction.MANAGE_MEMBERS);
+    }
+
+    public boolean canUpload(CurrentUser user, long kbId) {
+        return authorization.can(user, kbId, WikiAction.UPLOAD_ATTACHMENT);
+    }
+
     @Transactional
     public KnowledgeBase update(CurrentUser user, long kbId, String name, String description) {
         authorization.require(user, kbId, WikiAction.UPDATE_KNOWLEDGE_BASE);
@@ -103,9 +112,23 @@ public class KnowledgeBaseService {
                                             KnowledgeBaseRole role) {
         authorization.require(actor, kbId, WikiAction.MANAGE_MEMBERS);
         requireAccessible(actor, kbId);
+        if (role == KnowledgeBaseRole.OWNER) {
+            throw new AccessDeniedException("ownership changes use the transfer flow");
+        }
+        KnowledgeBaseRole actorRole = members.findByKbIdAndUserId(kbId, actor.id())
+                .map(KnowledgeBaseMember::getRole).orElse(null);
+        if (role == KnowledgeBaseRole.ADMIN && !actor.admin() && actorRole != KnowledgeBaseRole.OWNER) {
+            throw new AccessDeniedException("only the knowledge-base owner can appoint administrators");
+        }
 
         KnowledgeBaseMember member = members.findByKbIdAndUserId(kbId, userId)
                 .orElseGet(() -> new KnowledgeBaseMember(kbId, userId, role, actor.id()));
+        if (member.getRole() == KnowledgeBaseRole.OWNER) {
+            throw new AccessDeniedException("the knowledge-base owner must transfer ownership");
+        }
+        if (member.getRole() == KnowledgeBaseRole.ADMIN && !actor.admin() && actorRole != KnowledgeBaseRole.OWNER) {
+            throw new AccessDeniedException("only the owner can change administrators");
+        }
         member.changeRole(role);
         KnowledgeBaseMember saved = members.save(member);
 
@@ -118,6 +141,16 @@ public class KnowledgeBaseService {
     public void removeMember(CurrentUser actor, long kbId, long userId) {
         authorization.require(actor, kbId, WikiAction.MANAGE_MEMBERS);
         requireAccessible(actor, kbId);
+        KnowledgeBaseRole actorRole = members.findByKbIdAndUserId(kbId, actor.id())
+                .map(KnowledgeBaseMember::getRole).orElse(null);
+        KnowledgeBaseRole targetRole = members.findByKbIdAndUserId(kbId, userId)
+                .map(KnowledgeBaseMember::getRole).orElse(null);
+        if (targetRole == KnowledgeBaseRole.OWNER) {
+            throw new AccessDeniedException("the knowledge-base owner must transfer ownership");
+        }
+        if (targetRole == KnowledgeBaseRole.ADMIN && !actor.admin() && actorRole != KnowledgeBaseRole.OWNER) {
+            throw new AccessDeniedException("only the knowledge-base owner can remove administrators");
+        }
         members.deleteByKbIdAndUserId(kbId, userId);
         scopeVersions.bump(kbId);
         scopeCache.invalidate(userId);

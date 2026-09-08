@@ -6,6 +6,9 @@ import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.AuthorizationScope;
 import com.kwiki.wiki.access.AuthorizationScopeResolver;
+import com.kwiki.wiki.access.ResourceAction;
+import com.kwiki.wiki.access.ResourceAuthorizationService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -28,17 +31,27 @@ public class CitationService {
 
     private final ChunkLookup lookup;
     private final AuthorizationScopeResolver scopes;
+    private final ResourceAuthorizationService resources;
 
     public CitationService(ChunkLookup lookup, AuthorizationScopeResolver scopes) {
+        this(lookup, scopes, null);
+    }
+
+    @Autowired
+    public CitationService(ChunkLookup lookup, AuthorizationScopeResolver scopes,
+                           ResourceAuthorizationService resources) {
         this.lookup = lookup;
         this.scopes = scopes;
+        this.resources = resources;
     }
 
     public Map<String, Object> resolve(CurrentUser user, String childChunkKey) {
         ChunkHit hit = lookup.byKey(childChunkKey)
                 .orElseThrow(() -> new NotFoundException("citation not found"));
         AuthorizationScope scope = scopes.resolve(user);
-        if (!scope.includes(hit.kbId())) {
+        boolean resourceAllowed = resources == null || !"PAGE".equalsIgnoreCase(hit.resourceType())
+                || resources.can(user, hit.resourceId(), ResourceAction.READ);
+        if (!scope.includes(hit.kbId()) || !resourceAllowed) {
             // revoked or never granted: indistinguishable from missing
             throw new NotFoundException("citation not found");
         }

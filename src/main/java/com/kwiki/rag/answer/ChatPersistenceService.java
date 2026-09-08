@@ -91,6 +91,16 @@ public class ChatPersistenceService {
         }
     }
 
+    public void persistTrace(long userId, Map<String, Object> metadata, String traceId) {
+        if (jdbc == null) return;
+        try {
+            jdbc.update("INSERT INTO request_trace (correlation_id, user_id, kind, trace_json) VALUES (?, ?, 'CHAT', ?)",
+                    traceId, userId, MAPPER.writeValueAsString(metadata));
+        } catch (Exception e) {
+            if (metrics != null) metrics.counter("kwiki_chat_audit_failures_total").increment();
+        }
+    }
+
     private static String truncate(String value, int max) {
         if (value == null) {
             return "";
