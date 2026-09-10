@@ -5,12 +5,12 @@ import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.stereotype.Repository;
 
 /**
- * MySQL-backed enqueuer. Called inside the publishing/archiving transaction, so a job
- * row exists if and only if the content change commits. The idempotency key
- * (resourceType:resourceId:revisionId:operation) makes repeated enqueueing safe;
- * completed/failed rows of the same key are re-opened, live pending jobs are kept.
- * The optional expected lifecycle version fences the worker against stale work
- * after an archive/restore transition bumps the resource version.
+ * 基于 MySQL 的入队器。在发布/归档事务内被调用，因此当且仅当
+ * 内容变更提交时才会存在任务记录。幂等键
+ * （resourceType:resourceId:revisionId:operation）使重复入队安全；
+ * 同一键下已完成/已失败的行会被重新打开，仍在等待中的任务则保留。
+ * 可选的预期生命周期版本用于防护工作线程，防止在归档/恢复
+ * 切换使资源版本递增之后执行过期的工作。
  */
 @Repository
 public class JdbcIndexingJobEnqueuer implements IndexingJobEnqueuer {

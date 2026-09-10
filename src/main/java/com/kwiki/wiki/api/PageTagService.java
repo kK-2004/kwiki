@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-/** Knowledge-base-scoped tags attached to pages; setting replaces the page's set. */
+/** 挂在页面上的、以知识库为作用域的标签；设置操作会替换该页面的标签集合。 */
 @Service
 public class PageTagService {
 

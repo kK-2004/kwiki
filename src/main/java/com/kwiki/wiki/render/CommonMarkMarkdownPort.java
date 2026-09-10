@@ -13,15 +13,14 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * CommonMark-based renderer with GFM tables/strikethrough and an explicit OWASP
- * policy: headings, lists, tables, links (including the kwiki-page: scheme),
- * code blocks and inline formatting survive; scripts, styles, event handlers,
- * and javascript: URLs never do.
+ * 基于 CommonMark 的渲染器，支持 GFM 表格/删除线，并采用显式 OWASP 策略：
+ * 标题、列表、表格、链接（含 kwiki-page: 方案）、代码块与行内格式均保留；
+ * 脚本、样式、事件处理器以及 javascript: URL 则一律被剔除。
  */
 @Component
 public class CommonMarkMarkdownPort implements MarkdownPort {
 
-    /** Internal wiki links use this scheme: [title](kwiki-page:{page-uuid}). */
+    /** 内部 wiki 链接使用此方案：[title](kwiki-page:{page-uuid})。 */
     public static final String INTERNAL_LINK_SCHEME = "kwiki-page:";
 
     private static final List<org.commonmark.Extension> EXTENSIONS =
@@ -47,8 +46,8 @@ public class CommonMarkMarkdownPort implements MarkdownPort {
                     "img", "audio", "video")
             .allowAttributes("href", "class", "data-kwiki-attachment", "data-file-name",
                     "data-byte-size").onElements("a")
-            // Restricted media attributes only: layout (data-align) and size
-            // (width px / data-width-percent); events, style and iframes never pass.
+            // 仅开放的受限媒体属性：布局（data-align）与尺寸
+            // （width px / data-width-percent）；事件、样式与 iframe 一律不通过。
             .allowAttributes("src", "alt", "title", "width", "data-align",
                     "data-width-percent").onElements("img")
             .allowAttributes("src", "controls", "preload", "width", "data-align",

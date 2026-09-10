@@ -13,8 +13,8 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 /**
- * Immutable content revision: markdown source plus its plain-text projection.
- * Once persisted it is never mutated; restores create new revisions.
+ * 不可变的内容修订版本：包含 markdown 源及其纯文本投影。
+ * 一旦持久化便不再变更；恢复会创建新的修订版本。
  */
 @Entity
 @Table(name = "wiki_page_revision")
@@ -26,7 +26,7 @@ public class WikiPageRevision {
 
     private Long pageId;
     private int revisionNo;
-    // Flyway defines MEDIUMTEXT; plain String would validate as VARCHAR(255)
+    // Flyway 定义为 MEDIUMTEXT；普通 String 会被校验为 VARCHAR(255)
     @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     private String markdown;
     @JdbcTypeCode(SqlTypes.LONGVARCHAR)

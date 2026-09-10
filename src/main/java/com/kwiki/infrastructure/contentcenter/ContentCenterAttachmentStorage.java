@@ -19,12 +19,11 @@ import java.time.Duration;
 import java.util.Locale;
 
 /**
- * Content-center-backed attachment storage. Uploads stream through the SDK's
- * init/presigned-PUT/complete flow and only the returned file id survives into
- * kwiki; downloads and indexing reads always address content by that id through
- * freshly issued short-lived links. Every failure surfaces as a sanitized
- * {@link AttachmentStorageException} whose message contains neither the app token
- * nor any signed URL, while the retry category is preserved for the worker.
+ * 以内容中心（content center）为后端的附件存储（attachment storage）。上传经由 SDK 的
+ * init/presigned-PUT/complete 流程流式处理，仅有返回的文件 id 会进入
+ * kwiki；下载与索引读取始终通过该 id、经由新签发的短期链接寻址内容。
+ * 任何失败都会表现为经过脱敏（redaction）的 {@link AttachmentStorageException}，其消息既不包含
+ * app token 也不包含任何签名 URL，同时保留重试类别供 worker 使用。
  */
 @Component
 public class ContentCenterAttachmentStorage implements AttachmentStorage {
@@ -100,7 +99,7 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
                     "attachment has no content-center file id");
         }
         try {
-            // No expiresIn: ask the deployment's CDN policy for its most durable form.
+            // 不传 expiresIn：向部署环境的 CDN 策略请求其最持久的形式。
             ContentCenterClient.CdnLink link = client.getCdnLink(
                     ContentCenterClient.CdnLinkRequest.ofFileId(contentCenterFileId));
             if (link == null || link.url() == null || link.url().isBlank()) {
@@ -119,7 +118,7 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
             throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
                     "attachment has no content-center file id");
         }
-        // Fresh link per read: never reuse a possibly expired URL across attempts.
+        // 每次读取都生成新链接：绝不在多次尝试之间复用可能已过期的 URL。
         String url = downloadLink(contentCenterFileId, null, presignTtl);
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(config.requestTimeout())
@@ -155,7 +154,7 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
         return body;
     }
 
-    /** Strict validation: an inconsistent or incomplete result never becomes STORED. */
+    /** 严格校验：不一致或不完整的结果绝不会变为 STORED。 */
     private StoredAttachment requireConsistentResult(AttachmentUpload upload,
                                                      ContentCenterClient.UploadResult result) {
         if (result == null || result.fileId() == null || result.fileId() <= 0) {
@@ -181,7 +180,7 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
         return new StoredAttachment(result.fileId(), result.size(), verifiedType);
     }
 
-    /** Maps SDK failures into sanitized exceptions; messages never echo SDK text. */
+    /** 将 SDK 失败映射为已净化的异常；消息绝不回显 SDK 原文。 */
     private AttachmentStorageException translate(String operation, ContentCenterException e) {
         int status = e.getStatus();
         if (status <= 0) {

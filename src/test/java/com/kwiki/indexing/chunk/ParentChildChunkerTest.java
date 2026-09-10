@@ -9,10 +9,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Deterministic chunking contract: short sections merge without crossing superior
- * headings, oversized sections split on subordinate headings/paragraphs, children
- * keep paragraph integrity with sentence-before-hard splitting, and repeated runs
- * produce identical keys, ordinals, and boundaries.
+ * 确定性分块契约：短小节在不跨越上级标题的前提下合并，
+ * 超大节按下属标题/段落切分，子块在硬切之前按句切分以
+ * 保持段落完整性，重复执行会产生一致的 key、序号与边界。
  */
 class ParentChildChunkerTest {
 
@@ -33,7 +32,7 @@ class ParentChildChunkerTest {
 
     @Test
     void shortAdjacentSectionsMergeWithoutCrossingSuperiorHeading() {
-        // two h2 sections under one h1, each far below the 1024 minimum
+        // 一个 h1 下的两个 h2 小节，各自都远低于 1024 的下限
         String markdown = "# 总纲\n\n" + paragraph("甲", 100) + "\n\n"
                 + "## 小节一\n\n" + paragraph("乙", 100) + "\n\n"
                 + "## 小节二\n\n" + paragraph("丙", 100);
@@ -62,7 +61,7 @@ class ParentChildChunkerTest {
 
     @Test
     void oversizedSectionSplitsPreservingHeadingPath() {
-        // one h1 section with > 4096 characters split across paragraphs
+        // 一个 h1 小节，字符数超过 4096，按段落切分
         StringBuilder markdown = new StringBuilder("# 大章\n\n");
         for (int i = 0; i < 30; i++) {
             markdown.append(paragraph("段落" + i + "内容", 200)).append("\n\n");
@@ -76,7 +75,7 @@ class ParentChildChunkerTest {
             assertThat(chunk.headingPath()).containsExactly("大章");
             assertThat(chunk.content().length()).isLessThanOrEqualTo(config.parentMaxChars());
         });
-        // ordinals and keys are consecutive and deterministic
+        // 序号与 key 是连续且确定性的
         for (int i = 0; i < chunks.size(); i++) {
             assertThat(chunks.get(i).parentOrdinal()).isEqualTo(i);
             assertThat(chunks.get(i).parentKey()).isEqualTo(KEY_PREFIX + ":P" + i);
@@ -104,7 +103,7 @@ class ParentChildChunkerTest {
         List<ChildChunk> childChunks = children.chunk(parent, document);
 
         assertThat(childChunks).isNotEmpty();
-        // two ~150-char paragraphs accumulate into a single child
+        // 两个约 150 字符的段落累积成一个子块
         assertThat(childChunks).anyMatch(chunk ->
                 chunk.content().contains("段落甲") && chunk.content().contains("段落乙"));
         assertThat(childChunks).allMatch(chunk ->
@@ -131,7 +130,7 @@ class ParentChildChunkerTest {
                 .filter(chunk -> chunk.boundaryType() == ChildChunk.BoundaryType.SENTENCE)
                 .count();
         assertThat(sentenceBoundaries).isGreaterThan(0);
-        // every sentence boundary cut ends with the terminator, no mid-sentence splits
+        // 每个句边界切分都以终止符结尾，不存在句中切断
         childChunks.stream()
                 .filter(chunk -> chunk.boundaryType() == ChildChunk.BoundaryType.SENTENCE)
                 .forEach(chunk -> assertThat(chunk.content()).endsWith("。"));

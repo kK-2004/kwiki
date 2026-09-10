@@ -3,15 +3,15 @@ package com.kwiki.testutil;
 import java.util.List;
 
 /**
- * Dummy property set shared by context-booting tests: satisfies binding validation
- * for every required kwiki.* value without contacting any external service. The
- * middleware auto-configurations are excluded so the default build stays Docker-free
- * (Redis support additionally re-enters through KwikiRedisConfiguration only when
- * kk.common.redis.enabled=true).
+ * 由需要启动上下文的测试共享的占位属性集：在完全不接触任何外部服务的前提下，
+ * 满足每一个必需 kwiki.* 值的绑定校验。
+ * 中间件自动配置被排除，因此默认构建保持无 Docker
+ * （Redis 支持另外只有在
+ * kk.common.redis.enabled=true 时才通过 KwikiRedisConfiguration 重新进入）。
  */
 public final class StandardTestProperties {
 
-    /** Spring Redis auto-configurations stay out of every default test context. */
+    /** Spring Redis 自动配置不会进入任何默认测试上下文。 */
     public static final List<String> REDIS_AUTO_CONFIGURATIONS_EXCLUDED = List.of(
             "org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration",
             "org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration");
@@ -42,7 +42,7 @@ public final class StandardTestProperties {
     private StandardTestProperties() {
     }
 
-    /** Shared typed null-provider so tests stop re-declaring anonymous ObjectProviders. */
+    /** 共享的类型化 null provider，免得测试反复声明匿名的 ObjectProvider。 */
     public static <T> org.springframework.beans.factory.ObjectProvider<T> nullProvider() {
         return new org.springframework.beans.factory.ObjectProvider<>() {
             @Override
@@ -53,8 +53,8 @@ public final class StandardTestProperties {
     }
 
     /**
-     * Registers the dummy properties via @DynamicPropertySource so tests can share
-     * one array (annotation attributes cannot reference non-constant arrays).
+     * 通过 @DynamicPropertySource 注册这些占位属性，使测试可以共享
+     * 同一个数组（注解属性无法引用非常量数组）。
      */
     public static void register(org.springframework.test.context.DynamicPropertyRegistry registry) {
         for (String entry : VALUES) {

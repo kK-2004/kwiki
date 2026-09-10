@@ -11,10 +11,9 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * Exact snapshot of one object inside an archive batch: resource identity, the
- * pre-archive parent, the lifecycle version at archive time (restore only acts
- * on items whose version still matches), and the physical-purge marker used by
- * the daily cleanup.
+ * 归档批次中某个对象的精确快照：资源标识、归档前的父节点、归档时刻的
+ * 生命周期版本（仅对版本仍匹配的项执行恢复），以及每日清理所使用的
+ * 物理清除标记。
  */
 @Entity
 @Table(name = "archive_batch_item")

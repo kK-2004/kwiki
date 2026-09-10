@@ -1,6 +1,6 @@
 package com.kwiki.indexing.chunk;
 
-/** A child chunk within exactly one parent; the only level carrying vectors. */
+/** 恰好归属一个父分块的子分块；是唯一承载向量的层级。 */
 public record ChildChunk(
         String childKey,
         int childOrdinal,

@@ -22,9 +22,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * HTTP-stub contract for the router adapter: valid JSON (also fenced) parses, timeouts/invalid
- * JSON/provider errors return empty for deterministic fallback, and requests carry no credential in
- * URLs (only the sanitized header).
+ * 路由器适配器的 HTTP 桩契约：合法 JSON（含围栏包裹）可解析，超时/非法
+ * JSON/服务提供方错误会返回空以实现确定性兜底，且请求的
+ * URL 中不携带凭据（只带已净化的请求头）。
  */
 class RouterLlmAdapterTest {
 

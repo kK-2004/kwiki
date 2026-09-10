@@ -10,9 +10,9 @@ spring:
       enabled: true
   autoconfigure:
     exclude:
-      # Redis support is opt-in: com.kwiki.infrastructure.redis.KwikiRedisConfiguration
-      # re-imports these two auto-configurations only when kk.common.redis.enabled=true,
-      # so spring.data.redis.* (and any client) is never read/created while disabled.
+      # Redis 支持为可选开启：com.kwiki.infrastructure.redis.KwikiRedisConfiguration
+      # 仅在 kk.common.redis.enabled=true 时才重新导入这两个自动配置，
+      # 因此在禁用期间 spring.data.redis.*（以及任何客户端）不会被读取或创建。
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
   datasource:
@@ -26,8 +26,8 @@ spring:
     open-in-view: false
     properties:
       hibernate:
-        # Timestamps are persisted as UTC Instants; tell Hibernate how to align the
-        # JDBC connection to UTC so DATETIME columns round-trip losslessly.
+        # 时间戳以 UTC Instant 形式持久化；告知 Hibernate 如何将
+        # JDBC 连接对齐到 UTC，使 DATETIME 列无损往返。
         jdbc:
           time_zone: UTC
   jackson:
@@ -42,7 +42,7 @@ spring:
       database: ${KWIKI_REDIS_DATABASE:0}
   elasticsearch:
     uris: ${KWIKI_ELASTICSEARCH_URIS}
-    # basic auth (empty -> not applied); API keys use kwiki.elasticsearch.api-key
+    # basic 认证（为空则不启用）；API key 使用 kwiki.elasticsearch.api-key
     username: ${KWIKI_ELASTICSEARCH_USERNAME:}
     password: ${KWIKI_ELASTICSEARCH_PASSWORD:}
 
@@ -77,10 +77,10 @@ kwiki:
     dimensions: ${KWIKI_QWEN_EMBEDDING_DIMENSIONS:1024}
     request-timeout: ${KWIKI_QWEN_EMBEDDING_TIMEOUT:30s}
 
-# kk-common SDK feature switches. Web request-context and the shared exception
-# handler are on by default; Redis toolkit and the Redisson lock factory are
-# opt-in and stay fully disconnected until explicitly enabled (a deployment
-# enabling either must also provide KWIKI_REDIS_HOST and friends).
+# kk-common SDK 功能开关。Web 请求上下文与共享异常
+# 处理器默认开启；Redis 工具集与 Redisson 锁工厂为
+# 可选开启，在显式启用前保持完全未连接（部署时若
+# 启用其中任一，必须同时提供 KWIKI_REDIS_HOST 等相关变量）。
 kk:
   common:
     web:
@@ -104,10 +104,10 @@ management:
       show-details: never
       group:
         readiness:
-          # dependency connectivity gates readiness; liveness stays process-only
+          # 依赖连通性决定就绪状态；存活状态仅反映进程本身
           include: "readinessState,*"
   tracing:
     sampling:
-      # Every request keeps a trace id: no span exporter is configured, sampling
-      # only guarantees a stable traceId for logs, X-Trace-Id, and propagation.
+      # 每个请求都保留 trace id：未配置任何 span exporter，采样
+      # 仅保证为日志、X-Trace-Id 与传播链路提供稳定的 traceId。
       probability: 1.0

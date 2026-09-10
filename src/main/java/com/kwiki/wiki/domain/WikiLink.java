@@ -10,7 +10,7 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 
-/** Directed link between two pages resolved from Markdown links to stable page ids. */
+/** 两个页面之间有向链接，由 Markdown 链接解析为稳定的页面 id。 */
 @Entity
 @Table(name = "wiki_link")
 public class WikiLink {

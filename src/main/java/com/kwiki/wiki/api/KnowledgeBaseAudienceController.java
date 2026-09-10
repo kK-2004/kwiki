@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** Candidate lookup used by the pre-create audience picker. */
+/** 供创建前受众选择器使用的候选查询。 */
 @RestController
 @RequestMapping("/api/v1/knowledge-bases/{kbId}/audience-candidates")
 @PreAuthorize("isAuthenticated()")

@@ -5,10 +5,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Closed-schema validation for LLM routing output. Accepts exactly the fields
- * {intent, needsRetrieval, rewriteMode, subqueries, confidence} with enum-only
- * values; rejects unknown fields, ES DSL, authorization scope, credentials, and
- * graph leftovers. Any violation falls back to scoped KNOWLEDGE_QA upstream.
+ * 对 LLM 路由输出做闭集 schema 校验。只接受
+ * {intent, needsRetrieval, rewriteMode, subqueries, confidence} 这些字段，
+ * 且取值必须为枚举值；拒绝未知字段、ES DSL、授权作用域、凭据以及
+ * 图相关遗留内容。任何违规都会在上游回退到带作用域的 KNOWLEDGE_QA。
  */
 public final class RouterDecisionValidator {
 

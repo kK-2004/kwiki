@@ -12,7 +12,7 @@ import reactor.core.publisher.FluxSink;
 
 import java.util.List;
 
-/** Uses a separate prompt/client boundary and never shares agentic conversation history. */
+/** 使用独立的 prompt/客户端边界，且不共享 agentic 对话历史。 */
 @Component
 public class SelectionQuestionLlmAdapter implements SelectionQuestionLlmClient {
     private final StreamingChatModel model;

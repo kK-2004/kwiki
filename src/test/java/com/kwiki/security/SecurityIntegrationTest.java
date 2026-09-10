@@ -27,9 +27,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Authentication baseline: anonymous Wiki access is denied with a sanitized 401,
- * authenticated users pass, role checks answer with a sanitized 403, and tampered
- * tokens are rejected without leaking validation details.
+ * 认证基线：匿名访问 Wiki 会被拒绝并返回已净化的 401，
+ * 已认证用户可通行，角色校验以已净化的 403 作答，被篡改的
+ * 令牌会被拒绝且不泄漏校验细节。
  */
 @SpringBootTest
 @AutoConfigureMockMvc

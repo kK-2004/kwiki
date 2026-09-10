@@ -8,9 +8,9 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * Schema-constrained decomposition into one to three distinct nonblank
- * subqueries. LLM-backed with a deterministic conjunction-split fallback;
- * duplicate, blank, over-limit, and unsafe outputs fall back to the original.
+ * 受 schema 约束的分解，生成 1 到 3 个互异且非空的
+ * 子查询。由 LLM 支撑，并提供确定性的连词切分兜底；
+ * 重复、空白、超限或不安全的输出回退到原始查询。
  */
 @Component
 public class DecompositionRewriter {

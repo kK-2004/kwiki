@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Locale;
 import java.time.Instant;
 
-/** Username/password login boundary; all subsequent API calls use the JWT. */
+/** 用户名/密码登录边界；后续所有 API 调用均使用 JWT。 */
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
@@ -73,7 +73,7 @@ public class AuthController {
                     securityProperties.tokenTtl().toSeconds(),
                     user)));
         } catch (AuthenticationException e) {
-            // Keep account existence, disabled state, and password validity indistinguishable.
+            // 使账号是否存在、是否被禁用、密码是否正确三者无法区分。
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(TransDTO.failure(HttpStatus.UNAUTHORIZED.value(), "invalid_credentials"));
         }

@@ -2,7 +2,7 @@ package com.kwiki.wiki.api;
 
 import com.kwiki.security.CurrentUser;
 
-/** Application port for AI-assisted publication notes. */
+/** AI 辅助发布说明的应用端口。 */
 public interface PublicationNotePort {
     String generate(CurrentUser user, long kbId, long pageId, String markdown);
 }

@@ -4,11 +4,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Validated budgets of the QA-gated knowledge path, split per stage. The
- * expanded stage widens both branches and the fused TopK; the parent budget
- * stays fixed so an expanded TopK cannot grow the parent context without
- * bound. finalTopK must never exceed branchTopK — a fused result larger than
- * its own branch candidate set is a configuration error.
+ * QA 门控知识路径经校验的预算，按阶段拆分。
+ * 扩展阶段会同时放宽两个分支与融合后的 TopK；父级预算
+ * 保持固定，因此扩展后的 TopK 不会无界地
+ * 扩大父级上下文。finalTopK 绝不能超过 branchTopK——
+ * 融合结果大于其自身分支候选集属于配置错误。
  */
 @Component
 public class QaRetrievalBudgets {

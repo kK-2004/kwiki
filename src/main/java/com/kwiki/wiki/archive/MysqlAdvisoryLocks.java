@@ -10,9 +10,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 /**
- * MySQL advisory-lock helper that always runs GET_LOCK and RELEASE_LOCK on the
- * same dedicated connection (never two pooled connections), so the lock is
- * released with the connection even when the holder dies mid-critical-section.
+ * MySQL 咨询锁辅助类，始终在同一个专用连接上执行 GET_LOCK 与 RELEASE_LOCK
+ * （绝不使用两个池化连接），因此即便持有者在中途崩溃，锁也会
+ * 随连接一起释放。
  */
 @Component
 public class MysqlAdvisoryLocks {
@@ -24,13 +24,13 @@ public class MysqlAdvisoryLocks {
     private final ObjectProvider<DataSource> dataSource;
 
     /**
-     * Runs {@code body} under the named advisory lock. Returns false when the
-     * lock cannot be acquired immediately (another instance holds it).
+     * 在指定名称的咨询锁保护下执行 {@code body}。若无法立即获取锁
+     * （被其它实例持有）则返回 false。
      */
     public boolean tryWithLock(String name, Runnable body) {
         DataSource source = dataSource == null ? null : dataSource.getIfAvailable();
         if (source == null) {
-            body.run(); // offline/unit context: no coordination needed
+            body.run(); // 离线/单元测试环境：无需协调
             return true;
         }
         try (Connection connection = source.getConnection()) {
@@ -51,7 +51,7 @@ public class MysqlAdvisoryLocks {
                     release.setString(1, name);
                     release.executeQuery();
                 } catch (SQLException ignored) {
-                    // connection close releases the lock regardless
+                    // 无论如何，连接关闭都会释放锁
                 }
             }
             return true;

@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 
-/** Permission-scoped username candidates and in-app notification state. */
+/** 受权限约束的用户名候选人与应用内通知状态。 */
 @Service
 public class MentionNotificationService {
 

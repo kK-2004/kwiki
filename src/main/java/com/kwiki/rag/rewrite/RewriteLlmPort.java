@@ -2,9 +2,9 @@ package com.kwiki.rag.rewrite;
 
 import java.util.Optional;
 
-/** Port for rewrite-style LLM calls; adapters enforce deadlines and sanitization. */
+/** 改写类 LLM 调用的端口；适配器负责强制截止时间与净化。 */
 public interface RewriteLlmPort {
 
-    /** Completion content for the given instruction; empty on failure/timeout. */
+    /** 给定指令的补全内容；失败或超时时为空。 */
     Optional<String> complete(String systemInstruction, String userPrompt);
 }

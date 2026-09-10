@@ -7,9 +7,9 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * Versioned deterministic keyword rules. A query resolves without the LLM only
- * when exactly one terminal intent matches and the query is not compound;
- * no-match, conflict, and compound cases go to the router LLM.
+ * 带版本号的确定性关键词规则。只有当恰好命中一个终止性意图
+ * 且查询不是复合句时，查询才会不经 LLM 直接判定；
+ * 无命中、冲突以及复合情形都会交给路由器 LLM。
  */
 public final class KeywordRuleSet {
 
@@ -70,7 +70,7 @@ public final class KeywordRuleSet {
         return new MatchResult.Resolved(only.getKey(), only.getValue());
     }
 
-    /** Multiple question marks or explicit conjunctions suggest decomposable questions. */
+    /** 多个问号或显式连接词暗示该问题可被拆解。 */
     static boolean isCompound(String normalizedQuery) {
         if (normalizedQuery.chars().filter(ch -> ch == '?' || ch == '？').count() > 1) {
             return true;

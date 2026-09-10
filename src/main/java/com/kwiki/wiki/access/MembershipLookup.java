@@ -3,8 +3,7 @@ package com.kwiki.wiki.access;
 import java.util.Optional;
 
 /**
- * Port for resolving a user's knowledge-base role. Implemented by the persistence
- * layer; kept as an interface so the authorization policy stays storage-free.
+ * 用于解析用户知识库角色的端口。由持久层实现；保留为接口以便授权策略不依赖存储。
  */
 public interface MembershipLookup {
 

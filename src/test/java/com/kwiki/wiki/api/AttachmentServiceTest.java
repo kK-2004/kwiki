@@ -40,10 +40,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Upload/download/archive flows over the file-ID storage port without contacting
- * the content center: traversal rejection, type/size allowlists, role checks,
- * PENDING-until-validated sequencing, fail-closed missing-file-ID downloads, and
- * archive that never attempts physical content deletion.
+ * 基于「文件 ID」存储端口的上传/下载/归档流程，不接触
+ * 内容中心：路径穿越拒绝、类型/大小白名单、角色校验、
+ * 「校验通过前保持 PENDING」的顺序、缺 file ID 下载时故障关闭，
+ * 以及归档绝不尝试物理删除内容。
  */
 @ExtendWith(MockitoExtension.class)
 class AttachmentServiceTest {
@@ -78,8 +78,8 @@ class AttachmentServiceTest {
                     }
                     return attachment;
                 });
-        // Default successful store: echoes the upload's own size/type so the
-        // service's verified-metadata check passes; individual tests override.
+        // 默认的成功存储：回显上传自身的 size/type，以便
+        // 服务端的「已校验元数据」检查通过；个别测试会覆盖该行为。
         lenient().when(storage.store(any())).thenAnswer(inv -> {
             AttachmentUpload upload = inv.getArgument(0);
             return new StoredAttachment(42L, upload.byteSize(), upload.contentType());
@@ -99,7 +99,7 @@ class AttachmentServiceTest {
         };
     }
 
-    /** Role resolution wired through the mocked member repository. */
+    /** 通过模拟的成员仓储接入的角色解析。 */
     private class JpaTestLookup implements MembershipLookup {
         @Override
         public Optional<KnowledgeBaseRole> findRole(long kbId, long userId) {
@@ -139,7 +139,7 @@ class AttachmentServiceTest {
 
         assertThat(stored.getStatus()).isEqualTo(Attachment.STATUS_STORED);
         assertThat(stored.getContentCenterFileId()).isEqualTo(42L);
-        // image indexing strictly after validated success
+        // 严格在校验成功之后才做图片索引
         verify(indexingJobs).enqueueAttachmentUpsert(stored.getId());
     }
 
@@ -162,7 +162,7 @@ class AttachmentServiceTest {
 
     @Test
     void uploadPersistsPendingWithoutFileIdThenStoresWithReturnedFileId() {
-        // The entity is mutated between saves, so snapshot status/file id at save time.
+        // 该实体在两次保存之间会被改写，因此在保存时快照 status/file id。
         java.util.List<String> statusesAtSave = new java.util.ArrayList<>();
         java.util.List<Long> fileIdsAtSave = new java.util.ArrayList<>();
         org.mockito.Mockito.doAnswer(inv -> {
@@ -239,7 +239,7 @@ class AttachmentServiceTest {
                         assertThat(attachment.getStatus())
                                 .as("no STORED status when the upload failed")
                                 .isNotEqualTo(Attachment.STATUS_STORED));
-        // reconciliation trail: the committed PENDING row has no file id
+        // 对账痕迹：已提交的 PENDING 记录没有 file id
         assertThat(saved.getAllValues())
                 .anySatisfy(attachment -> {
                     assertThat(attachment.getStatus()).isEqualTo(Attachment.STATUS_PENDING);
@@ -267,7 +267,7 @@ class AttachmentServiceTest {
     @Test
     void databaseFailureAfterUploadNeverEnqueuesIndexing() {
         org.mockito.Mockito.doReturn(storedOk(42L, 10)).when(storage).store(any());
-        // PENDING persist succeeds; the STORED transition write fails.
+        // PENDING 持久化成功；STORED 转换写入失败。
         java.util.concurrent.atomic.AtomicInteger saves = new java.util.concurrent.atomic.AtomicInteger();
         org.mockito.Mockito.doAnswer(inv -> {
             if (saves.incrementAndGet() >= 2) {
@@ -346,7 +346,7 @@ class AttachmentServiceTest {
             assertThat(attachment.getContentCenterFileId()).isEqualTo(42L);
         });
         verify(indexingJobs).enqueueAttachmentDelete(1L);
-        // The port has no delete operation; nothing beyond archive/de-index may be attempted.
+        // 该端口没有删除操作；除了归档/移出索引之外不得尝试任何操作。
         verify(storage, never()).store(any());
         verify(storage, never()).downloadLink(anyLong(), anyString(), any());
     }

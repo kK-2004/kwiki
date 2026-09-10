@@ -13,8 +13,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Vector branch: kNN search over CHILD document vectors with the same scope
- * filter applied before TopK. Raw similarity scores never leave the adapter.
+ * 向量分支：在 CHILD 文档向量上进行 kNN 搜索，相同的范围
+ * 过滤器（scope filter）在 TopK 之前应用。原始的相似度评分绝不离开此适配器（adapter）。
  */
 @Component
 public class VectorRecallAdapter implements ChildRecallPort {

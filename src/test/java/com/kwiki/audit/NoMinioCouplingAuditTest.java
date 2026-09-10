@@ -14,17 +14,17 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Repository-wide audit: no current production, build, runtime-configuration,
- * script, or test path may still depend on MinIO — the Maven artifact, io.minio
- * imports, kwiki.minio configuration keys, or KWIKI_MINIO_* environment variables.
- * Intentional historical references live only under openspec/ change history, which
- * this audit deliberately does not scan.
+ * 全仓库审计：当前任何生产、构建、运行时配置、
+ * 脚本或测试路径都不得再依赖 MinIO —— 即 Maven 构件、io.minio
+ * 导入、kwiki.minio 配置项，或 KWIKI_MINIO_* 环境变量。
+ * 有意为之的历史引用仅存在于 openspec/ 的变更历史中，本审计
+ * 刻意不扫描该目录。
  */
 class NoMinioCouplingAuditTest {
 
     private static final Path REPO_ROOT = Path.of("").toAbsolutePath();
 
-    /** Directories scanned in addition to single files; openspec/ is out of scope. */
+    /** 除单个文件外还会扫描的目录；openspec/ 不在范围内。 */
     private static final List<String> SCANNED_DIRS = List.of("src", "scripts");
     private static final List<String> SCANNED_FILES = List.of("pom.xml", ".env.example");
 
@@ -33,12 +33,12 @@ class NoMinioCouplingAuditTest {
                     + "kwiki\\.minio|KWIKI_MINIO_|minio\\.health|minioclient",
             Pattern.CASE_INSENSITIVE);
 
-    /** The content-center SDK may appear only in the content-center adapter package. */
+    /** content-center SDK 只能出现在 content-center 适配器包中。 */
     private static final Pattern SDK_IMPORT = Pattern.compile("com\\.kk\\.sdk\\.");
 
     @Test
     void noBuildOrSourcePathStillReferencesMinio() throws IOException {
-        // This audit file necessarily names the patterns it searches for.
+        // 本审计文件必然要写出它所检索的模式名称。
         Path self = REPO_ROOT.resolve("src/test/java/com/kwiki/audit/NoMinioCouplingAuditTest.java");
         List<String> offenders = new ArrayList<>();
         for (String dir : SCANNED_DIRS) {

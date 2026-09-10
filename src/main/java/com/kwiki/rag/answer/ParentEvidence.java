@@ -5,9 +5,9 @@ import com.kwiki.rag.retrieval.ChunkHit;
 import java.util.List;
 
 /**
- * One bounded parent body in the generation context. Truncation may shorten the
- * body but NEVER removes matched-child citation identity — children stay attached
- * even when their parent text was cut.
+ * 生成上下文中的一个有界父级正文。截短可能缩短
+ * 正文，但绝不移除已匹配子项的引用身份——子项仍保持
+ * 挂载，即便其父级文本已被裁剪。
  */
 public record ParentEvidence(
         String parentChunkKey,

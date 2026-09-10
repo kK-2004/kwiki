@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Explicit boundary test entry point. It never starts MySQL/Redis/ES/content-center
-# or a model service; external contract tests are opt-in through -Pexternal-it.
+# 显式的边界测试入口。它绝不会启动 MySQL / Redis / ES / 内容中心
+# 或模型服务；外部契约测试需通过 -Pexternal-it 显式开启。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

@@ -1,6 +1,6 @@
 package com.kwiki.rag.routing;
 
-/** Query rewrite strategies; the original query is always preserved for audit. */
+/** 查询改写策略；原始查询始终被保留以供审计。 */
 public enum RewriteMode {
     NONE,
     CONVERSATIONAL,

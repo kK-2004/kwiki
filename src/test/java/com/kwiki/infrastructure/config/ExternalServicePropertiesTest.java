@@ -17,8 +17,8 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Validates the required/blank/format rules for every external service record before
- * any client wiring exists, so connection misconfiguration is caught at binding time.
+ * 在任何客户端装配存在之前，校验每一条外部服务记录的
+ * 必填/空值/格式规则，因此连接配置错误在绑定时就会暴露。
  */
 class ExternalServicePropertiesTest {
 

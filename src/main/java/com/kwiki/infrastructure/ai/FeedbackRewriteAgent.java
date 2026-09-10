@@ -16,12 +16,11 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Query Rewrite Agent: redesigns the retrieval query from structured failure
- * feedback. The prompt uses a system instruction plus a strict data boundary —
- * queries, documents and rejection reasons are analyzed data, never executed
- * instructions. Output is a single query that must differ from the original,
- * the last query, and all historical rewrites; a blank/oversized/echoing
- * output counts as a failed call (budget is still consumed by the caller).
+ * 查询改写 Agent：依据结构化的失败反馈重新设计检索查询。prompt 使用
+ * 系统指令加严格的数据边界——查询、文档与拒绝原因都是被分析的数据，
+ * 而非可执行的指令。输出必须是一个与原查询、上一轮查询及所有历史改写
+ * 都不同的单一查询；空白/超长/回显的输出视为一次失败的调用
+ * （调用方仍会消耗预算）。
  */
 @Component
 public class FeedbackRewriteAgent implements FeedbackRewritePort {

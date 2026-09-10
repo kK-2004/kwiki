@@ -11,10 +11,10 @@ import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Rendering contract backed by fixtures: supported structures (headings, lists,
- * tables, links, code blocks, inline formatting) survive rendering, unsafe HTML
- * is sanitized, unsupported constructs degrade to source-safe text instead of
- * disappearing, and plainText strips markup.
+ * 以夹具为支撑的渲染契约：受支持的结构（标题、列表、
+ * 表格、链接、代码块、行内格式）在渲染后保留，不安全 HTML
+ * 会被净化，不支持的构造降级为对源安全的文本而不是
+ * 直接消失，且 plainText 会剥离标记。
  */
 class MarkdownRenderContractTest {
 
@@ -82,13 +82,13 @@ class MarkdownRenderContractTest {
                         + "data-width-percent=\"25\" width=\"640\" style=\"position:fixed\" "
                         + "onload=\"alert(1)\" />");
 
-        // layout/size attributes ride along for readers and standalone exports
+        // 布局/尺寸属性会随行，供阅读器与独立导出使用
         assertThat(html).contains("src=\"https://cdn.example.com/a.png\"");
         assertThat(html).contains("alt=\"截图\"");
         assertThat(html).contains("data-align=\"center\"");
         assertThat(html).contains("data-width-percent=\"25\"");
         assertThat(html).contains("width=\"640\"");
-        // style and events never pass
+        // style 与事件永远不会通过
         assertThat(html).doesNotContain("style=");
         assertThat(html).doesNotContain("onload");
     }

@@ -148,7 +148,7 @@ class IndexingWorkerTest {
         assertThat(captured.childVectors()).hasSize(captured.children().size());
         assertThat(captured.children()).allSatisfy(child ->
                 assertThat(child.parentKey()).startsWith("PAGE:7:103:P"));
-        // completion guarded on LEASED state
+        // 完成动作以 LEASED 状态为前置条件
         verify(jdbc).update(contains("state = 'COMPLETED'"), eq(1L));
     }
 
@@ -165,7 +165,7 @@ class IndexingWorkerTest {
         verify(index, org.mockito.Mockito.times(2)).upsertChunks(versions.capture());
         IndexedVersion first = versions.getAllValues().get(0);
         IndexedVersion second = versions.getAllValues().get(1);
-        // float[] has no value equality, so compare the deterministic parts explicitly
+        // float[] 没有值相等性，因此显式比较确定性部分
         assertThat(second.parents()).isEqualTo(first.parents());
         assertThat(second.children()).isEqualTo(first.children());
         assertThat(second.childVectors()).hasSameSizeAs(first.childVectors());
@@ -206,7 +206,7 @@ class IndexingWorkerTest {
         verify(index, never()).upsertChunks(any());
         verify(embeddings, never()).embed(any());
         verify(storage, never()).readContent(anyLong());
-        // legacy chunks are removed; the attachment itself stays display-only
+        // 旧分块被移除；附件本身保持只显示状态
         verify(index).deleteResourceChunks("ATTACHMENT", 21L);
         verify(jdbc).update(contains("state = 'COMPLETED'"), eq(1L));
     }

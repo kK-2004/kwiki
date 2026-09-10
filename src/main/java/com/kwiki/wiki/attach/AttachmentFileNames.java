@@ -1,16 +1,16 @@
 package com.kwiki.wiki.attach;
 
 /**
- * Attachment file-name validation. Names come from untrusted multipart requests:
- * traversal segments, absolute paths, and separator smuggling are rejected so a
- * hostile upload can never reference anything outside its own identity.
+ * 附件文件名校验。文件名来自不可信的 multipart 请求：
+ * 目录穿越片段、绝对路径以及分隔符走私均会被拒绝，从而让
+ * 恶意上传永远无法引用其自身标识之外的内容。
  */
 public final class AttachmentFileNames {
 
     private AttachmentFileNames() {
     }
 
-    /** Strips any path components; rejects traversal and separator smuggling. */
+    /** 剥离所有路径成分；拒绝目录穿越与分隔符走私。 */
     public static String sanitizeFileName(String rawFileName) {
         if (rawFileName == null) {
             throw new IllegalArgumentException("file name is required");

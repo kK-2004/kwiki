@@ -21,10 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
- * Draft/publish lifecycle with a mutable working copy outside immutable revisions.
- * Saving never changes what readers see or creates a version; publishing creates
- * one numbered revision and records its indexing job. Restoring an old revision
- * creates a new current revision instead of mutating history.
+ * 草稿/发布生命周期：在不可变修订版本之外保留一份可变工作副本。
+ * 保存不会改变读者所见，也不会创建版本；发布才会创建
+ * 一个带编号的修订版本并记录其索引构建任务。恢复旧修订版本
+ * 会创建新的当前修订版本，而不是改写历史。
  */
 @Service
 public class PageRevisionService {
@@ -101,7 +101,7 @@ public class PageRevisionService {
         page.setCurrentPublishedRevisionId(published.getId());
         page.setCurrentDraftRevisionId(published.getId());
         pages.save(page);
-        // same-transaction contract: job exists iff publish commits (task 4.2)
+        // 同事务契约：当且仅当发布提交时任务才存在（任务 4.2）
         indexingJobs.enqueuePageUpsert(pageId, published.getId());
         pageLinks.refreshLinks(pageId, kbId, published.getMarkdown());
         persistMediaReferences(kbId, pageId, published.getId(), published.getMarkdown());
@@ -115,7 +115,7 @@ public class PageRevisionService {
         }
     }
 
-    /** Readers always receive the current published revision, never drafts. */
+    /** 读者始终获得当前已发布的修订版本，绝不会是草稿。 */
     public WikiPageRevision publishedContent(CurrentUser user, long kbId, long pageId) {
         requirePage(user, kbId, pageId, ResourceAction.READ, WikiAction.READ_PAGE);
         WikiPage page = requireActivePage(kbId, pageId);
@@ -145,7 +145,7 @@ public class PageRevisionService {
         return revisions.findByPageIdAndPublishedAtIsNotNullOrderByRevisionNoDesc(pageId);
     }
 
-    /** Restoration copies older content into a new current published revision. */
+    /** 恢复操作把较旧的内容复制成一个新的当前已发布修订版本。 */
     @Transactional
     public WikiPageRevision restore(CurrentUser user, long kbId, long pageId, int revisionNo) {
         requirePage(user, kbId, pageId, ResourceAction.EDIT, WikiAction.RESTORE_REVISION);
@@ -168,15 +168,15 @@ public class PageRevisionService {
     }
 
     /**
-     * Delegates to the unified recycle-bin service (own transaction boundary +
-     * post-commit ES isolation); kept for the existing controller surface.
+     * 委托给统一的回收站服务（自带事务边界 +
+     * 提交后 ES 隔离）；保留该入口以兼容现有控制器接口。
      */
     public void archive(CurrentUser user, long kbId, long pageId) {
         if (archiveService != null) {
             archiveService.archivePage(user, kbId, pageId);
             return;
         }
-        // Test/fallback path without the recycle-bin wiring.
+        // 未接入回收站的测试/兜底路径。
         requirePage(user, kbId, pageId, ResourceAction.MANAGE, WikiAction.ARCHIVE_PAGE);
         WikiPage page = requireActivePage(kbId, pageId);
         page.archive();

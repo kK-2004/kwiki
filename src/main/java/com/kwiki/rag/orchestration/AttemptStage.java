@@ -1,10 +1,10 @@
 package com.kwiki.rag.orchestration;
 
 /**
- * Deterministic recovery stages of the QA-gated knowledge answer path. Every
- * query round walks these stages in order and each candidate answer is
- * regenerated and re-evaluated from scratch; any stage that passes the QA gate
- * stops the progression immediately.
+ * QA 门控知识答案路径的确定性恢复阶段。每个
+ * 查询轮次按顺序走过这些阶段，每个候选答案都
+ * 从头重新生成并重新评估；任何通过 QA 门的阶段
+ * 都会立即终止推进。
  */
 public enum AttemptStage {
     BASE_CHILD("基础检索"),
@@ -30,7 +30,7 @@ public enum AttemptStage {
         return this == EXPANDED_CHILD || this == EXPANDED_PARENT;
     }
 
-    /** Next stage in the fixed order, or null when the query round is exhausted. */
+    /** 固定顺序中的下一个阶段；查询轮次耗尽时为 null。 */
     public AttemptStage next() {
         return switch (this) {
             case BASE_CHILD -> BASE_PARENT;

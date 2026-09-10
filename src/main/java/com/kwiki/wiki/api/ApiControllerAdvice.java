@@ -8,18 +8,18 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * App-owned handlers for failures the kk-common shared exception auto-configuration
- * does not cover, so no exception type ever has two owners: Spring Security
- * authorization denials (@PreAuthorize) and defensive bad-request arguments. Everything
- * else (not-found, conflict, validation, unknown) is answered by the SDK's
- * GlobalExceptionHandler with the shared TransDTO envelope. Responses carry stable
- * codes only — never stack traces, constraint names, or exception internals.
+ * 用于承载 kk-common 共享异常自动配置未覆盖的失败的应用自有
+ * 处理器，因此任何一种异常类型都不会有两个归属方：Spring Security
+ * 的授权拒绝（@PreAuthorize）与防御性的错误请求参数。其他
+ * 一切（未找到、冲突、校验失败、未知）都由 SDK 的
+ * GlobalExceptionHandler 以共享的 TransDTO 信封作答。响应只携带稳定的
+ * 错误码 —— 绝不包含堆栈、约束名或异常内部信息。
  *
- * <p>{@code HIGHEST_PRECEDENCE} is load-bearing: the SDK advice declares the same
- * order, and its catch-all {@code Exception} handler would otherwise be consulted
- * first, flattening 403/400 into the shared system-error code. Equal orders resolve
- * through Spring's stable sort, which keeps this component-scanned (user) bean ahead
- * of the SDK's auto-configured one.
+ * <p>{@code HIGHEST_PRECEDENCE} 是关键所在：SDK 的通知类声明了相同的
+ * 优先级，否则它的兜底 {@code Exception} 处理器会被优先
+ * 采纳，把 403/400 压平成共享的系统错误码。相同优先级会通过
+ * Spring 的稳定排序解析，从而让这个被组件扫描（用户定义）的 bean 排在
+ * SDK 自动配置的那个之前。
  */
 @org.springframework.core.annotation.Order(org.springframework.core.Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice

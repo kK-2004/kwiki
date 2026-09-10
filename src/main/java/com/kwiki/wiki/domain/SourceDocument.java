@@ -10,7 +10,7 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 
-/** Provenance record linking a page to the uploaded document it was derived from. */
+/** 将页面与其来源上传文档关联的溯源记录。 */
 @Entity
 @Table(name = "source_document")
 public class SourceDocument {

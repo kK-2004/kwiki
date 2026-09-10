@@ -9,9 +9,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Assembles the generation context: distinct parents in deterministic first-hit order, bounded by
- * the total character budget. Truncation retains only child anchors whose text remains in context;
- * parents without a retained anchor and parents beyond the budget are omitted.
+ * 组装生成上下文：按确定性的首次命中顺序排列去重的父级，受
+ * 总字符预算约束。截断仅保留文本仍在上下文中的子锚点；
+ * 无保留锚点的父级以及超出预算的父级会被省略。
  */
 @Component
 public class EvidenceAssembler {

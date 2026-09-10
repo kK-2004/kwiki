@@ -8,9 +8,9 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Mapping contract: emitted mapping matches the hand-authored fixture shape,
- * dense_vector dims come from the single configured value, and validation rejects
- * incompatible dimensions or missing provenance fields before any alias switch.
+ * 映射契约：产出的映射与手写的夹具形态一致，
+ * dense_vector 维度来自那个唯一配置值，且校验会在任何
+ * 别名切换之前拒绝不兼容的维度或缺失的溯源字段。
  */
 class ChunkMappingTest {
 

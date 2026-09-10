@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Direct page collaborators. Knowledge-base administrators are returned as inherited members. */
+/** 页面直属协作者。知识库管理员以继承成员的身份返回。 */
 @Service
 public class PageCollaborationService {
     private final JdbcOperations jdbc;

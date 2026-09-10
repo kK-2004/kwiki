@@ -18,15 +18,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Contract coverage for the kk-common distributed lock (production code has no
- * critical section yet, so this adapter documents and pins the pattern any future
- * caller must follow): acquire with a bounded tryLock, run the section at most once,
- * always unlock in finally — and only what was acquired — and restore the interrupt
- * flag instead of swallowing cancellation.
+ * kk-common 分布式锁的契约覆盖（生产代码目前还没有
+ * 临界区，因此该适配器记录并固定了未来任何调用方
+ * 都必须遵循的模式）：用有界的 tryLock 获取、让临界区最多执行一次、
+ * 始终在 finally 中解锁 —— 且只解锁确实获取到的锁 —— 并恢复中断
+ * 标志，而不是吞掉取消信号。
  */
 class DistributedLockContractTest {
 
-    /** Canonical consumer adapter; copy this shape for real critical sections. */
+    /** 规范的消费方适配器；真实临界区请照此形态复制。 */
     static <T> Optional<T> runWithLock(DistributedLockFactory locks, String name,
                                        long waitMillis, Supplier<T> criticalSection) {
         DistributedLock lock = locks.getDistributedLock(name);
@@ -34,11 +34,11 @@ class DistributedLockContractTest {
         try {
             acquired = lock.tryLock(waitMillis, TimeUnit.MILLISECONDS);
             if (!acquired) {
-                return Optional.empty(); // documented busy path; never unlock a lock not held
+                return Optional.empty(); // 已文档化的忙等路径；绝不解锁未持有的锁
             }
             return Optional.ofNullable(criticalSection.get());
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt(); // keep the cancel signal alive
+            Thread.currentThread().interrupt(); // 保持取消信号有效
             return Optional.empty();
         } finally {
             if (acquired) {

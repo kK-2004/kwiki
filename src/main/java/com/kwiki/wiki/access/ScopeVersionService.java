@@ -11,11 +11,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Monotonic per-knowledge-base scope versions backed by the scope_version table.
- * Membership changes bump the version, which makes in-flight requests stale so the
- * outbound guard can abort them. When no JDBC template is available (unit/dev
- * context) an in-memory fallback keeps the service usable; production always runs
- * with MySQL.
+ * 由 scope_version 表支撑的、各知识库单调递增的作用域版本。成员关系变更会
+ * 使版本号递增，进而让在途请求失效，以便出站守卫将其中止。当没有可用
+ * 的 JDBC 模板时（单元/开发环境），内存兜底保证服务可用；生产环境始终
+ * 运行在 MySQL 上。
  */
 @Service
 public class ScopeVersionService {
@@ -29,7 +28,7 @@ public class ScopeVersionService {
         this.jdbc = jdbc.getIfAvailable();
     }
 
-    /** Current version of a knowledge base (1 before the first membership change). */
+    /** 知识库的当前版本（首次成员关系变更前为 1）。 */
     public long current(long kbId) {
         if (jdbc == null) {
             return inMemory(kbId).get();
@@ -44,8 +43,8 @@ public class ScopeVersionService {
     }
 
     /**
-     * Atomically advances the version. Guarded-update + insert-retry keeps the value
-     * strictly monotonic under concurrent membership changes.
+     * 原子地推进版本号。守卫式更新 + 插入重试，在并发成员关系变更下
+     * 仍保持值的严格单调递增。
      */
     public long bump(long kbId) {
         if (jdbc == null) {
@@ -63,7 +62,7 @@ public class ScopeVersionService {
                 jdbc.update("INSERT INTO scope_version (kb_id, version) VALUES (?, ?)",
                         kbId, INITIAL_VERSION);
             } catch (DuplicateKeyException raceLost) {
-                // another writer created the row first; retry the guarded update
+                // 另一写入方已先创建该行；重试守卫式更新
             }
         }
     }

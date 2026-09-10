@@ -1,10 +1,10 @@
 /**
- * attachment:// → short-lived authorized URL resolution for KMediaViewer.
- * The component stays application-independent; this adapter owns kwiki's
- * access model: stable attachment tokens in stored content, signed preview
- * URLs only in memory. Fetches are shared per resolver instance so multiple
- * viewers of the same attachment hit the endpoint once; the viewer's own
- * token guard already ignores results for switched/unmounted sources.
+ * attachment:// → 为 KMediaViewer 解析短期有效的授权 URL。
+ * 该组件保持与应用无关；这个适配器（adapter）负责 kwiki 的
+ * 访问模型：持久化内容中使用稳定的附件 token，已签名的预览
+ * URL 仅存于内存中。请求按解析器实例共享，因此同一个
+ * 附件的多个查看器只需请求一次接口；查看器自身的
+ * token 守卫已忽略切换 / 卸载（unmount）源的查询结果。
  */
 import { api } from '../api';
 import { attachmentUuidOf, isAttachmentRef } from './mediaBlocks';
@@ -32,7 +32,7 @@ export function createMediaPreviewResolver(kbId: number | undefined): MediaSourc
   };
 }
 
-/** Resolves the download endpoint used by ATTACHMENT cards (not media viewers). */
+/** 解析 ATTACHMENT（附件）卡片使用的下载端点（不是媒体查看器）。 */
 export async function resolveAttachmentDownloadUrl(kbId: number | undefined, uuid: string): Promise<string | null> {
   if (kbId == null) return null;
   try {

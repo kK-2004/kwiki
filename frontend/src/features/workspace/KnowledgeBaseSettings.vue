@@ -42,7 +42,7 @@ async function add() { if (!chosen.value) return; await perform(async () => { aw
 async function changeRole(member: Member, event: Event) { const select = event.target as HTMLSelectElement; const role = select.value; await perform(async () => { await api.put(`/knowledge-bases/${props.kbId}/members`, { userId:member.userId, role }); await loadMembers(); }, '成员角色已更新'); select.value = members.value.find(m => m.userId === member.userId)?.role || member.role; }
 const removeTarget = ref<Member | null>(null); const archiveOpen = ref(false);
 async function confirmAction() { await perform(async () => { if (removeTarget.value) { await api.delete(`/knowledge-bases/${props.kbId}/members/${removeTarget.value.userId}`); removeTarget.value = null; await loadMembers(); } }, '操作已完成'); }
-/** Two-step archive: fires only from the final modal, debounced via saving flag. */
+/** 两步归档：仅从最终弹窗触发，通过 saving 标志实现防抖。 */
 async function confirmArchive() { await perform(async () => { await api.post(`/knowledge-bases/${props.kbId}/archive`); archiveOpen.value = false; await wiki.loadKnowledgeBases(); await router.push('/knowledge-bases'); }, '知识库已移入回收站'); }
 const recipient = ref<number | ''>(''); const transferLink = ref(''); const copied = ref(false);
 async function transfer() { await perform(async () => { const result = await api.post<{ token: string }>('/ownership-transfers', { resourceType:'KB', resourceId:Number(props.kbId), recipientId:recipient.value }); transferLink.value = `${location.origin}${location.pathname}#/transfer/${encodeURIComponent(result.token)}`; }, '转交链接已生成，交由受让人确认后生效'); }

@@ -7,11 +7,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.stereotype.Component;
 
 /**
- * Daily 01:00 Asia/Shanghai trigger for the recycle-bin physical cleanup. A
- * dedicated MySQL advisory lock (acquired and released on one connection)
- * keeps multiple instances from processing the same expired batches; an
- * instance that cannot take the lock simply skips the tick — the next day's
- * run (or this instance's next tick) picks the work up.
+ * 每日 01:00（Asia/Shanghai）触发回收站物理清理。一把专用 MySQL 咨询锁
+ * （在同一连接上获取与释放）防止多个实例处理同一批过期批次；无法获取
+ * 锁的实例直接跳过本次触发——次日运行（或本实例的下次触发）会接管该工作。
  */
 @Component
 @EnableScheduling

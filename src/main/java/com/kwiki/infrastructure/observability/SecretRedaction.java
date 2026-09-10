@@ -10,10 +10,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Central credential redaction used by the logback converter and the request filter.
- * Guarantees that authorization headers, API keys, app tokens, passwords, and
- * signed download-link query parameters never appear in captured logs; values are
- * replaced with [REDACTED] while keys and structure stay diagnosable.
+ * 供 logback 转换器与请求过滤器共用的集中式凭据脱敏。
+ * 保证授权头、API key、app token、密码以及
+ * 已签名下载链接的查询参数绝不会出现在采集的日志中；这些值会被
+ * 替换为 [REDACTED]，同时键与结构仍可供排查。
  */
 public final class SecretRedaction {
 
@@ -27,7 +27,7 @@ public final class SecretRedaction {
                     + "client[_-]?secret|app[_-]?token|signature|sig|x-amz-signature|"
                     + "x-amz-credential|x-amz-security-token)\"?\\s*[=:]\\s*)(\"?[\\w./+%~=-]{4,}\"?)");
 
-    /** Query parameter names (lower-case) that carry credentials in presigned or login URLs. */
+    /** 在预签名或登录 URL 中携带凭据的查询参数名（小写）。 */
     private static final Set<String> SENSITIVE_QUERY_PARAMS = Set.of(
             "signature", "sig", "x-amz-signature", "x-amz-credential", "x-amz-security-token",
             "access-key", "accesskey", "password", "passwd", "api-key", "apikey", "token",
@@ -36,7 +36,7 @@ public final class SecretRedaction {
     private SecretRedaction() {
     }
 
-    /** Redacts credential values from free-form log message text. */
+    /** 从自由格式的日志消息文本中脱敏掉凭据值。 */
     public static String redact(String text) {
         if (text == null || text.isEmpty()) {
             return text;
@@ -46,7 +46,7 @@ public final class SecretRedaction {
         return result;
     }
 
-    /** Redacts sensitive parameters from a raw query string while preserving order and names. */
+    /** 从原始查询字符串中脱敏（redaction）敏感参数，同时保留顺序与名称。 */
     public static String redactQueryString(String queryString) {
         if (queryString == null || queryString.isEmpty()) {
             return queryString;
@@ -66,7 +66,7 @@ public final class SecretRedaction {
         return String.join("&", kept);
     }
 
-    /** True when a query parameter name is treated as credential-carrying. */
+    /** 当某个查询参数名被视为携带凭据时返回 true。 */
     public static boolean isSensitiveQueryParam(String rawKey) {
         String key = URLDecoder.decode(rawKey, StandardCharsets.UTF_8)
                 .toLowerCase(Locale.ROOT);

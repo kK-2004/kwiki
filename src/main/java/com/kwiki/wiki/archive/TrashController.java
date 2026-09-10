@@ -15,9 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 /**
- * Recycle-bin surface: paged listing of recoverable archive batches and the
- * restore action. Restore conflicts surface as 409 (wrong state / parent kb
- * still archived) and expiry as 410 with a readable reason.
+ * 回收站接口：可恢复的归档批次的分页列表与恢复动作。恢复冲突以 409 暴露
+ * （状态错误 / 父级知识库仍处于归档），过期则以 410 并附带可读原因暴露。
  */
 @RestController
 @RequestMapping("/api/v1/trash")

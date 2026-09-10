@@ -13,7 +13,7 @@ import java.time.Duration;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Transport only: the SDK owns completion JSON and SSE parsing. */
+/** 仅负责传输（transport）：完成结果的 JSON 与 SSE 解析由 SDK 负责。 */
 public final class CancellableModelHttpClient implements HttpClient {
     private static final ExecutorService STREAMS =
             Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("model-http-", 0).factory());

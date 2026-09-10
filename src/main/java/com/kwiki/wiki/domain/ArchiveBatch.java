@@ -15,10 +15,9 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 /**
- * One recoverable recycle-bin batch: the archived root (a page subtree or a
- * knowledge base), its operator, the exact retention window, and the ES index
- * sync status. Retrying the same archive request reuses the existing batch and
- * never resets the timer.
+ * 一个可恢复的回收站批次：被归档的根（页面子树或知识库）、操作者、
+ * 精确的保留窗口，以及 ES 索引同步状态。对同一次归档请求重试会复用
+ * 既有批次，且永不重置计时器。
  */
 @Entity
 @Table(name = "archive_batch")

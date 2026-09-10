@@ -31,16 +31,16 @@ public class ChatSessionController {
     public record RenameRequest(@NotBlank String title) {}
 
     /**
-     * Stored wire events of one run in seq order, for replaying the activity
-     * timeline when a conversation is reopened. Runs from before this table
-     * existed simply return an empty list.
+     * 按 seq 顺序返回某次运行已存储的线上事件，用于在重新打开
+     * 对话时回放活动时间线。此表出现之前的运行
+     * 只会返回空列表。
      */
     @GetMapping("/{sessionId}/runs/{requestId}/events")
     TransDTO<List<ChatRunEventStore.StoredEvent>> runEvents(
             @AuthenticationPrincipal CurrentUser user,
             @PathVariable String sessionId,
             @PathVariable String requestId) {
-        sessions.detail(user, sessionId); // ownership check
+        sessions.detail(user, sessionId); // 归属校验
         return TransDTO.success(runEvents.replay(requestId));
     }
 

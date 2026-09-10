@@ -1,4 +1,4 @@
-/** API contracts shared by the workspace and authentication pages. */
+/** 工作空间页面与认证页面共用的 API 契约。 */
 export interface TreeNodeDto {
   id: number;
   uuid: string;

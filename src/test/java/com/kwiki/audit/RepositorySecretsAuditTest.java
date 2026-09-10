@@ -14,10 +14,10 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Repository audit that rejects committed credential-like defaults. Secrets must only
- * ever arrive through KWIKI_* environment variables; the tracked .env.example and
- * application*.yml files must stay credential-free, and no real .env file may be
- * committed. Also guards against credentials copied over from k-Rag.
+ * 仓库审计：拒绝提交类凭据的默认值。密钥只能
+ * 通过 KWIKI_* 环境变量注入；被纳入版本管理的 .env.example 与
+ * application*.yml 文件必须保持无凭据，且不得提交真实的 .env 文件。
+ * 同时防范从 k-Rag 复制过来的凭据。
  */
 class RepositorySecretsAuditTest {
 

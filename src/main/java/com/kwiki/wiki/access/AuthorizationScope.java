@@ -5,10 +5,9 @@ import java.util.Set;
 import java.util.function.LongUnaryOperator;
 
 /**
- * Immutable authorization scope resolved once per request. Carries the accessible
- * knowledge bases and the per-knowledge-base scope versions captured at resolution
- * time; the outbound guard re-checks those versions before evidence leaves the
- * system, so membership changes during long retrieval/generation abort the request.
+ * 每次请求解析一次的不可变授权作用域。携带可访问的知识库以及解析时刻捕获的
+ * 各知识库作用域版本；出站守卫在证据离开系统前会重新校验这些版本，因此
+ * 长时间检索/生成期间发生的成员关系变更会使请求中止。
  */
 public record AuthorizationScope(
         long userId,
@@ -28,7 +27,7 @@ public record AuthorizationScope(
         accessiblePageIds = Set.copyOf(accessiblePageIds == null ? Set.of() : accessiblePageIds);
     }
 
-    /** Superusers see everything; everyone else only their member knowledge bases. */
+    /** 超级用户可见全部内容；其他用户仅可见其作为成员的知识库。 */
     public boolean includes(long kbId) {
         return superuser || accessibleKbIds.contains(kbId);
     }
@@ -38,8 +37,7 @@ public record AuthorizationScope(
     }
 
     /**
-     * True when any tracked knowledge-base version has advanced beyond the value
-     * captured in this scope (membership changed since resolution).
+     * 当任一被追踪的知识库版本已超出本作用域捕获的值（即解析后成员关系发生变更）时为 true。
      */
     public boolean isStale(LongUnaryOperator currentVersion) {
         for (Map.Entry<Long, Long> entry : kbVersions.entrySet()) {

@@ -6,9 +6,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Mapping builder for the versioned chunk index. The single configured embedding
- * dimension drives the dense_vector field so request validation and the mapping
- * can never drift apart.
+ * 带版本号分块索引的映射构建器。单一配置的向量嵌入
+ * 维度驱动 dense_vector 字段，因此请求校验与映射
+ * 永远不会彼此漂移。
  */
 @Component
 public class ChunkMappingBuilder {

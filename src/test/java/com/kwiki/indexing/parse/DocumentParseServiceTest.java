@@ -14,9 +14,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Text-input boundary: Markdown/DOCX/HTML yield structured blocks, image/unknown
- * types are rejected outside the allowlist, and no-text inputs (scanned-content
- * stand-ins) are rejected without OCR, embeddings, or index writes.
+ * 文本输入边界：Markdown/DOCX/HTML 产出结构化块，图片/未知
+ * 类型在允许列表之外被拒绝，无文本输入（扫描内容的
+ * 替代物）在不经过 OCR、embedding 或索引写入的情况下被拒绝。
  */
 class DocumentParseServiceTest {
 
@@ -40,7 +40,7 @@ class DocumentParseServiceTest {
             assertThat(block.text()).isEqualTo("第一段。");
         });
         assertThat(document.plainText()).contains("code()");
-        // offsets must point into the plain text
+        // 偏移量必须指向纯文本内部
         for (StructBlock block : document.blocks()) {
             assertThat(document.plainText()
                     .substring(block.charStart(), block.charEnd()))
@@ -99,7 +99,7 @@ class DocumentParseServiceTest {
                 service.parse("scan.png", "image/png", new ByteArrayInputStream(pngHeader)))
                 .isInstanceOf(UnsupportedInputException.class)
                 .hasMessageContaining("accepted text-extractable types")
-                .hasMessageNotContaining("OCR service"); // never mentions or invokes OCR
+                .hasMessageNotContaining("OCR service"); // 绝不提及或调用 OCR
     }
 
     @Test

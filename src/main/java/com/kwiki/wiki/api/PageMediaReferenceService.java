@@ -11,11 +11,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Persists the media references of a page revision (page_revision_media) in
- * the same transaction that saves the revision. Only stable
- * attachment://uuid references are recorded — external links are never
- * fetched or tracked. The rows drive authorized preview checks, archive
- * exclusivity decisions and physical cleanup ordering.
+ * 在保存修订版本的同一事务中持久化该页面修订版本的
+ * 媒体引用（page_revision_media）。只记录稳定的
+ * attachment://uuid 引用 —— 外部链接绝不会被
+ * 抓取或跟踪。这些记录驱动已授权的预览校验、归档
+ * 独占性判定以及物理清理顺序。
  */
 @Service
 public class PageMediaReferenceService {
@@ -38,7 +38,7 @@ public class PageMediaReferenceService {
                 : MarkdownMediaScanner.scan(markdown)) {
             String uuid = MarkdownMediaScanner.attachmentUuid(reference.src());
             if (uuid == null) {
-                continue; // external link: display-only, never fetched
+                continue; // 外部链接：仅供展示，绝不抓取
             }
             byUuid.putIfAbsent(uuid, reference.kind());
         }
@@ -48,7 +48,7 @@ public class PageMediaReferenceService {
                     .filter(candidate -> candidate.getKbId() == kbId)
                     .orElse(null);
             if (attachment == null || attachment.getId() == null) {
-                continue; // unknown or cross-kb attachment: not a valid reference
+                continue; // 未知或跨知识库的附件：不是有效引用
             }
             jdbc.update("""
                             INSERT INTO page_revision_media

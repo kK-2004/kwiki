@@ -28,10 +28,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The kk-common RedisUtil owns the Redis mechanics; this adapter only owns the
- * authorization contract: a cached scope round-trips without widening, and every
- * failure (feature off, Redis down, corrupted payload) degrades to the database
- * loader instead of widening or breaking the request.
+ * Redis 机制由 kk-common 的 RedisUtil 负责；该适配器只负责
+ * 授权契约：缓存的作用域往返后不会扩大，且每
+ * 一种失败（功能关闭、Redis 宕机、负载损坏）都会降级到数据库
+ * 加载器，而不是扩大或中断请求。
  */
 @ExtendWith(MockitoExtension.class)
 class ScopeCacheTest {
@@ -134,9 +134,9 @@ class ScopeCacheTest {
     }
 
     /**
-     * The shared serializer must round-trip the cached scope shape without a second
-     * JSON strategy: this exercises the exact GenericJackson2JsonRedisSerializer the
-     * SDK's kkRedisTemplate wires, guarding against accidental default-typing drift.
+     * 共享序列化器必须在不引入第二套 JSON 策略的前提下往返
+     * 缓存的 scope 形态：这里演练的正是 SDK 的 kkRedisTemplate
+     * 所装配的那个 GenericJackson2JsonRedisSerializer，以防默认类型推断意外漂移。
      */
     @Test
     void scopeRoundTripsThroughTheSharedSerializerWithoutWidening() {

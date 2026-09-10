@@ -12,9 +12,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * CI guard: the default build must never require Docker Compose, Testcontainers,
- * copied k-Rag secrets, or middleware container startup. kwiki always connects to
- * operator-provided MySQL/Redis/content center/Elasticsearch via KWIKI_* configuration.
+ * CI 防护：默认构建绝不得依赖 Docker Compose、Testcontainers、
+ * 复制过来的 k-Rag 密钥，或中间件容器启动。kwiki 始终通过
+ * KWIKI_* 配置连接运维方提供的 MySQL/Redis/content center/Elasticsearch。
  */
 class NoDockerMiddlewareAuditTest {
 

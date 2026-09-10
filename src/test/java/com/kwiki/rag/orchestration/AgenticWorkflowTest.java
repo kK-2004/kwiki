@@ -25,9 +25,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * QA-gated state machine behavior with scripted leaf adapters: stage order,
- * per-stage regeneration + review, budget ceilings, exact refusal text and
- * infrastructure terminals. Unreviewed candidates must never reach the wire.
+ * 以脚本化叶子适配器验证 QA 门禁状态机行为：阶段顺序、
+ * 每阶段重新生成 + 评审、预算上限、精确的拒绝文案以及
+ * 基础设施终止态。未经评审的候选绝不能上线。
  */
 class AgenticWorkflowTest {
 
@@ -39,7 +39,7 @@ class AgenticWorkflowTest {
 
     @AfterEach
     void close() {
-        // harness uses only scripted adapters; nothing to shut down
+        // 测试脚手架只使用脚本化适配器；无需关闭任何东西
     }
 
     Harness harness() {
@@ -77,7 +77,7 @@ class AgenticWorkflowTest {
     }
 
     // ------------------------------------------------------------------
-    // stage order and immediate stop
+    // 阶段顺序与立即停止
     // ------------------------------------------------------------------
 
     @Test
@@ -89,7 +89,7 @@ class AgenticWorkflowTest {
 
         var events = run(harness, "什么是部署方式");
 
-        assertThat(harness.parents.requestedKeys).isEmpty(); // first QA gate: no parent body read
+        assertThat(harness.parents.requestedKeys).isEmpty(); // 首个 QA 门禁：不读取父分块正文
         assertThat(harness.rewriter.inputs).isEmpty();
         assertThat(harness.answer.prompts).hasSize(1);
         assertThat(harness.quality.inputs).hasSize(1);
@@ -108,7 +108,7 @@ class AgenticWorkflowTest {
         var harness = harness();
         stubCorpus(harness, List.of(hit("C1", "P1", "片段正文 [P0]")));
         stubParent(harness, "P1", "完整父段落正文 [P0]");
-        // child candidates fail, parent candidates pass
+        // 子分块候选失败，父分块候选通过
         harness.quality.passes =
                 input -> input.candidate().evidenceLevel() == CandidateAnswer.EvidenceLevel.PARENT;
         harness.answer.scripted.add("子候选 [P0]");
@@ -118,7 +118,7 @@ class AgenticWorkflowTest {
 
         assertThat(harness.parents.requestedKeys).hasSize(1);
         assertThat(harness.rewriter.inputs).isEmpty();
-        // expanded stage never ran: all recall TopKs are the base 20
+        // 扩展阶段从未运行：所有召回的 TopK 都是基础值 20
         assertThat(harness.bm25.topKs).containsOnly(20);
         assertThat(events.getLast().payloadMap()).containsEntry("outcome", "completed");
         assertThat(events.stream().filter(event -> event.type().equals("token"))
@@ -131,7 +131,7 @@ class AgenticWorkflowTest {
     void expansionWidensBothBranchesAndFinalTopK() {
         var harness = harness();
         stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
-        // only the expanded child stage passes
+        // 只有扩展后的子分块阶段通过
         harness.quality.passes = input -> input.candidate().attemptStage()
                 == AttemptStage.EXPANDED_CHILD;
         harness.answer.scripted.add("基础子候选");
@@ -140,7 +140,7 @@ class AgenticWorkflowTest {
 
         var events = run(harness, "什么是部署方式");
 
-        // parent stages fetch parents, not children: base(20) → expanded(50)
+        // 父分块阶段获取的是父分块而非子分块：base(20) → expanded(50)
         assertThat(harness.bm25.topKs).containsExactly(20, 50);
         assertThat(events.getLast().payloadMap()).containsEntry("outcome", "completed");
         assertThat(events.getLast().payloadMap()).containsEntry("attemptStage", "EXPANDED_CHILD");
@@ -149,18 +149,18 @@ class AgenticWorkflowTest {
     @Test
     void zeroHitsSkipGenerationAndAdvanceToExpansion() {
         var harness = harness();
-        stubCorpus(harness, List.of()); // both branches succeed with zero hits
+        stubCorpus(harness, List.of()); // 两个分支都成功但命中为零
         harness.quality.passes = input -> true;
 
         run(harness, "什么是部署方式");
 
-        assertThat(harness.answer.prompts).isEmpty(); // never spin the model on nothing
-        // zero-hit rounds expand, then rewrite (twice): 3 rounds × base+expanded
+        assertThat(harness.answer.prompts).isEmpty(); // 绝不让模型空转
+        // 零命中轮次会先扩展，再改写（两次）：3 轮 × base+expanded
         assertThat(harness.bm25.topKs).containsExactly(20, 50, 20, 50, 20, 50);
     }
 
     // ------------------------------------------------------------------
-    // bounded rounds and exact refusal
+    // 有界轮次与精确拒绝
     // ------------------------------------------------------------------
 
     @Test
@@ -168,7 +168,7 @@ class AgenticWorkflowTest {
         var harness = harness();
         stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
         stubParent(harness, "P1", "父正文 [P0]");
-        harness.quality.passes = input -> false; // every candidate fails
+        harness.quality.passes = input -> false; // 每个候选都失败
         harness.answer.scripted.add("1");
         harness.answer.scripted.add("2");
         harness.answer.scripted.add("3");
@@ -178,8 +178,8 @@ class AgenticWorkflowTest {
 
         var events = run(harness, "什么是部署方式");
 
-        assertThat(harness.rewriter.inputs).hasSize(2); // exactly two rewrite calls
-        assertThat(harness.bm25.topKs).hasSize(6);      // 3 rounds × base+expanded retrieval... bounded
+        assertThat(harness.rewriter.inputs).hasSize(2); // 恰好两次改写调用
+        assertThat(harness.bm25.topKs).hasSize(6);      // 3 轮 × base+expanded 检索……有界
         var done = events.getLast();
         assertThat(done.type()).isEqualTo("done");
         assertThat(done.payloadMap()).containsEntry("outcome", "insufficient");
@@ -201,14 +201,14 @@ class AgenticWorkflowTest {
         stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
         stubParent(harness, "P1", "父正文");
         harness.quality.passes = input -> false;
-        // both rewrite calls return invalid echoes
+        // 两次改写调用都返回无效的原样回显
         harness.rewriter.scripted.add(Optional.empty());
         harness.rewriter.scripted.add(Optional.empty());
 
         var events = run(harness, "什么是部署方式");
 
         assertThat(harness.rewriter.inputs).hasSize(2);
-        // invalid rewrites never re-run identical retrieval: only round 1 stages ran
+        // 无效改写绝不重复执行相同的检索：只有第 1 轮的阶段运行过
         assertThat(harness.bm25.queries.stream().distinct().count()).isEqualTo(1);
         assertThat(events.getLast().payloadMap()).containsEntry("outcome", "insufficient");
     }
@@ -235,7 +235,7 @@ class AgenticWorkflowTest {
     }
 
     // ------------------------------------------------------------------
-    // infrastructure terminals and candidate isolation
+    // 基础设施终止态与候选隔离
     // ------------------------------------------------------------------
 
     @Test
@@ -296,9 +296,9 @@ class AgenticWorkflowTest {
 
         run(harness, "什么是部署方式");
 
-        // 3 rounds × (base child + base parent + expanded child) generations; the
-        // expanded-parent stage skips on this corpus because the parent body is
-        // already in the round's context (identical parent keys).
+        // 3 轮 ×（base child + base parent + expanded child）生成次数；
+        // 在该语料上 expanded-parent 阶段会被跳过，因为父分块正文
+        // 已在该轮的上下文中（父分块 key 相同）。
         assertThat(harness.answer.prompts).hasSize(9);
         assertThat(harness.quality.inputs).hasSize(9);
         assertThat(harness.bm25.topKs).hasSize(6);
@@ -321,7 +321,7 @@ class AgenticWorkflowTest {
         assertThat(activities).isNotEmpty();
         var phases = activities.stream().map(payload -> String.valueOf(payload.get("phase")));
         assertThat(phases).contains("ROUTE", "RETRIEVAL", "GENERATION", "QUALITY");
-        // stepId is stable across started/completed of the same step
+        // stepId 在同一步骤的 started/completed 之间保持稳定
         var startedIds = activities.stream()
                 .filter(payload -> "STARTED".equals(payload.get("status")))
                 .map(payload -> String.valueOf(payload.get("stepId"))).toList();
@@ -329,7 +329,7 @@ class AgenticWorkflowTest {
                 .filter(payload -> "COMPLETED".equals(payload.get("status")))
                 .map(payload -> String.valueOf(payload.get("stepId"))).toList();
         assertThat(completedIds).containsAll(startedIds);
-        // retrieval completion carries real metrics, never invented
+        // 检索完成事件携带真实指标，绝不凭空捏造
         var retrieval = activities.stream()
                 .filter(payload -> "RETRIEVAL".equals(payload.get("phase"))
                         && "COMPLETED".equals(payload.get("status")))

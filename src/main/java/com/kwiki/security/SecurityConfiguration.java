@@ -16,9 +16,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * Stateless JWT security baseline: every API endpoint requires an authenticated
- * caller by default (anonymous Wiki access is denied), method security defaults to
- * deny, and only health/info endpoints stay open for probes.
+ * 无状态的 JWT 安全基线：默认情况下每个 API 端点都要求已认证
+ * 的调用方（匿名访问 Wiki 被拒绝），方法级安全默认为
+ * 拒绝，只有 health/info 端点保持开放以供探活。
  */
 @Configuration
 @EnableWebSecurity

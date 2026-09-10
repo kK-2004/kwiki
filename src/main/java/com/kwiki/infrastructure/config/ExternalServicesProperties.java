@@ -16,11 +16,11 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * Explicit, environment-injected connection settings for operator-provided middleware.
- * kwiki never provisions MySQL, Redis, the content center, or Elasticsearch; every
- * value must come from KWIKI_* environment variables mapped in application.yml. Bean
- * Validation runs at binding time so a misconfigured deployment fails before
- * accepting traffic.
+ * 面向运维方提供的中间件，由环境变量显式注入的连接配置。
+ * kwiki 绝不创建 MySQL、Redis、内容中心或 Elasticsearch；每一项
+ * 取值都必须来自 application.yml 中映射的 KWIKI_* 环境变量。Bean
+ * 校验在绑定时执行，因此配置错误的部署会在
+ * 接受流量之前就失败。
  */
 @ConfigurationProperties(prefix = "kwiki")
 @Validated
@@ -31,9 +31,9 @@ public record ExternalServicesProperties(
         @Valid @NotNull QwenEmbedding qwenEmbedding) {
 
     /**
-     * Content center (k-File) attachment storage. The app token authenticates all
-     * open-API calls; source and path are optional upload routing hints owned by the
-     * content center. Validation never echoes the token in messages.
+     * 内容中心（k-File）的附件存储（attachment storage）。app token 对全部
+     * open-API 调用进行认证；source 与 path 是内容中心
+     * 所有的可选上传路由提示。校验过程绝不在消息中回显令牌。
      */
     public record ContentCenter(
             @NotBlank
@@ -62,9 +62,9 @@ public record ExternalServicesProperties(
     }
 
     /**
-     * Qwen embedding settings. The API key must be kwiki-specific (never copied from
-     * k-Rag), the model is fixed to text-embedding-v4, and the single dimension value
-     * drives both embedding response validation and the Elasticsearch dense-vector mapping.
+     * Qwen embedding 配置。API key 必须是 kwiki 专属的（绝不可从
+     * k-Rag 复制），模型固定为 text-embedding-v4，单一维度值同时驱动
+     * embedding 响应校验与 Elasticsearch 的稠密向量映射。
      */
     public record QwenEmbedding(
             @NotBlank

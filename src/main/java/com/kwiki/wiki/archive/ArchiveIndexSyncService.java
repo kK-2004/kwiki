@@ -17,13 +17,11 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * Synchronous ES deletion for freshly committed archive batches, plus the
- * bounded retry task for batches whose first attempt left them PENDING. The
- * per-knowledge-base index mutex serializes this against worker upserts so a
- * racing write cannot slip between the commit and the delete; the transactional
- * outbox (indexing_job rows) remains the belt-and-suspenders path when ES was
- * unavailable — the authoritative lifecycle filter keeps the content
- * unretrievable regardless of ES state.
+ * 针对刚提交的归档批次的同步 ES 删除，外加对首次尝试后仍为 PENDING 批次的
+ * 有界重试任务。按知识库维度的索引互斥锁将此操作与 worker 的 upsert 串行化，
+ * 避免竞态写入夹在提交与删除之间；事务性发件箱（indexing_job 行）在 ES 不可用
+ * 时仍作为兜底路径——权威的生命周期过滤器确保内容无论 ES 状态如何都
+ * 不可检索。
  */
 @Service
 @EnableScheduling
@@ -50,10 +48,9 @@ public class ArchiveIndexSyncService {
     }
 
     /**
-     * Attempts the synchronous deletion for a committed batch. Returns the
-     * resulting batch indexSyncStatus: SYNCED only when every delete finished
-     * without timeouts/conflicts and the refresh made it visible; any failure
-     * keeps PENDING for the retry task and the outbox.
+     * 尝试对某个已提交批次执行同步删除。返回该批次的 indexSyncStatus：
+     * 仅当所有删除均完成且无超时/冲突、且刷新使其可见时才为 SYNCED；
+     * 任何失败都使其保持 PENDING，交由重试任务与发件箱处理。
      */
     public String attemptSync(ArchiveBatch batch) {
         if (chunkIndex == null || ArchiveBatch.SYNC_SYNCED.equals(batch.getIndexSyncStatus())) {
@@ -92,7 +89,7 @@ public class ArchiveIndexSyncService {
             Thread.currentThread().interrupt();
             return ArchiveBatch.SYNC_PENDING;
         } catch (Exception e) {
-            // ES unavailable or mutex busy: archive stays authoritative, retry later.
+            // ES 不可用或互斥锁繁忙：归档仍为权威，稍后重试。
             log.warn("archive batch {} synchronous index deletion failed (kbId={}): {}",
                     batch.getId(), batch.getKbId(), rootCauseMessage(e));
             log.debug("archive batch {} index deletion failure details", batch.getId(), e);
@@ -110,7 +107,7 @@ public class ArchiveIndexSyncService {
                 + (message == null || message.isBlank() ? "" : ": " + message);
     }
 
-    /** Bounded retry of PENDING batches, oldest first. */
+    /** 对 PENDING 批次的有界重试，按最旧优先。 */
     @Scheduled(fixedDelayString = "${kwiki.archive.index-retry-interval:30s}",
                initialDelayString = "${kwiki.archive.index-retry-initial-delay:20s}")
     public void retryPendingBatches() {

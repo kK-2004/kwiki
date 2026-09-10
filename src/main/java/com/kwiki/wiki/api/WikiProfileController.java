@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.Instant;
 import java.util.List;
 
-/** Real, permission-filtered Wiki interactions for a user's profile. */
+/** 用户个人主页上真实的、按权限过滤的 Wiki 互动数据。 */
 @RestController
 @RequestMapping("/api/v1/users")
 @PreAuthorize("isAuthenticated()")

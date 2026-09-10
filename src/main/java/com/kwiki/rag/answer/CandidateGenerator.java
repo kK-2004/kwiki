@@ -12,11 +12,11 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Generates one bounded candidate answer from retained evidence. The stream is
- * collected entirely server-side: no token of an unreviewed candidate ever
- * reaches the browser or the final conversation answer. The hard character cap
- * (default 32,000) turns an overlong generation into an explicit
- * answer-too-long failure instead of an unbounded buffer.
+ * 由保留的 evidence 生成一个有界的候选答案。该流
+ * 完全在服务端收集：未审核候选的 token 绝不
+ * 触达浏览器或最终对话答案。硬性字符上限
+ * （默认 32,000）将过长的生成为明确的
+ * answer-too-long 失败，而非使用无界缓冲。
  */
 @Component
 public class CandidateGenerator {
@@ -36,8 +36,8 @@ public class CandidateGenerator {
     public record Generated(CandidateAnswer candidate, long elapsedMs) {}
 
     /**
-     * @param context the assembled generation context; either joined child
-     *                chunks (child stage) or parent bodies (parent stage)
+     * @param context 组装好的生成上下文；可以是拼接的子分块
+     * （子分块阶段）或父分块正文（父分块阶段）
      */
     public Generated generate(RunContext run, String originalQuery, String currentQuery,
                               AttemptStage stage, List<ChildEvidence> retainedChildren,

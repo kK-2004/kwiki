@@ -1,4 +1,4 @@
-/* Shared design tokens for the kwiki workspace, aligned with prototype/kwiki-wiki.html. */
+/* kwiki 工作空间共用的设计令牌，与 prototype/kwiki-wiki.html 对齐。 */
 :root {
   --kwiki-green: #18bc72;
   --kwiki-green-dark: #0e9858;
@@ -10,7 +10,7 @@
   --kwiki-sidebar-bg: #fafbfa;
   --kwiki-focus-outline: #7edcaf;
 
-  /* Backward-compatible aliases for existing component styles. */
+  /* 为已有组件样式保留的向后兼容别名。 */
   --kwiki-bg: #ffffff;
   --kwiki-panel: #ffffff;
   --kwiki-border: var(--kwiki-line);
@@ -59,5 +59,5 @@ button {
   border-radius: var(--kwiki-radius);
 }
 
-/* Workspace controls share one visual and focus language. */
+/* 工作空间控件共用一套视觉与焦点语言。 */
 a{color:inherit}button:disabled{cursor:not-allowed;opacity:.5}button,a,input,textarea,select{transition:background-color .15s,border-color .15s,box-shadow .15s}input,textarea,select{font:inherit;color:inherit}button i,a i{display:inline-block;flex-shrink:0}.ui-icon{display:inline-grid;place-items:center;width:32px;height:32px;border:0;border-radius:7px;background:transparent;color:#7a8780;cursor:pointer}.ui-icon:hover{background:#edf2ee;color:#2c553d}.ui-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:8px 14px;border:1px solid #dce5df;border-radius:8px;background:white;color:#405448;text-decoration:none;cursor:pointer;font-weight:500}.ui-button:hover{background:#f6f9f7}.ui-button.primary{color:white;background:#37865a;border-color:#37865a}.ui-button.primary:hover{background:#2d754c}.ui-button.danger{color:#ad4949;border-color:#ecd5d5}.ui-input{width:100%;padding:10px 12px;border:1px solid #dce5df;border-radius:8px;background:#fff;outline:none}.ui-input:focus{border-color:#65a77f;box-shadow:0 0 0 3px #37865a12}.ui-error{padding:12px 14px;border:1px solid #f0dcdc;border-radius:8px;background:#fff8f8;color:#ad4949;font-size:13px}.ui-notice{padding:12px 14px;border-radius:8px;background:#edf7f0;color:#317448;font-size:13px}

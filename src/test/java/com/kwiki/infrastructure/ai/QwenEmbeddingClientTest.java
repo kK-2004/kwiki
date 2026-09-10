@@ -20,9 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * HTTP stub contract for the Qwen embedding client: request shape (model, batching,
- * kwiki credential header), dimension validation, transient retry, non-retryable
- * rejection, and credential-free errors. No real endpoint is contacted.
+ * 千问向量嵌入客户端的 HTTP 桩契约：请求形态（model、批量、
+ * kwiki 凭据头）、维度校验、临时故障重试、不可重试的
+ * 拒绝，以及不含凭据的错误。不会访问任何真实端点。
  */
 class QwenEmbeddingClientTest {
 

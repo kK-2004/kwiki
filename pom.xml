@@ -30,13 +30,13 @@
     <json-schema-validator.version>2.0.0</json-schema-validator.version>
   </properties>
 
-  <!-- Private GitHub Packages repositories. Authentication comes from Maven settings:
-       a <server> whose <id> matches the repository id below, with a GitHub token that
-       has read:packages permission. The same token can back both server entries via
-       ${env.GITHUB_TOKEN}. Repository ids are unique; no credential is ever stored in
-       this repo.
-         github        -> kK-2004/kk-common  (shared kk-common SDK)
-         github-kfile  -> kK-2004/kFile      (content-center attachment SDK) -->
+  <!-- 私有 GitHub Packages 仓库。认证来自 Maven settings：
+       id 与下方仓库 id 相匹配的 <server>，并配以具备
+       read:packages 权限的 GitHub token。同一个 token 可通过
+       ${env.GITHUB_TOKEN} 同时支撑两个 server 条目。仓库 id 唯一；本仓库中
+       绝不存储任何凭据。
+         github        -> kK-2004/kk-common  （共享的 kk-common SDK）
+         github-kfile  -> kK-2004/kFile      （内容中心附件 SDK） -->
   <repositories>
     <repository>
       <id>github</id>
@@ -94,9 +94,9 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
-    <!-- Trace context: Micrometer Tracing over Brave. Server-side extraction and
-         client-side injection of W3C traceparent ride on the observation filters
-         that actuator auto-configures; the bridge only supplies the tracer. -->
+    <!-- 链路追踪上下文：基于 Brave 的 Micrometer Tracing。W3C traceparent 的
+         服务端抽取与客户端注入依托于 actuator 自动配置的观测过滤器；
+         桥接层只负责提供 tracer。 -->
     <dependency>
       <groupId>io.micrometer</groupId>
       <artifactId>micrometer-tracing-bridge-brave</artifactId>
@@ -119,11 +119,11 @@
       <artifactId>content-center-sdk</artifactId>
       <version>${content-center-sdk.version}</version>
     </dependency>
-    <!-- Shared cross-project toolkit: TransDTO response envelope, BusinessException +
-         GlobalExceptionHandler, RedisUtil cache-aside helpers and the Redisson-backed
-         DistributedLock factory. Activated through META-INF/spring/...AutoConfiguration.imports
-         and gated by the kk.common.*.enabled feature switches (web/exception default on,
-         redis/redisson default off). -->
+    <!-- 跨项目共享工具集：TransDTO 响应信封、BusinessException +
+         GlobalExceptionHandler、RedisUtil 旁路缓存辅助类，以及基于 Redisson 的
+         DistributedLock 工厂。通过 META-INF/spring/...AutoConfiguration.imports 激活，
+         并由 kk.common.*.enabled 功能开关把关（web/exception 默认开启，
+         redis/redisson 默认关闭）。 -->
     <dependency>
       <groupId>com.kK-2004</groupId>
       <artifactId>kk-common</artifactId>
@@ -215,9 +215,9 @@
   </build>
 
   <profiles>
-    <!-- Opt-in acceptance runs against operator-provided MySQL/Redis/content center/Elasticsearch/Qwen.
-         The env-gated *ContractTest classes activate through KWIKI_IT_* variables; the default
-         ./mvnw verify stays fully Docker-free and skips them. -->
+    <!-- 可选的验收运行，针对运维方提供的 MySQL/Redis/内容中心/Elasticsearch/千问。
+         由环境变量开关控制的 *ContractTest 类通过 KWIKI_IT_* 变量激活；默认的
+         ./mvnw verify 完全无需 Docker，并会跳过它们。 -->
     <profile>
       <id>external-it</id>
       <properties>

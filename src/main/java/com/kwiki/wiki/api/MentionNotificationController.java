@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** Permission-scoped @ candidates and the authenticated user's message center. */
+/** 受权限约束的 @ 候选人与当前认证用户的消息中心。 */
 @RestController
 @PreAuthorize("isAuthenticated()")
 public class MentionNotificationController {

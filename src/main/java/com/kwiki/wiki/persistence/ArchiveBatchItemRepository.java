@@ -13,7 +13,7 @@ public interface ArchiveBatchItemRepository extends JpaRepository<ArchiveBatchIt
     Optional<ArchiveBatchItem> findByBatchIdAndResourceTypeAndResourceId(
             long batchId, String resourceType, long resourceId);
 
-    /** Any live (non-purged-batch) reference to a resource, used for idempotency. */
+    /** 对资源的任一有效引用（未清除批次），用于幂等。 */
     List<ArchiveBatchItem> findByResourceTypeAndResourceId(String resourceType, long resourceId);
 
     long countByBatchIdAndPurgedFalse(long batchId);

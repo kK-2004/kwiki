@@ -3,7 +3,7 @@ package com.kwiki.rag.routing;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Exposes the versioned default keyword rules as the routing rule set bean. */
+/** 将带版本号的默认关键词规则作为路由规则集 bean 暴露出去。 */
 @Configuration
 public class RoutingConfiguration {
 

@@ -15,10 +15,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Qwen text-embedding-v4 adapter over the OpenAI-compatible /embeddings endpoint using the
- * kwiki-specific credential. Requests are batched, retried only for transient statuses (429/5xx)
- * within the deadline, and every returned vector is dimension-checked before use. Errors never
- * include the API key.
+ * 基于 OpenAI 兼容的 /embeddings 端点的 Qwen text-embedding-v4 适配器（adapter），
+ * 使用 kwiki 专属凭据。请求会批量处理，仅在截止时间（deadline）内对瞬时状态（429/5xx）
+ * 重试，且每个返回的向量在使用前都会进行维度校验。错误中绝不
+ * 包含 API key。
  */
 @Component
 public class QwenEmbeddingClient implements ChunkEmbeddingPort {

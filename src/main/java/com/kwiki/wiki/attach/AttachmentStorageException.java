@@ -1,17 +1,16 @@
 package com.kwiki.wiki.attach;
 
 /**
- * Sanitized storage failure raised by attachment-storage adapters. Messages never
- * contain app tokens, authorization headers, or signed URLs; the category keeps the
- * retry decision (worker backoff vs terminal dead-letter) expressible without
- * exposing provider details.
+ * 由附件存储适配器抛出的、经过脱敏的存储异常。异常信息绝不
+ * 包含应用令牌、授权头或签名 URL；其分类使得重试决策
+ * （worker 退避 vs 终态死信）在不暴露提供方细节的前提下仍可表达。
  */
 public class AttachmentStorageException extends RuntimeException {
 
     public enum Category {
-        /** Worth retrying: transport errors, timeouts, remote 429/5xx. */
+        /** 值得重试：传输错误、超时、远端 429/5xx。 */
         TRANSIENT,
-        /** Not worth retrying: rejected request, invalid content, unusable result. */
+        /** 不值得重试：被拒请求、无效内容、不可用结果。 */
         PERMANENT
     }
 

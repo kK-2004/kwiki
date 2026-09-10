@@ -19,11 +19,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * quality-v2 adapter: the review sees the original question, the query that
- * actually ran, the concrete candidate answer, and the evidence retained for
- * that candidate. Output is validated against the quality-v2 schema and any
- * structural failure is reported as {@code qa-unavailable} — a malformed
- * review is an infrastructure problem, never a content verdict.
+ * quality-v2 适配器（adapter）：评审会看到原始问题、实际执行的查询、
+ * 具体的候选回答，以及为该候选保留的证据。输出会对照 quality-v2 schema
+ * 进行校验，任何结构性失败都报告为 {@code qa-unavailable}——格式错误的
+ * 评审属于基础设施问题，绝非内容判定。
  */
 @Component
 public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
@@ -52,7 +51,7 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
                     "text", parent.body()));
         }
         if (evidence.isEmpty()) {
-            // Child-stage candidate: the retained children are the evidence.
+            // 子分块阶段的候选：保留下来的子分块即为证据。
             input.candidate().retainedChildren().stream()
                     .limit(32)
                     .forEach(child -> evidence.add(Map.of(

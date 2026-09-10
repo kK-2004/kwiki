@@ -3,8 +3,8 @@ package com.kwiki.indexing.chunk;
 import java.util.List;
 
 /**
- * A parent chunk covering one heading section (or a merged/split part of one).
- * charStart/charEnd point into the revision's plain-text projection.
+ * 覆盖一个标题分区的父分块（或其一的合并/切分部分）。
+ * charStart/charEnd 指向该版本的纯文本投影。
  */
 public record ParentChunk(
         String parentKey,

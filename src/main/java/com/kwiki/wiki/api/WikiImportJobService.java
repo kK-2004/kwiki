@@ -21,8 +21,8 @@ import java.util.Locale;
 import java.util.UUID;
 import org.springframework.scheduling.annotation.Scheduled;
 
-/** Durable import lifecycle. Uploads are stored as provenance and parsed once; the
- * generated Wiki revision is the only content sent to the indexing pipeline. */
+/** 持久化的导入生命周期。上传内容作为溯源保存并只解析一次；
+ * 生成的 Wiki 修订版本是唯一送入索引构建流水线的内容。 */
 @Service
 public class WikiImportJobService {
     private final JdbcOperations jdbc;
@@ -110,9 +110,9 @@ public class WikiImportJobService {
         return process(loadCreator(row), jobId);
     }
 
-    /** Recovers uploads left in STORED/PARSING after a process restart. The lease
-     * predicate makes concurrent schedulers harmless and the source relation makes
-     * a retry converge on the already-created page. */
+    /** 恢复进程重启后滞留在 STORED/PARSING 的上传。租约
+     * 断言使并发的调度器无害，来源关系则使
+     * 重试收敛到已经创建好的页面上。 */
     @Scheduled(fixedDelayString = "${kwiki.wiki-import.worker.poll-interval:10000}")
     public void recoverPending() {
         if (jdbc == null) return;
@@ -125,7 +125,7 @@ public class WikiImportJobService {
         }
         for (Long id : ids) {
             try { process(loadCreator(row(id)), id); }
-            catch (RuntimeException ignored) { /* fail() records the reason for the next retry */ }
+            catch (RuntimeException ignored) { /* fail() 会记录原因，供下一次重试使用 */ }
         }
     }
 

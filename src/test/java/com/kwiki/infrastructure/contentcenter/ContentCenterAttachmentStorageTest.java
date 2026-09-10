@@ -20,10 +20,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Drives the real SDK through the adapter against local MockWebServer endpoints:
- * init/presigned-PUT/complete upload flow, strict result validation, download-link
- * generation by file id, bounded content fetch, error/expiry handling, and proof
- * that tokens and signed URLs never leak into exception messages.
+ * 通过适配器驱动真实 SDK 访问本地 MockWebServer 端点：
+ * 初始化/预签名 PUT/完成的上传流程、严格的结果校验、按 file id
+ * 生成下载链接、有界的内容拉取、错误/过期处理，并证明
+ * token 与签名 URL 绝不会泄漏进异常消息。
  */
 class ContentCenterAttachmentStorageTest {
 
@@ -279,7 +279,7 @@ class ContentCenterAttachmentStorageTest {
 
     @Test
     void sdkErrorMessagesNeverLeakTokenOrSignedUrl() {
-        // Server error body deliberately embeds a full signed URL and the token.
+        // 服务端错误响应体刻意内嵌了完整的签名 URL 与 token。
         server.enqueue(new MockResponse().setResponseCode(400)
                 .setBody("{\"message\":\"rejected for " + server.url("/signed?sig=secret-sig")
                         + " bearer " + TOKEN + "\"}")

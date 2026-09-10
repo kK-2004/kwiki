@@ -5,10 +5,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Transaction boundary helper for the recycle-bin services. In production the
- * auto-configured TransactionTemplate wraps every callback in a real database
- * transaction; in connection-free offline contexts (unit tests) the callback
- * simply runs without wrapping so the services stay bootable.
+ * 回收站服务的事务边界辅助类。在生产环境中，自动配置的 TransactionTemplate
+ * 会将每个回调包裹在真实数据库事务中；在无连接的离线环境（单元测试）下，
+ * 回调直接运行、不予包裹，从而让服务保持可启动。
  */
 @Component
 public class TransactionRunner {

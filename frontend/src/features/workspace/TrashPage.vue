@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * Recycle-bin surface. Workspace view (`/trash`): archived knowledge bases;
- * knowledge-base view (`/knowledge-bases/:kbId/trash`): page batches of that
- * base. Rows show operator, archived/expiry time, index-sync status and
- * restorability; restore surfaces 409/410 reasons as readable inline notices.
+ * 回收站界面。工作空间视图（`/trash`）：已归档的知识库；
+ * 知识库视图（`/knowledge-bases/:kbId/trash`）：该知识库的页面批次
+ * 行。表格行展示操作人、归档 / 过期时间、索引同步状态以及
+ * 可恢复性；恢复操作将 409/410 原因以可读的内联提示展示。
  */
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';

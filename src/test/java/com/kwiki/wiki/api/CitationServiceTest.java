@@ -57,7 +57,7 @@ class CitationServiceTest {
 
     @Test
     void revokedAccessReturnsNotFoundWithoutRestrictedMetadata() {
-        // MEMBER (non-admin) resolves an empty scope: kb 5 is not included
+        // MEMBER（非管理员）解析出空作用域：不包含知识库 5
         assertThatThrownBy(() -> service().resolve(MEMBER, "C-known"))
                 .isInstanceOf(NotFoundException.class)
                 .as("revoked access must be indistinguishable from missing");

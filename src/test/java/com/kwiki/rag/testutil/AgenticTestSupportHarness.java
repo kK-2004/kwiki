@@ -26,9 +26,9 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * Builds a QA-gated {@link com.kwiki.rag.orchestration.AgenticWorkflowPort}
- * with functional recall/parent/LLM scripts and an always-passing quality
- * review — the state machine, budgets and RRF run for real.
+ * 构建一个 QA 门禁的 {@link com.kwiki.rag.orchestration.AgenticWorkflowPort}，
+ * 搭配函数式的召回/父分块/LLM 脚本，以及一个始终通过的
+ * 质量评审 —— 状态机、预算与 RRF 都真实运行。
  */
 public final class AgenticTestSupportHarness {
 

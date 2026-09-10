@@ -16,14 +16,14 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Parent fetch is a separate, explicitly requested stage of the QA-gated
- * path: only after a child-stage candidate failed its gate does the workflow
- * fetch the parents of the children retained for THAT stage. Parents are
- * deduplicated by first-child-hit order, bounded by the stage parent limit and
- * the fixed parent character budget, and every fetch re-validates the
- * authorization scope and lifecycle exclusions. When the retained children's
- * parents are all already in the used context, the stage reports skipped
- * instead of re-serving identical context.
+ * 父分块获取是 QA 门禁链路中一个独立的、需显式请求的阶段：
+ * 只有在子分块阶段的候选未通过门禁之后，工作流才会
+ * 获取该阶段所保留子分块的父分块。父分块按
+ * 首个命中的子分块顺序去重，受阶段父分块上限与
+ * 固定的父分块字符预算约束，且每次获取都会重新校验
+ * 授权作用域与生命周期排除项。当保留下来的子分块的
+ * 父分块全部已在已用上下文中时，该阶段会报告「已跳过」，
+ * 而不是重复提供相同的上下文。
  */
 @Component
 public class QaParentFetchService {
@@ -44,8 +44,8 @@ public class QaParentFetchService {
     }
 
     /**
-     * @param usedParentKeys parent keys already present in this query's context
-     *                       (child stages carry none by construction)
+     * @param usedParentKeys 本查询上下文中已存在的父级 key
+     *                       （子阶段按构造不含任何父级）
      */
     public ParentStageOutcome fetchParents(AuthorizationScope scope, RunContext run,
                                            List<ChildEvidence> retainedChildren,
@@ -86,7 +86,7 @@ public class QaParentFetchService {
         return new ParentStageOutcome(evidence, false, null, evidence.size(), elapsed);
     }
 
-    /** Parent keys currently represented in the evidence list. */
+    /** 当前在 evidence 列表中表示的父级 key。 */
     public static Set<String> keysOf(List<ParentEvidence> evidence) {
         Set<String> keys = new HashSet<>();
         for (ParentEvidence parent : evidence) {

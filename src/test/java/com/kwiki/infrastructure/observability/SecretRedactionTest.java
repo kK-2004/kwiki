@@ -9,9 +9,9 @@ import org.slf4j.LoggerFactory;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Proves that authorization headers, API keys, passwords, and signed download-link
- * query parameters never survive redaction in message text or query strings, and
- * that the logback converter applies the same guarantee to real logging events.
+ * 证明授权头、API key、密码以及已签名下载链接的
+ * 查询参数在消息文本或查询串中经脱敏后绝不残留，并且
+ * logback 转换器对真实日志事件施加同样的保证。
  */
 class SecretRedactionTest {
 

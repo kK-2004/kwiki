@@ -20,15 +20,15 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Predicate;
 
 /**
- * Assembles the QA-gated workflow with scripted leaf adapters: the recall
- * branches, parent fetcher, answer model, quality-v2 review and feedback
- * rewriter are scriptable, while the state machine, RRF fusion, budgets and
- * activity/debug plumbing run for real — tests observe actual rankings and
- * stage order instead of mocks of them.
+ * 用脚本化叶子适配器组装 QA 门禁工作流：召回
+ * 分支、父分块获取器、回答模型、quality-v2 评审与反馈
+ * 改写器都可脚本化，而状态机、RRF 融合、预算与
+ * 活动/调试管道都真实运行 —— 测试观察到的是真实的排名与
+ * 阶段顺序，而不是它们的模拟对象。
  */
 public final class AgenticTestSupport {
 
-    /** Scripted recall branch: returns hits in configured order per branch. */
+    /** 脚本化召回分支：按分支返回配置顺序的命中结果。 */
     public static final class ScriptRecall implements ChildRecallPort {
         public final ChildRecallPort.Branch branch;
         public List<ChunkHit> hits = List.of();
@@ -48,7 +48,7 @@ public final class AgenticTestSupport {
         }
     }
 
-    /** Scripted parent fetcher returning configured parents for requested keys. */
+    /** 脚本化父分块获取器，为请求的 key 返回配置好的父分块。 */
     public static final class ScriptParentFetcher
             implements ParentEvidenceResolver.ParentChunkFetcher {
         public final Map<String, ParentEvidenceChunk> byKey = new LinkedHashMap<>();
@@ -67,7 +67,7 @@ public final class AgenticTestSupport {
         }
     }
 
-    /** Scripted answer model serving queued texts; records every prompt. */
+    /** 脚本化回答模型，按队列提供文本；记录每一次 prompt。 */
     public static final class ScriptAnswer implements AnswerLlmPort {
         public final List<String> prompts = new CopyOnWriteArrayList<>();
         public final ArrayDeque<String> scripted = new ArrayDeque<>();
@@ -80,7 +80,7 @@ public final class AgenticTestSupport {
         }
     }
 
-    /** Scripted quality-v2 review with a per-input pass predicate. */
+    /** 带逐输入通过谓词的脚本化 quality-v2 评审。 */
     public static final class ScriptQuality implements QualityV2AnalyzerPort {
         public final List<QualityV2Input> inputs = new CopyOnWriteArrayList<>();
         public Predicate<QualityV2Input> passes = input -> true;
@@ -111,7 +111,7 @@ public final class AgenticTestSupport {
         }
     }
 
-    /** Scripted feedback rewriter recording every structured input. */
+    /** 脚本化反馈改写器，记录每一次结构化输入。 */
     public static final class ScriptRewriter implements FeedbackRewritePort {
         public final List<FeedbackRewriteInput> inputs = new CopyOnWriteArrayList<>();
         public final ArrayDeque<Optional<String>> scripted = new ArrayDeque<>();
@@ -125,7 +125,7 @@ public final class AgenticTestSupport {
         }
     }
 
-    /** Real state machine + budgets + RRF with the scripted leaf adapters. */
+    /** 真实状态机 + 预算 + RRF，搭配脚本化的叶子适配器。 */
     public static final class Harness {
         public final ScriptRecall bm25;
         public final ScriptRecall vector;
@@ -202,7 +202,7 @@ public final class AgenticTestSupport {
     private AgenticTestSupport() {
     }
 
-    /** Helper for tests referencing chat turns. */
+    /** 供引用对话轮次的测试使用的辅助方法。 */
     public static List<ChatTurn> history(String... turns) {
         List<ChatTurn> result = new ArrayList<>();
         for (int i = 0; i + 1 < turns.length; i += 2) {

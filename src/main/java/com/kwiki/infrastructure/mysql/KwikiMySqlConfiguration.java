@@ -8,9 +8,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcOperations;
 
 /**
- * MySQL adapter. The DataSource itself is auto-configured from operator-provided
- * KWIKI_MYSQL_* variables; this configuration only registers a dependency-specific
- * readiness contributor so connectivity problems block readiness but never liveness.
+ * MySQL 适配器（adapter）。DataSource 本身由运维提供的
+ * KWIKI_MYSQL_* 变量自动配置；本配置仅注册一个依赖相关的
+ * 就绪状态（readiness）贡献器，使连接问题会阻断就绪状态但绝不影响存活状态。
  */
 @Configuration
 public class KwikiMySqlConfiguration {

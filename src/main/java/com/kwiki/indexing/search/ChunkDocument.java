@@ -8,9 +8,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Chunk document shape for the versioned kwiki-chunks index. The document id is
- * the stable chunk key, so replays overwrite deterministically. Only CHILD
- * documents carry the dense vector.
+ * 带版本号的 kwiki-chunks 索引的分块文档形态。文档 id 就是
+ * 稳定的 chunk key，因此重放会确定性地覆盖。只有 CHILD
+ * 文档携带稠密向量。
  */
 public final class ChunkDocument {
 

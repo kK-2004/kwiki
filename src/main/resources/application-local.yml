@@ -1,6 +1,6 @@
-# Local development profile. Still credential-free: every secret keeps coming from
-# KWIKI_* environment variables (see .env.example); this file only tunes non-secret
-# defaults and logging for a developer workstation.
+# 本地开发 profile。仍然不含任何凭据：所有密钥依旧来自
+# KWIKI_* 环境变量（见 .env.example）；本文件只调整非密钥类的
+# 默认值与日志配置，供开发者工作站使用。
 logging:
   level:
     com.kwiki: DEBUG
@@ -23,8 +23,8 @@ spring:
     open-in-view: false
     properties:
       hibernate:
-        # Timestamps are persisted as UTC Instants; align the JDBC connection to UTC
-        # so DATETIME columns round-trip losslessly.
+        # 时间戳以 UTC Instant 持久化；将 JDBC 连接对齐到 UTC，
+        # 以便 DATETIME 列无损往返。
         jdbc:
           time_zone: UTC
   jackson:
@@ -33,15 +33,15 @@ spring:
     enabled: true
   data:
     redis:
-      # No localhost fallback: enabling the Redis feature (KK_COMMON_REDIS_ENABLED=true)
-      # requires an explicit host so a startup can never silently pick localhost:6379.
+      # 没有 localhost 兜底：启用 Redis 功能（KK_COMMON_REDIS_ENABLED=true）
+      # 时必须显式提供 host，因此启动过程绝不会静默选中 localhost:6379。
       host: ${KWIKI_REDIS_HOST}
       port: ${KWIKI_REDIS_PORT:6379}
       password: ${KWIKI_REDIS_PASSWORD:}
       database: ${KWIKI_REDIS_DATABASE:0}
   elasticsearch:
     uris: ${KWIKI_ELASTICSEARCH_URIS:https://es-louis.ksite.xin}
-    # basic auth (empty -> not applied); API keys use kwiki.elasticsearch.api-key
+    # 基础认证（为空 -> 不启用）；API 密钥使用 kwiki.elasticsearch.api-key
 
 kwiki:
   time:
@@ -83,5 +83,5 @@ management:
       show-details: never
       group:
         readiness:
-          # dependency connectivity gates readiness; liveness stays process-only
+          # 依赖连通性决定就绪状态；存活状态仅反映进程本身
           include: "readinessState,*"

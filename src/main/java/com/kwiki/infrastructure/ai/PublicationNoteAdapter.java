@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 
-/** Generates a short publication note from the first document or the published-to-draft diff. */
+/** 根据首份文档或「已发布到草稿」的差异生成一段简短的发布说明。 */
 @Service
 public class PublicationNoteAdapter implements PublicationNotePort {
     private final AnswerLlmPort llm;
@@ -38,7 +38,7 @@ public class PublicationNoteAdapter implements PublicationNotePort {
                     .block(Duration.ofSeconds(30));
             if (note != null && !note.isBlank()) return note.strip().substring(0, Math.min(300, note.strip().length()));
         } catch (RuntimeException ignored) {
-            // Publishing remains available when the optional suggestion fails.
+            // 当可选的建议生成失败时，发布功能仍然可用。
         }
         return previous.isBlank() ? "首次发布页面内容" : "更新页面内容";
     }

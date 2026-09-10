@@ -9,10 +9,10 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Rule-first intent routing: a single terminal rule match bypasses the LLM
- * entirely; no-match, conflicts, and compound queries consult the (schema-bound)
- * router LLM; every LLM failure mode degrades to scoped KNOWLEDGE_QA with a
- * recorded fallback reason. Metrics track source distribution and fallback rate.
+ * 规则优先的意图路由：命中单条终止性规则即可完全绕过
+ * LLM；无命中、冲突以及复合查询则咨询（受 schema 约束的）
+ * 路由器 LLM；每一种 LLM 失败情形都会降级为带作用域的 KNOWLEDGE_QA，
+ * 并记录回退原因。指标跟踪来源分布与回退率。
  */
 @Component
 public class RuleFirstRouter {

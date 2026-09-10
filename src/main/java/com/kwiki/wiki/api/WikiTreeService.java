@@ -20,9 +20,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Ordered hierarchy operations. The service rejects cycles (a node moved beneath
- * its own descendant) and cross-knowledge-base moves before touching the
- * repository; identifiers stay stable across moves and renames.
+ * 有序的层级操作。该服务在触碰仓储之前会拒绝环
+ * （把节点移动到自己的后代之下）以及跨知识库的移动；
+ * 标识符在移动与重命名后保持稳定。
  */
 @Service
 public class WikiTreeService {
@@ -87,7 +87,7 @@ public class WikiTreeService {
         return pages.save(page);
     }
 
-    /** Delegates to the unified recycle-bin archive service (subtree batch). */
+    /** 委托给统一的回收站归档服务（子树批次）。 */
     public void archive(CurrentUser user, long kbId, long pageId) {
         if (archiveService != null) {
             archiveService.archivePage(user, kbId, pageId);
@@ -99,7 +99,7 @@ public class WikiTreeService {
         pages.save(page);
     }
 
-    /** Nested tree of ACTIVE pages for navigation, ordered by sibling_order. */
+    /** 供导航使用的 ACTIVE 页面嵌套树，按 sibling_order 排序。 */
     public List<TreeNodeView> tree(CurrentUser user, long kbId) {
         List<WikiPage> ordered = pages
                 .findByKbIdAndStatusOrderByParentIdAscSiblingOrderAsc(kbId, WikiPage.STATUS_ACTIVE);
@@ -107,10 +107,10 @@ public class WikiTreeService {
             ordered = ordered.stream()
                     .filter(page -> resources.can(user, page.getId(), ResourceAction.READ))
                     .toList();
-            // A user shared on one page may browse that page without being a
-            // knowledge-base member. Return a tree containing only readable
-            // nodes; deny an entirely unreadable/non-member workspace without
-            // exposing parent metadata.
+            // 被共享到某个页面的用户即使不是知识库成员，
+            // 也可以浏览该页面。返回只包含可读节点的树；
+            // 对完全不可读/非成员的工作空间直接拒绝，
+            // 且不暴露父节点元数据。
             if (ordered.isEmpty() && !authorization.can(user, kbId, WikiAction.READ_PAGE)) {
                 throw new org.springframework.security.access.AccessDeniedException("access denied");
             }
@@ -129,7 +129,7 @@ public class WikiTreeService {
         return page;
     }
 
-    /** True when {@code candidate} lies on the ancestor chain of {@code page}. */
+    /** 当 {@code candidate} 位于 {@code page} 的祖先链上时返回 true。 */
     private boolean isAncestorOf(WikiPage candidate, WikiPage page) {
         Long parentId = page.getParentId();
         while (parentId != null) {

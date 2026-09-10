@@ -11,10 +11,9 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Table-driven membership policy for OWNER/EDITOR/VIEWER roles. The matrix is the
- * single source of truth for role/action decisions; non-members are denied every
- * action (fail closed). Platform admins bypass membership, but scope filtering for
- * retrieval still consults membership-based scopes.
+ * 面向 OWNER/EDITOR/VIEWER 角色的表驱动成员关系策略。该矩阵是角色/动作决策的
+ * 唯一权威来源；非成员被拒绝所有动作（默认拒绝）。平台管理员绕过成员关系，
+ * 但检索的作用域过滤仍会参考基于成员关系的作用域。
  */
 @Service
 public class KnowledgeBaseAuthorizationService {
@@ -67,7 +66,7 @@ public class KnowledgeBaseAuthorizationService {
         return java.util.Collections.unmodifiableMap(matrix);
     }
 
-    /** Policy core: is {@code action} allowed for {@code role}? Null role (non-member) denies all. */
+    /** 策略核心：{@code role} 是否允许 {@code action}？空角色（非成员）拒绝一切。 */
     public boolean isAllowed(KnowledgeBaseRole role, WikiAction action) {
         if (role == null) {
             return false;
@@ -75,7 +74,7 @@ public class KnowledgeBaseAuthorizationService {
         return ALLOWED.getOrDefault(role, Set.of()).contains(action);
     }
 
-    /** Role resolution with admin bypass; users without membership resolve empty. */
+    /** 带管理员绕过的角色解析；无成员关系的用户解析为空。 */
     public Optional<KnowledgeBaseRole> resolveRole(long kbId, CurrentUser user) {
         if (user.admin()) {
             return Optional.of(KnowledgeBaseRole.OWNER);
@@ -90,7 +89,7 @@ public class KnowledgeBaseAuthorizationService {
         return isAllowed(resolveRole(kbId, user).orElse(null), action);
     }
 
-    /** Throws a sanitized access-denied failure consumed by the security layer. */
+    /** 抛出经脱敏的拒绝访问异常，由安全层消费。 */
     public void require(CurrentUser user, long kbId, WikiAction action) {
         if (!can(user, kbId, action)) {
             throw new AccessDeniedException("access denied");

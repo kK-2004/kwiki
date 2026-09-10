@@ -1,8 +1,8 @@
 package com.kwiki.security;
 
 /**
- * Authenticated caller resolved from a validated JWT. Immutable value carried as
- * the Spring Security principal for the whole request.
+ * 从已校验的 JWT 解析出的已认证调用方。作为整个请求期间
+ * 的 Spring Security 主体（principal）传递的不可变值。
  */
 public record CurrentUser(Long id, String username, boolean admin) {
 

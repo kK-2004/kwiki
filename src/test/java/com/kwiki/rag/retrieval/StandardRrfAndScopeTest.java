@@ -13,16 +13,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Exact RRF formula and ordering semantics plus scope-filter fixtures:
- * score = Σ 1/(k + rank) with rank starting at one; duplicates merge; ties break
- * by best rank, BM25 rank, vector rank, then chunk key; superuser/empty/member
- * scopes produce their exact Elasticsearch filter shapes.
+ * 精确的 RRF 公式与排序语义，外加作用域过滤夹具：
+ * score = Σ 1/(k + rank)，rank 从 1 开始；重复项合并；并列时依次按
+ * 最佳排名、BM25 排名、向量排名，最后按 chunk key；超级用户/空/成员
+ * 各作用域会产出它们精确的 Elasticsearch 过滤形态。
  */
 class StandardRrfAndScopeTest {
 
     @Test
     void chunkInBothBranchesScoresExactlySumOfReciprocalRanks() {
-        // chunk A ranks 5th in BM25 and 2nd in vector, rankConstant 60 -> 1/65 + 1/62
+        // 分块 A 在 BM25 中排第 5、在向量中排第 2，rankConstant 60 -> 1/65 + 1/62
         List<StandardRrfFusion.FusedChunk> fused = StandardRrfFusion.fuse(List.of(
                 new StandardRrfFusion.RankedList("BM25",
                         List.of("B1", "B2", "B3", "B4", "A", "B6")),
@@ -64,15 +64,15 @@ class StandardRrfAndScopeTest {
 
     @Test
     void equalScoresTieBreakDeterministically() {
-        // both chunks appear once at rank 1 in different branches -> equal scores
+        // 两个分块在不同分支中各以第 1 名出现一次 -> 分数相同
         List<StandardRrfFusion.FusedChunk> fused = StandardRrfFusion.fuse(List.of(
                 new StandardRrfFusion.RankedList("BM25", List.of("Z")),
                 new StandardRrfFusion.RankedList("VECTOR", List.of("Z")),
                 new StandardRrfFusion.RankedList("BM25", List.of("A")),
                 new StandardRrfFusion.RankedList("VECTOR", List.of("A"))), 60);
-        // Z: 1/61 + 1/61? no: rank1+rank1 = 2/61; A: 1/61+1/61 same -> tie
+        // Z：1/61 + 1/61？不对：rank1+rank1 = 2/61；A：1/61+1/61 相同 -> 并列
         assertThat(fused.get(0).score()).isEqualTo(fused.get(1).score());
-        // tie broken by best rank (equal), bm25 rank (equal), vector rank (equal), key
+        // 并列依次按最佳排名（相同）、bm25 排名（相同）、向量排名（相同）、key 打破
         assertThat(fused).extracting(StandardRrfFusion.FusedChunk::chunkKey)
                 .containsExactly("A", "Z");
     }

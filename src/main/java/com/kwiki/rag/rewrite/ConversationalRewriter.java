@@ -6,10 +6,10 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Produces a self-contained query from explicit recent history. LLM-backed with a
- * deterministic fallback (context prefix) when the port is missing or fails.
- * History is bounded; unrelated turns are ignored by the prompt contract and the
- * fallback only uses the latest user turn.
+ * 基于显式近期历史生成自包含的查询。由 LLM 支撑，当端口缺失或失败时
+ * 使用确定性兜底（上下文前缀）。
+ * 历史有界；无关轮次被 prompt 契约忽略，且
+ * 兜底仅使用最近一次用户提问。
  */
 @Component
 public class ConversationalRewriter {

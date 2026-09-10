@@ -16,9 +16,9 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
 
 /**
- * Mocked persistence layer for context-booting tests that run without MySQL.
- * Wiki services hard-depend on repository beans; this configuration keeps those
- * contexts connection-free while the env-gated contract tests validate real SQL.
+ * 供无 MySQL 的启动上下文测试使用的模拟持久化层。
+ * Wiki 服务强依赖仓储 bean；该配置让这些
+ * 上下文无需连接，而由环境变量开关控制的契约测试仍会校验真实 SQL。
  */
 @TestConfiguration
 public class WikiMockBeans {

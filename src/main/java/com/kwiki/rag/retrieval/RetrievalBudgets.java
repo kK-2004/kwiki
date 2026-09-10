@@ -6,9 +6,9 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 /**
- * Validated retrieval budgets. Out-of-range requests are rejected instead of
- * silently widening work: child branch TopK, fused child count, distinct parent
- * count, subquery count, deadlines, and the total parent-context character budget.
+ * 经过校验的检索预算。越界的请求会被拒绝，而不是
+ * 悄悄扩大工作量：子分块各分支的 TopK、融合后的子分块数量、去重后的父分块
+ * 数量、子查询数量、截止时间，以及父上下文字符总预算。
  */
 @Component
 public class RetrievalBudgets {
@@ -53,7 +53,7 @@ public class RetrievalBudgets {
         this.branchDeadline = branchDeadline;
     }
 
-    /** Callers requesting more than the configured limits are rejected, never widened. */
+    /** 请求超过已配置上限的调用方会被拒绝，而非被放宽。 */
     public void validateRequest(int requestedParentCount, long requestedContextChars) {
         if (requestedParentCount < 1 || requestedParentCount > distinctParentLimit) {
             throw new IllegalArgumentException(

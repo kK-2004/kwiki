@@ -14,7 +14,7 @@ import jakarta.persistence.Version;
 
 import java.time.Instant;
 
-/** Durable indexing job row (indexing_job table) with lease and retry metadata. */
+/** 持久化的索引构建任务记录（indexing_job 表），带租约与重试元数据。 */
 @Entity
 @Table(name = "indexing_job")
 public class IndexingJob {
@@ -101,7 +101,7 @@ public class IndexingJob {
         return state;
     }
 
-    /** Applies the state machine and records lease/attempt side effects. */
+    /** 应用状态机，并记录租约/尝试次数的副作用。 */
     public void transitionTo(IndexingJobState next, String owner, Instant leaseExpiresAt,
                              Instant nextAttemptAt) {
         this.state = state.requireTransitionTo(next);

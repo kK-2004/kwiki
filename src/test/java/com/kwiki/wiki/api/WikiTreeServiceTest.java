@@ -108,7 +108,7 @@ class WikiTreeServiceTest {
                 .thenReturn(Optional.of(parent));
         when(pages.findByIdAndStatus(8L, WikiPage.STATUS_ACTIVE))
                 .thenReturn(Optional.of(child));
-        // child is the attempted new parent: its ancestor chain contains 7 -> cycle
+        // child 是被尝试作为新父节点的目标：它的祖先链包含 7 -> 成环
 
         assertThatThrownBy(() -> service.move(ADMIN, KB, 7L, 8L, null))
                 .isInstanceOf(IllegalArgumentException.class)

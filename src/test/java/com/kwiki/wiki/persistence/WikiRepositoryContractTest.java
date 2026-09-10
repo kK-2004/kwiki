@@ -18,9 +18,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Repository contract (operator-provided MySQL via KWIKI_IT_MYSQL_*): default
- * queries must never return archived pages and must stay scoped to the knowledge
- * base ids passed in by the authorization-aware service layer.
+ * 仓储契约（通过 KWIKI_IT_MYSQL_* 使用运维方提供的 MySQL）：默认
+ * 查询绝不能返回已归档页面，且必须限定在
+ * 由具备授权感知的服务层传入的知识库 id 范围内。
  */
 @EnabledIfEnvironmentVariable(named = "KWIKI_IT_MYSQL_URL", matches = ".+")
 @DataJpaTest

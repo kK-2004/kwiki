@@ -22,8 +22,8 @@ describe('editor workflow', () => {
       createdAt: '2026-08-16T10:00:00',
     };
 
-    // block editor: the first text segment textarea carries the whole source
-    // when no media exists
+    // 块编辑器：当不存在媒体时，第一个文本段的 textarea 承载整段源
+    // 文本
     await nextTick();
     const textarea = screen.container.querySelector(
       '[data-testid="markdown-editor"] textarea') as HTMLTextAreaElement;
@@ -55,7 +55,7 @@ describe('editor workflow', () => {
     expect(parts[1]).toMatchObject({ type: 'media', media: { kind: 'IMAGE', src: 'https://cdn.example/a.png', alt: '架构图' } });
     expect(parts[2].type === 'html' && parts[2].html).toContain('<p>后文');
     expect(parts[3]).toMatchObject({ type: 'media', media: { kind: 'AUDIO', src: 'https://cdn.example/a.mp3' } });
-    // non-placeholder rendering keeps emitting real elements for other callers
+    // 非占位渲染仍会为其他调用方输出真实元素
     expect(renderMarkdown('![架构图](https://cdn.example/a.png)')).toContain('<img src="https://cdn.example/a.png"');
   });
 
@@ -151,7 +151,7 @@ describe('editor workflow', () => {
     const media = segments.filter(segment => segment.type === 'media');
     expect(media).toHaveLength(1);
     expect(media[0].type === 'media' && media[0].media.src).toBe('https://example.com/z.png');
-    // untouched text round-trips byte for byte
+    // 未改动的文本按字节原样往返
     const text = segments
       .filter(segment => segment.type === 'text')
       .map(segment => (segment as { text: string }).text)
@@ -188,8 +188,8 @@ describe('editor workflow', () => {
       await fireEvent.mouseDown(segments);
       expect(document.activeElement).toBe(root.querySelector('textarea'));
 
-      // resolver fails → shared viewer shows the error with retry; the
-      // editor's delete tool stays available in its stable container
+      // 解析器失败后 → 共享查看器显示错误并提供重试；编辑器
+      // 的删除工具在其稳定容器内仍保持可用
       const media = root.querySelector('.media-segment') as HTMLElement;
       await fireEvent.click(media);
       expect(root.querySelector('[data-testid="media-controls"]')).not.toBeNull();

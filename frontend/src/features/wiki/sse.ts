@@ -1,7 +1,7 @@
 /**
- * SSE client for the chat stream. Parses wire frames into typed events, exposes
- * progress states, forbids reconnection after a terminal event, and cancels on
- * unmount. Wire format: {"seq":n,"requestId":"...","type":"...",...payload}.
+ * 用于聊天流的 SSE 客户端。将线路帧（wire frame）解析为带类型的事件，对外暴露
+ * 进度状态，在收到终止事件后禁止重连，并在
+ * 卸载（unmount）时取消。线路格式：{"seq":n,"requestId":"...","type":"...",...payload}。
  */
 import { getAuthGeneration, getAuthToken, setAuthToken } from './api';
 
@@ -74,7 +74,7 @@ export interface ProgressItem {
   retryRound?: number;
 }
 
-/** One versioned activity step; started/completed merge by stable stepId. */
+/** 一个有版本的活动步骤；started/completed 按稳定的 stepId 合并。 */
 export interface ActivityStep {
   stepId: string;
   parentStepId?: string;
@@ -97,16 +97,16 @@ const ACTIVITY_STATUS_PRECEDENCE: Record<ActivityStep['status'], number> = {
 };
 
 /**
- * Merges an activity frame into the step list: idempotent by stepId, exact-seq
- * duplicates change nothing, and a terminal status never regresses to running.
- * Unknown fields are ignored, missing metrics stay missing.
+ * 将一个活动（activity）帧合并进步骤列表：按 stepId 幂等，精确序号
+ * 的重复项不产生任何变化，且终止状态永远不会回退为运行中。
+ * 未知字段被忽略，缺失的指标保持缺失。
  */
 export function mergeActivityStep(steps: ActivityStep[], step: ActivityStep): ActivityStep[] {
   const index = steps.findIndex((entry) => entry.stepId === step.stepId);
   if (index < 0) return [...steps, step];
   const existing = steps[index];
   if (ACTIVITY_STATUS_PRECEDENCE[step.status] < ACTIVITY_STATUS_PRECEDENCE[existing.status]) {
-    return steps; // delayed started after a terminal status: ignore
+    return steps; // 终止状态之后才到达的延迟 started：忽略
   }
   const merged: ActivityStep = {
     ...existing,
@@ -214,7 +214,7 @@ export function reduce(state: StreamState, frame: SseFrame): StreamState {
   }
 }
 
-/** Opens the stream; returns a disposer. never reconnects after termination. */
+/** 打开流；返回一个清理函数（disposer）。终止后绝不重连。 */
 export function openStream(
   query: string,
   onFrame: (frame: SseFrame) => void,
@@ -320,9 +320,9 @@ function chatError(code: string): string {
 }
 
 /**
- * Replays persisted run events (activity/tokens/citations/done) into a fresh
- * state — used when a finished conversation is reopened. Old runs without
- * stored events simply produce an empty activity timeline.
+ * 将持久化的运行事件（activity/tokens/citations/done）回放到一个全新的
+ * 状态 —— 用于重新打开已结束的对话。没有存储事件的
+ * 旧运行只会产生一条空的活动时间线。
  */
 export function replayStoredEvents(events: { seq: number; event_type: string; payload_json: string }[]): StreamState {
   let state = initialState();

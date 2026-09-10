@@ -8,10 +8,10 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Table-driven rewrite strategy selection from the route plan, query shape, and
- * bounded chat history. Explicit router decisions win; otherwise conversational
- * references, short/low-information queries, and compound shapes select their
- * strategies deterministically.
+ * 依据路由计划、查询形态与有界对话历史，
+ * 以表格驱动的方式选择改写策略。路由器的显式决策优先；否则
+ * 对话指代、短查询/低信息量查询以及复合形态会以确定性方式
+ * 选择各自的策略。
  */
 @Component
 public class RewriteDecisionService {
@@ -50,8 +50,8 @@ public class RewriteDecisionService {
     }
 
     /**
-     * Short AND low-information: bare noun-ish queries only. Question-shaped
-     * queries (containing interrogatives) carry enough information as-is.
+     * 既短又信息量低：仅限裸名词式查询。问句形态的
+     * 查询（含疑问词）本身已携带足够信息。
      */
     static boolean isShortLowInformation(String normalizedQuery) {
         if (normalizedQuery.length() >= SHORT_QUERY_CHARS) {

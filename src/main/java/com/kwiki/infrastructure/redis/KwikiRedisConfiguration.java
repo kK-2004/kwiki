@@ -13,13 +13,12 @@ import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 
 /**
- * Opt-in Redis support. Nothing here (or from Spring's Redis auto-configurations,
- * which are listed in spring.autoconfigure.exclude) loads until the deployment
- * explicitly sets kk.common.redis.enabled=true, so a disabled feature never reads
- * spring.data.redis.* nor creates a client. When enabled, the re-imported
- * auto-configurations provide the connection factory and the kk-common SDK contributes
- * its RedisTemplate/RedisUtil on top; this class additionally contributes a
- * readiness-only health indicator.
+ * 可选项（opt-in）的 Redis 支持。在部署方显式设置
+ * kk.common.redis.enabled=true 之前，这里（以及 Spring 的 Redis 自动配置，
+ * 已在 spring.autoconfigure.exclude 中列出）都不会加载，因此禁用状态下
+ * 绝不会读取 spring.data.redis.*，也不会创建客户端。启用后，被重新引入的
+ * 自动配置提供连接工厂，kk-common SDK 在其之上贡献
+ * RedisTemplate/RedisUtil；本类另外贡献一个仅用于就绪状态（readiness）的健康指示器。
  */
 @Configuration
 @ConditionalOnProperty(prefix = "kk.common.redis", name = "enabled", havingValue = "true")

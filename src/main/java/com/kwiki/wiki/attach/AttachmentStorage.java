@@ -4,39 +4,35 @@ import java.io.InputStream;
 import java.time.Duration;
 
 /**
- * Attachment-storage port over the content center (k-File). Implementations own the
- * provider protocol; callers address content only by the persisted content-center
- * file id returned from {@link #store}. There is deliberately no delete operation:
- * content lifecycle is owned by the content center, so archive removes only local
- * metadata and the search index entry.
+ * 基于内容中心（k-File）的附件存储端口。具体实现持有提供方协议；调用方
+ * 仅通过 {@link #store} 返回的持久化内容中心文件 id 来寻址内容。
+ * 此处刻意不提供删除操作：内容生命周期由内容中心掌管，因此归档只移除
+ * 本地元数据与搜索索引条目。
  */
 public interface AttachmentStorage {
 
     /**
-     * Uploads the stream and returns the authoritative content-center identity with
-     * verified metadata. Implementations must validate the returned result strictly
-     * before reporting success and must never leak tokens or signed URLs in errors.
+     * 上传数据流并返回带有已校验元数据的权威内容中心标识。实现必须在
+     * 上报成功前严格校验返回结果，且绝不可在错误中泄露令牌或签名 URL。
      */
     StoredAttachment store(AttachmentUpload upload);
 
     /**
-     * Short-lived browser download URL addressed by content-center file id; the
-     * download filename matches the attachment metadata. Never a permanent link.
+     * 以内容中心文件 id 寻址的短期浏览器下载 URL；下载文件名与附件元数据一致。
+     * 绝非永久链接。
      */
     String downloadLink(long contentCenterFileId, String downloadFileName, Duration ttl);
 
     /**
-     * Reads the stored bytes (used by the indexing worker) through a freshly issued
-     * short-lived link, with bounded time and size. Implementations fail closed on
-     * truncated or oversized responses.
+     * 通过新签发的短期链接读取已存储字节（供索引构建 worker 使用），
+     * 限定时间与大小。实现在响应被截断或超大型时默认拒绝。
      */
     byte[] readContent(long contentCenterFileId);
 
     /**
-     * Durable CDN URL addressed by content-center file id, meant for references that
-     * outlive a session (exports). Unlike {@link #downloadLink} there is no presign
-     * TTL: the deployment's CDN policy decides permanence; failures surface as
-     * sanitized {@link AttachmentStorageException}s like every other operation.
+     * 以内容中心文件 id 寻址的持久 CDN URL，用于会话结束后仍需存在的引用（导出）。
+     * 不同于 {@link #downloadLink}，此处无预签名 TTL：是否永久由部署的 CDN 策略决定；
+     * 与其它所有操作一样，失败以脱敏的 {@link AttachmentStorageException} 形式暴露。
      */
     String cdnLink(long contentCenterFileId);
 }

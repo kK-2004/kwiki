@@ -1,10 +1,10 @@
 /**
- * Small, escaped Markdown renderer shared by previews and streamed answers.
- * Supports standard images, restricted <img>/<audio>/<video> media tags with
- * whitelisted attributes, and attachment:// references. Everything is escaped
- * first; only whitelisted media markup is ever emitted. Callers that mount
- * the shared media viewer pass `mediaPlaceholder` so media segments come back
- * as tokens the caller splits into Vue-managed component slots.
+ * 供预览与流式回答共用的小型、带转义的 Markdown 渲染器（renderer）。
+ * 支持标准图片、受限的 <img>/<audio>/<video> 媒体标签，其
+ * 属性经白名单过滤，并支持 attachment:// 引用。所有内容先
+ * 转义；只有白名单内的媒体标记会被输出。挂载
+ * 共享媒体查看器的调用方传入 `mediaPlaceholder`，使媒体段以
+ * 令牌形式返回，再由调用方拆分为 Vue 管理的组件插槽（slot）。
  */
 import { isSafeMediaSrc, scanMediaBlocks, type MediaAttrs } from './mediaBlocks';
 import hljs from 'highlight.js/lib/common';
@@ -69,7 +69,7 @@ export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions
     return value.replace(/\u0000(\d+)\u0000/g, (_, index: string) => codes[Number(index)] || '');
   };
 
-  // Media segments render as real nodes; the remaining text renders inline.
+  // 媒体段渲染为真实节点（node）；其余文本内联渲染。
   const segments = scanMediaBlocks(markdown);
   const renderTextBlock = (block: string): string => renderText(block, inline);
   if (segments.length && segments.some(segment => segment.type === 'media')) {
@@ -87,9 +87,9 @@ export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions
 const PLACEHOLDER_TOKEN = '\u0000kwiki-media\u0000';
 
 /**
- * Renders markdown into alternating html/media parts. Media parts are
- * returned separately so the caller renders them as real Vue components
- * (stable across re-renders) instead of a second v-html player.
+ * 将 Markdown 渲染为交替的 html / 媒体两部分。媒体部分
+ * 单独返回，以便调用方将其渲染为真实的 Vue 组件
+ *（跨重渲染保持稳定），而非第二个 v-html 播放器。
  */
 export function renderMarkdownParts(markdown: string): MarkdownPart[] {
   const mediaByToken = new Map<string, MediaAttrs>();

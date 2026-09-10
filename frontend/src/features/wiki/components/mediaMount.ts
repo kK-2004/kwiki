@@ -1,9 +1,9 @@
 /**
- * Transforms sanitized server HTML for the reader: real <img>/<audio>/<video>
- * elements are replaced by mount markers that MediaMountRegion turns into
- * shared KMediaViewer instances, so the reader shows media exactly like the
- * source card and the editor preview. Code content is escaped text on the
- * server side, so literal tag examples never appear as elements here.
+ * 为阅读器转换经服务端净化的 HTML：真实的 <img>/<audio>/<video>
+ * 元素被替换为挂载标记，由 MediaMountRegion 转换为
+ * 共享的 KMediaViewer 实例，使阅读器展示媒体的方式与
+ * 源卡片和编辑器预览完全一致。代码内容在服务端
+ * 以转义文本形式存在，因此这里的字面标签示例不会作为元素出现。
  */
 import { isSafeMediaSrc } from './mediaBlocks';
 import type { MediaAttrs } from './mediaBlocks';

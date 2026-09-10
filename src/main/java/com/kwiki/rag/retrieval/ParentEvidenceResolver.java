@@ -9,14 +9,14 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Walks fused child candidates in rank order, groups them by parentChunkKey, and batch-fetches
- * authorized parents at most once. First-child order wins; missing or unauthorized parents (and
- * their children) are omitted without substituting out-of-scope content.
+ * 按排名顺序遍历融合后的子候选，按 parentChunkKey 分组，并批量拉取
+ * 已授权的父级（至多一次）。首子命中顺序优先；缺失或未授权的父级（及其
+ * 子级）会被省略，不会用超作用域内容替代。
  */
 @Component
 public class ParentEvidenceResolver {
 
-    /** Port for batch parent fetch; implementations re-apply the scope filter. */
+    /** 批量获取父分块的端口；实现方会重新应用作用域过滤。 */
     public interface ParentChunkFetcher {
         List<ParentEvidenceChunk> fetchByKeys(
                 List<String> parentChunkKeys, ScopeFilter scopeFilter);
@@ -61,7 +61,7 @@ public class ParentEvidenceResolver {
         for (Map.Entry<String, List<ChunkHit>> entry : childrenByParent.entrySet()) {
             ParentEvidenceChunk parent = fetched.get(entry.getKey());
             if (parent == null) {
-                continue; // missing or no longer authorized: omit silently
+                continue; // 缺失或已不再授权：静默忽略
             }
             List<ChunkHit> validChildren =
                     entry.getValue().stream()

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
- * Shared retrieval-activity disclosure for both answer surfaces (conversation
- * page and side panel). Collapsed: one green row with business status, real
- * step count/duration and a completion marker. Expanded: a thin, low-contrast
- * timeline grouped by queryRound → attemptStage showing the actual stages —
- * route, two recall branches + RRF TopK, candidate generation, QA, parent
- * supplement, expansion, rewrite — with only real metrics; missing numbers are
- * never invented. Keyboard operable (button + aria-expanded), status is not
- * conveyed by color alone, and manual expand state is kept per instance.
+ * 两套回答界面（会话
+ * 页面与侧边面板）共用的检索活动（retrieval-activity）折叠区。收起时：一行绿色状态，含真实
+ * 步骤数与耗时，以及完成标记。展开时：一条细而低对比度的
+ * 时间线，按 queryRound → attemptStage 分组，展示真实阶段 ——
+ * 路由、两条召回分支 + RRF TopK、候选生成、QA、父级
+ * 补充、扩展、改写 —— 仅展示真实指标；从不
+ * 编造数字。可键盘操作（按钮 + aria-expanded），状态不
+ * 仅靠颜色传达，且手动展开状态按各实例分别保存。
  */
 import { computed, ref, watch } from 'vue';
 import type { ActivityStep } from '../sse';
@@ -16,7 +16,7 @@ const props = defineProps<{
   steps: ActivityStep[];
   running: boolean;
   failed: boolean;
-  /** Persisted manual expand preference of this message. */
+  /** 该消息持久化的手动展开偏好。 */
   expandedInitial?: boolean;
 }>();
 

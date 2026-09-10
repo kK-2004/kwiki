@@ -5,9 +5,9 @@ import com.kwiki.wiki.access.AuthorizationScope;
 import java.util.List;
 
 /**
- * Middleware-free authorization filter shared by every recall branch. Infra
- * adapters translate it into their native query filter; the domain never sees
- * an Elasticsearch DSL type.
+ * 无中间件、被所有召回分支共享的授权过滤器。底层
+ * 适配器将其翻译为各自的原生查询过滤器；领域层
+ * 从不直接接触 Elasticsearch DSL 类型。
  */
 public record ScopeFilter(boolean superuser, List<Long> kbIds, List<Long> pageIds) {
 

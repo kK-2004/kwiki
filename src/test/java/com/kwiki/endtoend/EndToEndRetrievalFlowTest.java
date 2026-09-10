@@ -29,16 +29,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * In-process end-to-end flow over the QA-gated state machine with scripted
- * leaves: corpus chunks → dual recall → RRF → candidate → gate → published
- * answer with child citations, plus access revocation during parent fetch
- * aborting the stream before any token leaves the server.
+ * 在 QA 门控状态机上、使用脚本化叶子节点的进程内端到端流程：
+ * 语料分块 → 双路召回 → RRF → 候选 → 门控 → 带子级引用的
+ * 已发布答案；以及在父块拉取过程中撤销访问权限，
+ * 让流在任何 token 离开服务端之前中止。
  */
 class EndToEndRetrievalFlowTest {
 
     private static final CurrentUser ADMIN = new CurrentUser(1L, "root", true);
 
-    /** Fake corpus: chunks of kb 1, indexed from the published markdown pipeline. */
+    /** 模拟语料：kb 1 的分块，来自已发布的 markdown 流水线。 */
     private static final List<ChunkHit> CORPUS =
             List.of(
                     new ChunkHit(
@@ -136,8 +136,8 @@ class EndToEndRetrievalFlowTest {
 
         ScopeVersionService scopeVersions =
                 new ScopeVersionService(StandardTestProperties.nullProvider());
-        // scope resolves with version 1; revocation lands mid-flight during the
-        // recall itself so every later authorization check fails closed
+        // 作用域以 version 1 解析；撤销发生在召回过程中途，
+        // 因此之后所有的鉴权检查都会失败关闭
         AgenticTestSupportHarness.RecallScript revokingRecall =
                 (query, vec, filter, topK) -> {
                     scopeVersions.bump(1L);

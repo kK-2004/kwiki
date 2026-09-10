@@ -1,9 +1,8 @@
 package com.kwiki.wiki.access;
 
 /**
- * Server-side actions that can be authorized against a knowledge base. Navigation,
- * content reads, search/retrieval, and history are all explicit actions so every
- * endpoint can map to exactly one of them.
+ * 可对知识库进行授权鉴定的服务端动作。导航、内容读取、搜索/检索以及历史记录
+ * 均为显式动作，因此每个端点都能精确映射到其中之一。
  */
 public enum WikiAction {
     READ_PAGE,

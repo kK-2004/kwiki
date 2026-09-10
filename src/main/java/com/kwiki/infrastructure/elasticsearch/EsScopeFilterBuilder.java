@@ -7,11 +7,11 @@ import com.kwiki.rag.retrieval.ScopeFilter;
 import java.util.List;
 
 /**
- * Builds the single authorization + lifecycle filter shared by every recall
- * branch, applied BEFORE TopK selection. Superusers get a permissive filter
- * that still excludes archived resources; empty scopes get match-none so no
- * candidate can ever occupy a rank. Archived pages/knowledge bases are
- * excluded even for members whose membership rows still exist.
+ * 构建被每个召回（recall）分支共享的单一授权（authorization）+ 生命周期
+ * 过滤器，在 TopK 选择之前应用。超级用户获得宽松的过滤器，
+ * 但仍排除已归档资源；空范围获得 match-none，因此任何候选
+ * 都不会占据排序位。已归档的页面/知识库即使对成员关系记录
+ * 仍然存在的成员也会被排除。
  */
 public final class EsScopeFilterBuilder {
 
@@ -23,10 +23,10 @@ public final class EsScopeFilterBuilder {
     }
 
     /**
-     * @param exclusions archived resource ids to exclude from every branch;
-     *                   null means "no lifecycle information available" and
-     *                   must only be used by callers that already enforce the
-     *                   lifecycle through the authoritative database loader.
+     * @param exclusions 要从每个分支中排除的已归档资源 id；
+     * null 表示「没有可用的生命周期信息」，只能由
+     * 已通过权威数据库加载器强制校验生命周期的
+     * 调用方使用。
      */
     public static Query build(ScopeFilter scope,
                               com.kwiki.rag.retrieval.RetrievalLifecycleService.Exclusions exclusions) {

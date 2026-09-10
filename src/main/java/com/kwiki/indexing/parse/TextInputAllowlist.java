@@ -5,8 +5,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Explicit allowlist of inputs kwiki can extract usable text from. Anything else
- * is rejected before parsing — including image types, because kwiki never runs OCR.
+ * kwiki 能够从中抽取可用文本的输入的显式白名单。其他任何输入
+ * 都会在解析前被拒绝 —— 包括图片类型，因为 kwiki 从不运行 OCR。
  */
 public final class TextInputAllowlist {
 
@@ -41,21 +41,21 @@ public final class TextInputAllowlist {
         return dot < 0 ? "" : name.substring(dot + 1);
     }
 
-    /** Allowed when the extension is enabled and the declared MIME is plausible. */
+    /** 当扩展名已启用且声明的 MIME 合理时允许通过。 */
     public boolean allows(String fileName, String contentType) {
         String extension = extensionOf(fileName);
         if (!allowedExtensions.contains(extension)) {
             return false;
         }
         if (contentType == null || contentType.isBlank() || "application/octet-stream".equals(contentType)) {
-            return true; // fall back to extension; Tika detection double-checks at parse
+            return true; // 回退到扩展名；Tika 检测在解析时再次复核
         }
         Set<String> expected = EXTENSION_TO_MIMES.getOrDefault(extension, Set.of());
         String normalized = contentType.toLowerCase(Locale.ROOT);
         if (expected.contains(normalized)) {
             return true;
         }
-        // declared types like application/octet-stream from browsers must not reject valid files
+        // 浏览器声明的 application/octet-stream 等类型不得拒绝合法文件
         return expected.isEmpty() || normalized.equals("application/octet-stream");
     }
 

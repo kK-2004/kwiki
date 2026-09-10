@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Read-only Flyway migration manifest validator. Scans the authoritative migration
-# directory (src/main/resources/db/migration, including untracked files) without
-# connecting to any database and fails when a filename is malformed or a numeric
-# version is duplicated. Run it locally or in CI before accepting schema changes:
+# 只读的 Flyway 迁移清单校验器。扫描权威迁移
+# 目录（src/main/resources/db/migration，包含未纳入版本控制的文件），
+# 不连接任何数据库；当文件名格式非法或数字版本
+# 重复时失败。在接受表结构变更前，请在本地或 CI 中运行：
 #
-#   scripts/validate-migrations.sh
+# scripts/validate-migrations.sh
 #
-# Rules:
-#   - every file must be named V<positive integer>__<lower_snake_description>.sql
-#     (the repository's Flyway convention; gaps between versions are allowed)
-#   - no two files may claim the same numeric version
-#   - the script never writes, renames, or edits migration files
+# 规则：
+# - 文件名必须形如 V<正整数>__<小写下划线描述>.sql
+# （本仓库的 Flyway 约定；允许版本号之间存在空缺）
+# - 不得有两个文件声明相同的数字版本
+# - 本脚本绝不会写入、重命名或修改迁移文件
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -23,7 +23,7 @@ fi
 
 fail=0
 malformed_count=0
-# one "<version> <filename>" line per valid-shaped file
+# 每个格式合法的文件输出一行 "<版本号> <文件名>"
 manifest=""
 
 for file in "$migrations_dir"/*; do
@@ -52,7 +52,7 @@ if [ "$malformed_count" -gt 0 ]; then
   fail=1
 fi
 
-# Duplicate numeric versions: list every conflicting file.
+# 数字版本重复时：列出所有冲突文件。
 duplicates=$(printf '%s' "$manifest" | awk 'NF { print $1 }' | sort -n | uniq -d)
 if [ -n "$duplicates" ]; then
   while IFS= read -r dup; do

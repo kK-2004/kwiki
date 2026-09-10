@@ -45,7 +45,7 @@ public class WikiPageTag {
         return tagId;
     }
 
-    /** Composite key for page-tag pairs. */
+    /** 页面-标签对的复合主键。 */
     public record PageTagKey(Long pageId, Long tagId) implements Serializable {
     }
 }

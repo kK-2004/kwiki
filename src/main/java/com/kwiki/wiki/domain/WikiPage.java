@@ -15,10 +15,10 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 /**
- * Tree node of a knowledge base (FOLDER or PAGE) with stable id, ordered siblings,
- * archive state, and pointers to the current draft/published revisions. Parent and
- * revision references are kept as scalar ids; cycle and same-knowledge-base rules
- * are enforced by WikiTreeService before any move.
+ * 知识库的树节点（FOLDER 或 PAGE），具有稳定 id、有序兄弟节点、
+ * 归档状态，以及指向当前草稿/已发布修订版本的指针。父节点与修订版本
+ * 引用均以标量 id 保存；环与同知识库规则由 WikiTreeService 在
+ * 任何移动操作前强制执行。
  */
 @Entity
 @Table(name = "wiki_page")
@@ -33,7 +33,7 @@ public class WikiPage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Flyway defines CHAR(36); a plain String would validate as VARCHAR(255)
+    // Flyway 定义为 CHAR(36)；普通 String 会被校验为 VARCHAR(255)
     @JdbcTypeCode(SqlTypes.CHAR)
     private String uuid;
     private Long kbId;
@@ -143,7 +143,7 @@ public class WikiPage {
         return lifecycleVersion;
     }
 
-    /** Every lifecycle transition (archive/restore) advances the fencing version. */
+    /** 每次生命周期转换（归档/恢复）都会推进该围栏版本。 */
     public void bumpLifecycleVersion() {
         this.lifecycleVersion++;
     }

@@ -19,10 +19,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Orchestrator behavior with controllable fakes: authorization is applied before
- * ranking in both branches, single-branch degradation and parent expansion never
- * widen scope, both-branch failure raises a structured error, missing/unauthorized
- * parents are omitted, and a scope-version change aborts before evidence leaves.
+ * 以可控假实现验证编排器行为：两个分支都在排序之前
+ * 应用授权，单分支降级与父分块扩展绝不
+ * 扩大作用域，两个分支都失败会抛出结构化错误，缺失/未授权的
+ * 父分块会被省略，且作用域版本变化会在证据外发之前中止。
  */
 class HybridRetrievalOrchestratorTest {
 
@@ -35,7 +35,7 @@ class HybridRetrievalOrchestratorTest {
                 "父块内容 " + parentKey, 0.0, List.of());
     }
 
-    /** Fake branches rank by a static map; only in-scope candidates are returned. */
+    /** 假分支按静态映射排序；只返回作用域内的候选。 */
     private static class ScriptedBranch implements ChildRecallPort {
         final ChildRecallPort.Branch branch;
         final Map<String, List<ChunkHit>> hitsByQuery;
@@ -58,7 +58,7 @@ class HybridRetrievalOrchestratorTest {
             List<ChunkHit> hits = new ArrayList<>();
             for (ChunkHit hit : hitsByQuery.getOrDefault(effectiveQuery, List.of())) {
                 if (allowedKbIds.contains(hit.kbId())) {
-                    hits.add(hit); // scope applied BEFORE TopK: out-of-scope never ranks
+                    hits.add(hit); // 作用域在 TopK 之前应用：作用域外的候选绝不参与排序
                 }
                 if (hits.size() == topK) {
                     break;
@@ -106,7 +106,7 @@ class HybridRetrievalOrchestratorTest {
 
     @Test
     void restrictedChunksNeverOccupyARankInEitherBranch() {
-        // chunk R2 lives in kb 99 (out of scope) and would rank first in both branches
+        // 分块 R2 位于知识库 99（作用域外），在两个分支中本都会排第一
         Map<String, List<ChunkHit>> bm25Hits = Map.of("安全", List.of(
                 hit("R2", "P-R2", 99L), hit("S1", "P-S1", 1L)));
         Map<String, List<ChunkHit>> vectorHits = Map.of("安全", List.of(
@@ -233,7 +233,7 @@ class HybridRetrievalOrchestratorTest {
     @Test
     void scopeVersionChangeAbortsBeforeEvidenceLeaves() {
         ScopeVersionService versions = scopeVersions();
-        versions.bump(1L); // current = 2
+        versions.bump(1L); // 当前 = 2
 
         HybridRetrievalOrchestrator orchestrator = new HybridRetrievalOrchestrator(
                 embeddings(VECTOR),
@@ -247,7 +247,7 @@ class HybridRetrievalOrchestratorTest {
                 versions,
                 new RetrievalBudgets(50, 40, 8, 3, 24000, java.time.Duration.ofSeconds(5)));
 
-        // scope captured version 1 but the world already moved to 2 -> abort
+        // 作用域捕获的是版本 1，但世界已经变成 2 -> 中止
         assertThatThrownBy(() -> orchestrator.retrieve(
                 new AuthorizationScope(7L, false, Set.of(1L), Map.of(1L, 1L)),
                 query("安全"), 8, 24000))

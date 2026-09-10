@@ -25,7 +25,7 @@ public class KnowledgeBase {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Flyway defines CHAR(36); a plain String would validate as VARCHAR(255)
+    // Flyway 定义为 CHAR(36)；普通 String 会被校验为 VARCHAR(255)
     @JdbcTypeCode(SqlTypes.CHAR)
     private String uuid;
     private String name;
@@ -106,7 +106,7 @@ public class KnowledgeBase {
         return lifecycleVersion;
     }
 
-    /** Every lifecycle transition (archive/restore) advances the fencing version. */
+    /** 每次生命周期转换（归档/恢复）都会推进该围栏版本。 */
     public void bumpLifecycleVersion() {
         this.lifecycleVersion++;
     }

@@ -16,7 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @org.springframework.context.annotation.Import(com.kwiki.testutil.WikiMockBeans.class)
 @AutoConfigureMockMvc
-// SpringBootTest disables tracing by default, installing a no-op propagation factory.
+// SpringBootTest 默认关闭链路追踪，安装一个空操作的传播工厂。
 @AutoConfigureObservability
 class TraceIdResponseHeaderFilterTest {
 
@@ -49,7 +49,7 @@ class TraceIdResponseHeaderFilterTest {
                 .andReturn();
         String traceId = result.getResponse().getHeader(TraceIdResponseHeaderFilter.HEADER);
         assertThat(traceId).isNotBlank();
-        // Brave is configured for 128-bit ids, so a generated trace id is 32 hex chars
+        // Brave 配置为 128 位 id，因此生成的 trace id 是 32 个十六进制字符
         assertThat(traceId).matches("[0-9a-f]{32}");
     }
 

@@ -8,7 +8,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 import java.util.function.LongUnaryOperator;
 
-/** Trusted request context. Bind only around application-owned work, never deserialize it. */
+/** 可信的请求上下文。只在应用自身的工作范围内绑定，绝不反序列化它。 */
 public final class RunContext implements AutoCloseable {
     private static final ThreadLocal<RunContext> CURRENT = new ThreadLocal<>();
     public final String requestId;

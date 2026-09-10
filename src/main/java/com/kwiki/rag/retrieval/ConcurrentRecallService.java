@@ -11,9 +11,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Runs the BM25 and vector branches concurrently (virtual threads) with per-branch deadlines. One
- * branch failing or timing out degrades to the other; both failing raises a structured retrieval
- * error. Completion order never matters.
+ * 以虚拟线程并发执行 BM25 与向量分支，并为每个分支设置截止时间。某个
+ * 分支失败或超时则降级到另一分支；两分支都失败则抛出结构化检索
+ * 错误。完成顺序无关紧要。
  */
 @Component
 public class ConcurrentRecallService {

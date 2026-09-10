@@ -10,7 +10,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
-/** Manager-only, bounded account lookup for adding collaborators. Never exposes email or credentials. */
+/** 仅管理员可用、有界上限的账号查询，用于添加协作者。绝不暴露邮箱或凭据。 */
 @RestController
 @RequestMapping("/api/v1/knowledge-bases/{kbId}/member-candidates")
 @PreAuthorize("isAuthenticated()")

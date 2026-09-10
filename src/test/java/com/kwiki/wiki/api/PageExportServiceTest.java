@@ -68,14 +68,14 @@ class PageExportServiceTest {
         PageExportService.ExportPayload payload =
                 service().export(USER, KB, PAGE_ID, "md", snapshot, null, BASE);
 
-        // Single markdown file — never a ZIP, media bytes are not bundled.
+        // 单个 Markdown 文件 —— 绝不是 ZIP，媒体字节不会被打包进去。
         assertThat(payload.fileName()).isEqualTo("含图片文档.md");
         assertThat(payload.contentType()).isEqualTo("text/markdown;charset=UTF-8");
         String doc = new String(payload.content(), StandardCharsets.UTF_8);
-        // The whole ![alt](src) / <img> construct survives; the token becomes a CDN link.
+        // 整个 ![alt](src) / <img> 结构都保留；标记会变成 CDN 链接。
         assertThat(doc).contains("![截图说明](" + CDN_URL + ")");
         assertThat(doc).contains("<img src=\"" + CDN_URL + "\" alt=\"同一张图\">");
-        // Manually typed external links stay exactly as authored.
+        // 手动输入的外部链接完全保持作者所写的样子。
         assertThat(doc).contains("![外链](https://example.com/cat.png)");
         assertThat(doc).doesNotContain("attachment://");
     }
@@ -83,7 +83,7 @@ class PageExportServiceTest {
     @Test
     void fallsBackToTheAppContentEndpointWhenNoCdnLinkCanBeIssued() {
         stubPage();
-        // Unknown attachment: no stored file to address.
+        // 未知附件：没有已存储文件可供寻址。
         when(attachments.findByUuid(MEDIA_UUID)).thenReturn(Optional.empty());
         String unknown = "![x](attachment://" + MEDIA_UUID + ")";
         PageExportService.ExportPayload payload =
@@ -93,7 +93,7 @@ class PageExportServiceTest {
         assertThat(new String(payload.content(), StandardCharsets.UTF_8))
                 .contains("![x](" + fallback + ")");
 
-        // CDN issuance failure on a stored file degrades the same way.
+        // 已存储文件的 CDN 签发失败也以同样方式降级。
         Attachment attachment = new Attachment(MEDIA_UUID, KB, USER.id(), "截图.png", "image/png", 3);
         attachment.markStored(42L);
         when(attachments.findByUuid(MEDIA_UUID)).thenReturn(Optional.of(attachment));
@@ -117,12 +117,12 @@ class PageExportServiceTest {
         assertThat(payload.fileName()).isEqualTo("含图片文档.html");
         assertThat(payload.contentType()).isEqualTo("text/html;charset=UTF-8");
         String html = new String(payload.content(), StandardCharsets.UTF_8);
-        // Blank base falls back to same-origin relative links.
+        // base 为空时回退到同源的相对链接。
         assertThat(html).contains("<img src=\"/api/v1/knowledge-bases/" + KB
                 + "/attachments/" + MEDIA_UUID + "/content\">");
         assertThat(html).startsWith("<!DOCTYPE html>");
-        // Standalone files have no script to interpret kwiki's media attributes;
-        // the wrapper CSS translates data-align / data-width-percent instead.
+        // 独立文件里没有脚本解释 kwiki 的媒体属性；
+        // 改由外层 CSS 来转换 data-align / data-width-percent。
         assertThat(html).contains("[data-align=\"center\"]");
         assertThat(html).contains("[data-width-percent=\"25\"]");
     }

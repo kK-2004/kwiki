@@ -1,17 +1,17 @@
 package com.kwiki.rag.orchestration;
 
 /**
- * Terminal/outcome error codes of the QA-gated answer path. Content-exhaustion
- * outcomes are distinct from infrastructure failures: the former answer with
- * the exact insufficient message and empty citations, the latter surface the
- * concrete failure class without pretending the knowledge base is empty.
+ * QA 门禁回答链路的终止/结果错误码。内容耗尽
+ * 类结果区别于基础设施故障：前者以
+ * 固定的信息不足文案与空引用作答，后者暴露
+ * 具体的故障类别，而不会假装知识库是空的。
  */
 public final class AgenticErrorCodes {
 
-    /** Content recovery exhausted: answer with the fixed insufficient message. */
+    /** 内容恢复已耗尽：以固定的信息不足文案作答。 */
     public static final String INSUFFICIENT = "insufficient";
 
-    // infrastructure / terminal failures
+    // 基础设施 / 终止性故障
     public static final String INVALID_QUERY = "invalid-query";
     public static final String AGENT_BUSY = "agent-busy";
     public static final String TIMEOUT = "timeout";
@@ -26,7 +26,7 @@ public final class AgenticErrorCodes {
     public static final String ANSWER_VALIDATION_FAILED = "answer-validation-failed";
     public static final String BACKPRESSURE_OVERFLOW = "backpressure-overflow";
 
-    /** Exact refusal text once every content-recovery path is exhausted. */
+    /** 所有内容恢复路径都耗尽后的精确拒绝文案。 */
     public static final String INSUFFICIENT_MESSAGE = "知识库中没有相关信息，我无法进行回答";
 
     private AgenticErrorCodes() {

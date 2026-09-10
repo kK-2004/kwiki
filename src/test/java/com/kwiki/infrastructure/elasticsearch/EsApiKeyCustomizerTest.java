@@ -15,9 +15,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * ES auth wiring: an API key becomes exactly one Authorization: ApiKey header;
- * a blank key leaves the builder untouched (basic auth path stays with Spring
- * Boot's username/password properties).
+ * ES 认证装配：一个 API key 恰好变成一个 Authorization: ApiKey 请求头；
+ * 空的 key 不会改动 builder（basic 认证路径仍交由 Spring
+ * Boot 的 username/password 配置）。
  */
 @ExtendWith(MockitoExtension.class)
 class EsApiKeyCustomizerTest {

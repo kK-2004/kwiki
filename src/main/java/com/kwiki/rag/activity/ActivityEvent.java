@@ -3,14 +3,14 @@ package com.kwiki.rag.activity;
 import java.util.Map;
 
 /**
- * Versioned activity event streamed to the browser over the SSE {@code activity}
- * channel and persisted with the assistant run for replay. Steps merge by
- * {@code stepId}: a started event is superseded by the completed/skipped/failed
- * event of the same step; the sequence number only orders delivery. Metrics use
- * explicitly named keys (branch, branchTopK, hitCount, fusedCandidateCount,
- * retainedChildCount, parentCount, ...) — missing data is omitted, never
- * invented. Internal candidate bodies, prompts, tool arguments, and secrets are
- * never part of an activity payload.
+ * 带版本号的活动事件，通过 SSE {@code activity} 通道推送到浏览器
+ * 并随助手运行（run）一起持久化以便回放。步骤按
+ * {@code stepId} 合并：同一步骤的 started 事件会被 completed/skipped/failed 事件取代；
+ * 同一步骤的事件；序号仅用于排序投递。指标使用
+ * 显式命名的 key（branch、branchTopK、hitCount、fusedCandidateCount、
+ * retainedChildCount、parentCount 等）——缺失数据直接省略，绝不
+ * 臆造。内部候选体、提示词、工具参数与密钥
+ * 绝不出现在活动载荷中。
  */
 public record ActivityEvent(
         int schemaVersion,

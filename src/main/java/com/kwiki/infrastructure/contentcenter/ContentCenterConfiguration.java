@@ -6,10 +6,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Content center (k-File) adapter wiring. Builds one reusable SDK client from the
- * validated kwiki.content-center properties; the app token never leaves runtime
- * configuration and is never logged here. SDK 0.1.3 exposes no health operation,
- * so startup relies on binding-time validation only.
+ * 内容中心（k-File）适配器（adapter）装配。从已校验的
+ * kwiki.content-center 属性构建一个可复用的 SDK 客户端；app token 绝不会离开
+ * 运行时配置，也绝不会在此处记录日志。SDK 0.1.3 未暴露健康检查操作，
+ * 因此启动仅依赖绑定阶段的校验。
  */
 @Configuration
 public class ContentCenterConfiguration {

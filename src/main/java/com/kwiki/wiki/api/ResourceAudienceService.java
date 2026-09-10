@@ -14,7 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/** Atomic document audience changes with source-membership revalidation. */
+/** 原子地变更文档受众，并重新校验来源成员关系。 */
 @Service
 public class ResourceAudienceService {
     private final JdbcOperations jdbc;
@@ -30,8 +30,8 @@ public class ResourceAudienceService {
 
     @Transactional(readOnly = true)
     public AudienceView get(CurrentUser user, long pageId) {
-        // Audience membership is management metadata; exposing it to a reader
-        // would disclose the selected users even when the page body is private.
+        // 受众成员关系属于管理元数据；把它暴露给阅读者
+        // 会泄露所选的用户，即使页面正文是私有的。
         requireDb(); authorization.require(user, pageId, ResourceAction.MANAGE);
         String mode = jdbc.queryForObject("SELECT audience_mode FROM wiki_page WHERE id = ?", String.class, pageId);
         List<Member> members = jdbc.query("SELECT source_kb_id, user_id FROM wiki_page_audience_member WHERE page_id = ? ORDER BY source_kb_id, user_id", (rs, row) -> new Member(rs.getLong(1), rs.getLong(2)), pageId);

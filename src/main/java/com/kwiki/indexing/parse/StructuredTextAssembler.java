@@ -4,8 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Assembles structured blocks into a document, computing character offsets as
- * blocks are appended (blocks join with a blank line in the plain projection).
+ * 把结构化块组装成文档，并在追加块时计算字符偏移
+ * （块在纯文本投影中以空行连接）。
  */
 public final class StructuredTextAssembler {
 

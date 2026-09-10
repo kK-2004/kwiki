@@ -38,23 +38,23 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Unified archive entry for every wiki surface (page detail, tree, knowledge
- * base). A page archive snapshots the ACTIVE subtree plus its exclusive
- * indexable sources into one recoverable batch; a knowledge-base archive covers
- * all still-valid pages and stored attachments. Previously independent batches
- * keep their own window and state — restoring a knowledge base never
- * resurrects them.
+ * 覆盖所有 wiki 界面（页面详情、树、知识库）的统一归档入口。
+ * 页面归档会把 ACTIVE 子树及其独占的
+ * 可索引来源快照进一个可恢复批次；知识库归档则覆盖
+ * 所有仍然有效的页面与已存储附件。此前相互独立的批次
+ * 保留各自的窗口与状态 —— 恢复知识库绝不会
+ * 让它们复活。
  *
- * <p>Transaction shape: verify the full management scope first (no partial
- * archives), then commit the authoritative logical archive with the delete
- * outbox in one transaction, and only afterwards attempt the synchronous ES
- * deletion. The ES attempt reports SYNCED/PENDING; authoritative lifecycle
- * filtering already excludes the archived content either way.</p>
+ * <p>事务形态：先校验完整的管理权限范围（不产生部分
+ * 归档），然后在一个事务中提交权威的逻辑归档与删除
+ * 发件箱，最后才尝试同步的 ES
+ * 删除。ES 尝试会报告 SYNCED/PENDING；无论如何，
+ * 权威的生命周期过滤都已排除已归档的内容。</p>
  */
 @Service
 public class ResourceArchiveService {
 
-    /** 7-day retention window (168h), stored as UTC instants. */
+    /** 7 天保留窗口（168 小时），以 UTC Instant 存储。 */
     public static final int RETENTION_HOURS = 168;
 
     public record ArchiveResult(long batchId, String batchUuid, int itemCount,
@@ -137,10 +137,10 @@ public class ResourceArchiveService {
     }
 
     // ------------------------------------------------------------------
-    // archive
+    // 归档
     // ------------------------------------------------------------------
 
-    /** Idempotent: re-archiving an archived page returns its existing window. */
+    /** 幂等：对已归档页面再次归档会返回其现有窗口。 */
     public ArchiveResult archivePage(CurrentUser user, long kbId, long pageId) {
         KnowledgeBase kb = knowledgeBases.findById(kbId)
                 .filter(candidate -> !candidate.isArchived())
@@ -152,8 +152,8 @@ public class ResourceArchiveService {
             throw new com.kk2004.common.exception.NotFoundException("page not found");
         }
         List<WikiPage> subtree = collectActiveSubtree(kbId, pageId);
-        // Full-scope management check BEFORE any write: one failure rejects the
-        // whole operation, never a partial archive.
+        // 在任何写入之前先做全范围的管理权限校验：一次失败即拒绝
+        // 整个操作，绝不产生部分归档。
         authorization.require(user, kbId, WikiAction.ARCHIVE_PAGE);
         for (WikiPage page : subtree) {
             resources.requireInKnowledgeBase(user, kbId, page.getId(), ResourceAction.MANAGE);
@@ -162,7 +162,7 @@ public class ResourceArchiveService {
         ArchiveBatch batch = transactions.inTransactionReturning(() -> {
             Optional<ArchiveBatch> existing = existingLiveBatch(ArchiveBatch.SCOPE_PAGE, pageId);
             if (existing.isPresent()) {
-                return existing.get(); // timer never resets on retry
+                return existing.get(); // 重试时定时器永不重置
             }
             Instant now = clock.instant();
             List<Attachment> exclusiveSources = exclusiveSourceAttachments(subtree);
@@ -195,7 +195,7 @@ public class ResourceArchiveService {
         return finishArchive(batch);
     }
 
-    /** Idempotent: re-archiving an archived kb returns its existing window. */
+    /** 幂等：对已归档知识库再次归档会返回其现有窗口。 */
     public ArchiveResult archiveKnowledgeBase(CurrentUser user, long kbId) {
         authorization.require(user, kbId, WikiAction.ARCHIVE_KNOWLEDGE_BASE);
         KnowledgeBase kb = knowledgeBases.findById(kbId)
@@ -261,11 +261,11 @@ public class ResourceArchiveService {
     }
 
     /**
-     * Exclusive indexable sources: import documents whose only referencing
-     * pages (via source_document or persisted media references) are inside the
-     * archived subtree. Attachments shared with anything outside keep their
-     * file/metadata; the archived pages simply stop being their authorized
-     * retrieval source through lifecycle filtering.
+     * 独占的可索引来源：导入文档，其唯一的引用
+     * 页面（经由 source_document 或持久化的媒体引用）都位于
+     * 被归档的子树之内。与子树外任何对象共享的附件保留其
+     * 文件/元数据；被归档的页面只是通过生命周期过滤
+     * 不再是它们的授权检索来源。
      */
     private List<Attachment> exclusiveSourceAttachments(List<WikiPage> subtree) {
         List<Long> pageIds = subtree.stream().map(WikiPage::getId).toList();
@@ -305,10 +305,10 @@ public class ResourceArchiveService {
     }
 
     /**
-     * ACTIVE subtree snapshot starting at {@code rootPageId}: descendants are
-     * collected through intermediate nodes of any status so legacy
-     * archived-mid-branch children are still covered. The root itself is
-     * included only while ACTIVE.
+     * 从 {@code rootPageId} 开始的 ACTIVE 子树快照：后代节点
+     * 会穿过任意状态的中间节点被收集，因此历史上
+     * 分支中途被归档的子节点仍被覆盖。根节点本身
+     * 只有处于 ACTIVE 时才被包含。
      */
     public List<WikiPage> collectActiveSubtree(long kbId, long rootPageId) {
         List<WikiPage> all = pages.findByKbId(kbId);
@@ -336,7 +336,7 @@ public class ResourceArchiveService {
     }
 
     // ------------------------------------------------------------------
-    // restore
+    // 恢复
     // ------------------------------------------------------------------
 
     public record RestoreResult(long batchId, String scopeType, int restoredItems,
@@ -346,8 +346,8 @@ public class ResourceArchiveService {
         ArchiveBatch batch = batches.findById(batchId)
                 .orElseThrow(() -> new com.kk2004.common.exception.NotFoundException(
                         "archive batch not found"));
-        // Management authorization over the archived scope itself; deliberately
-        // NOT the ACTIVE-requiring resource loader.
+        // 针对已归档范围本身做管理权限校验；刻意
+        // 不使用要求 ACTIVE 的资源加载器。
         if (ArchiveBatch.SCOPE_KNOWLEDGE_BASE.equals(batch.getScopeType())) {
             authorization.require(user, batch.getKbId(), WikiAction.ARCHIVE_KNOWLEDGE_BASE);
         } else {
@@ -356,7 +356,7 @@ public class ResourceArchiveService {
 
         return transactions.inTransactionReturning(() -> {
             if (jdbc != null) {
-                // Serialize restore against the daily cleanup on the batch row.
+                // 在批次行上把恢复与每日清理串行化。
                 jdbc.queryForObject("SELECT id FROM archive_batch WHERE id = ? FOR UPDATE",
                         Long.class, batchId);
             }
@@ -395,10 +395,10 @@ public class ResourceArchiveService {
                     case ArchiveBatchItem.RESOURCE_PAGE -> {
                         WikiPage page = pages.findById(item.getResourceId()).orElse(null);
                         if (page == null || !page.isArchived()) {
-                            continue; // already restored elsewhere or physically gone
+                            continue; // 已在别处恢复，或已被物理删除
                         }
                         if (page.getLifecycleVersion() != item.getLifecycleVersion()) {
-                            continue; // version moved on after the snapshot
+                            continue; // 快照之后版本已变化
                         }
                         Long priorParent = item.getPriorParentId();
                         boolean parentValid = priorParent != null
@@ -418,7 +418,7 @@ public class ResourceArchiveService {
                         restored++;
                         Long published = page.getCurrentPublishedRevisionId();
                         if (published != null) {
-                            // Rebuild only the published revision; drafts never index.
+                            // 只重建已发布的修订版本；草稿永不进入索引。
                             indexingJobs.enqueuePageUpsert(page.getId(), published,
                                     page.getLifecycleVersion());
                         }

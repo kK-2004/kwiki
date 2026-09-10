@@ -67,7 +67,7 @@ class RuleFirstRouterTest {
     @Test
     void conflictingIntentsConsultTheLlm() {
         AtomicInteger llmCalls = new AtomicInteger();
-        // matches both procedural (怎么) and analytical (区别) keywords
+        // 同时匹配过程型（怎么）与分析型（区别）关键词
         RuleFirstRouter router = router(
                 recordingFake(validDecision(Intent.PROCEDURAL), llmCalls), true);
 

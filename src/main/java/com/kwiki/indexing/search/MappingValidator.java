@@ -4,9 +4,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Pure validation of an existing index mapping against the kwiki contract:
- * vector dimensions must match the configured value and every required
- * provenance/scope field must exist. Alias switching is rejected otherwise.
+ * 依据 kwiki 契约对已有索引映射做纯校验：
+ * 向量维度必须与配置值一致，且每一个必需的
+ * 溯源/作用域字段都必须存在。否则拒绝切换别名。
  */
 public final class MappingValidator {
 
@@ -18,7 +18,7 @@ public final class MappingValidator {
     private MappingValidator() {
     }
 
-    /** Returns an error description, or null when the mapping is compatible. */
+    /** 返回错误描述；映射兼容时返回 null。 */
     @SuppressWarnings("unchecked")
     public static String validate(Map<String, Object> indexMapping, int expectedDimensions) {
         Object mappingsNode = indexMapping.get("mappings");

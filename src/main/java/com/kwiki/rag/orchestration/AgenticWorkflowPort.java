@@ -9,12 +9,12 @@ import reactor.core.publisher.Flux;
 public interface AgenticWorkflowPort {
     Flux<ChatStreamEvent> answer(CurrentUser user, String query);
 
-    /** Optional durable conversation context. Legacy adapters can keep the query-only path. */
+    /** 可选的持久化对话上下文。旧版适配器可继续使用「仅查询」路径。 */
     default Flux<ChatStreamEvent> answer(CurrentUser user, String query, java.util.List<ChatTurn> history) {
         return answer(user, query);
     }
 
-    /** Conversation persistence is owned by ChatSessionService for this path. */
+    /** 该路径的对话持久化由 ChatSessionService 负责。 */
     default Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, java.util.List<ChatTurn> history) {
         return answer(user, query, history);
     }

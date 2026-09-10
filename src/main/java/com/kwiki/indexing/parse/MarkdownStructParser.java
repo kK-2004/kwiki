@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
 
 
 /**
- * Markdown structure parser: real heading levels feed the parent chunker; paragraphs,
- * list items, quotes, and code blocks become paragraph-level blocks.
+ * Markdown 结构解析器：真实的标题层级供给父分块器；段落、
+ * 列表项、引用与代码块都成为段落级块。
  */
 @Component
 public class MarkdownStructParser {

@@ -14,7 +14,7 @@ import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.List;
 
-/** MySQL source of truth for page interactions and two-level comment threads. */
+/** 页面互动与两级评论线程的 MySQL 真相来源。 */
 @Service
 public class WikiInteractionService {
 
@@ -183,9 +183,9 @@ public class WikiInteractionService {
         if (comment.get("deleted_at") != null) return;
         Long parentId = nullableNumber(comment.get("parent_id"));
         long rootId = parentId == null ? commentId : parentId;
-        // Replies always lock their root as well. addComment takes the same root
-        // lock before inserting, so a root delete and a concurrent reply cannot
-        // disagree about the one aggregate delta.
+        // 回复也始终锁住自己的根评论。addComment 在插入前
+        // 会获取同一个根锁，因此根评论删除与并发回复
+        // 不会在同一个聚合增量上产生分歧。
         if (rootId != commentId) jdbc.queryForMap("SELECT id FROM wiki_comment WHERE id = ? FOR UPDATE", rootId);
         long visibleDelta = parentId == null
                 ? count("SELECT COUNT(*) FROM wiki_comment WHERE (id = ? OR parent_id = ?) AND deleted_at IS NULL", commentId, commentId)

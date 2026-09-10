@@ -16,9 +16,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * BM25 branch: full-text match over CHILD documents with the scope filter applied
- * before TopK. Raw Elasticsearch scores are discarded — only the branch order
- * leaves this adapter.
+ * BM25 分支：在 CHILD 文档上进行全文匹配，范围过滤器（scope filter）
+ * 在 TopK 之前应用。原始的 Elasticsearch 评分被丢弃——只有分支排序
+ * 会离开此适配器（adapter）。
  */
 @Component
 public class Bm25RecallAdapter implements ChildRecallPort {

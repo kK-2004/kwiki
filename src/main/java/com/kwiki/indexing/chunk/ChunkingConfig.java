@@ -1,9 +1,8 @@
 package com.kwiki.indexing.chunk;
 
 /**
- * Chunk sizing configuration. Defaults follow the design: parents 1024-4096
- * characters over major heading sections, children 128-512 characters
- * (target 384) with paragraph integrity.
+ * 分块尺寸配置。默认值遵循设计：父分块 1024-4096 字符，覆盖主要标题分区；
+ * 子分块 128-512 字符（目标 384），并保持段落完整性。
  */
 public record ChunkingConfig(
         int parentMinChars,

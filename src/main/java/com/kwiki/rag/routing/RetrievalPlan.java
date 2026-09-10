@@ -3,9 +3,9 @@ package com.kwiki.rag.routing;
 import java.util.List;
 
 /**
- * Validated routing result: intent, retrieval need, rewrite mode, bounded subqueries,
- * and full provenance (source, rule version, matched rules, fallback reason).
- * Immutable by construction; consumers never receive LLM output directly.
+ * 经过校验的路由结果：意图、检索需求、改写模式、有界子查询，
+ * 以及完整的溯源信息（来源、规则版本、命中的规则、回退原因）。
+ * 构造上不可变；消费方绝不会直接收到 LLM 的输出。
  */
 public record RetrievalPlan(
         Intent intent,

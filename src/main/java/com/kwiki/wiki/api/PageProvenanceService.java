@@ -17,9 +17,9 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * Reader-facing provenance: which readable source documents a page was derived
- * from. Attachments outside the caller's knowledge base or archived attachments
- * are not disclosed — not even their metadata.
+ * 面向阅读者的溯源：某个页面派生自哪些可读的源文档。
+ * 调用方知识库之外的附件或已归档的附件
+ * 不会被披露 —— 连它们的元数据也不披露。
  */
 @Service
 public class PageProvenanceService {
@@ -66,12 +66,12 @@ public class PageProvenanceService {
                 .toList();
     }
 
-    /** Attachments readable for the page (metadata only; downloads are presigned separately). */
+    /** 该页面可读的附件（仅元数据；下载链接另行预签名签发）。 */
     public List<SourceView> readableAttachments(CurrentUser user, long kbId, long pageId) {
         requirePage(user, kbId, pageId, ResourceAction.READ, WikiAction.READ_PAGE);
         requireActivePageIn(kbId, pageId);
-        // A shared page must expose only attachments cited by that page, never the
-        // entire owning knowledge base's attachment catalog.
+        // 共享页面只能暴露该页面引用的附件，绝不能暴露
+        // 其所属知识库的整个附件目录。
         return readableSources(user, kbId, pageId);
     }
 

@@ -17,9 +17,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Schema constraint contract for V1. Runs only against an operator-provided MySQL
- * (KWIKI_IT_MYSQL_URL/USER/PASSWORD), keeping the default build Docker-free and
- * connection-free. Verifies unique keys, role CHECK constraints, and FK integrity.
+ * V1 的表结构约束契约。仅针对运维方提供的 MySQL 运行
+ * （KWIKI_IT_MYSQL_URL/USER/PASSWORD），使默认构建保持无 Docker、
+ * 无连接。校验唯一键、role CHECK 约束以及外键完整性。
  */
 @EnabledIfEnvironmentVariable(named = "KWIKI_IT_MYSQL_URL", matches = ".+")
 class V1MigrationContractTest {
@@ -123,7 +123,7 @@ class V1MigrationContractTest {
                 ps.executeUpdate();
             }
 
-            // duplicate membership rejected
+            // 重复的成员关系被拒绝
             assertThatThrownBy(() -> {
                 try (PreparedStatement ps = c.prepareStatement(
                         "INSERT INTO knowledge_base_member (kb_id, user_id, role, created_by) VALUES (?, ?, ?, ?)")) {
@@ -135,7 +135,7 @@ class V1MigrationContractTest {
                 }
             }).isInstanceOf(SQLIntegrityConstraintViolationException.class);
 
-            // invalid role rejected
+            // 非法 role 被拒绝
             assertThatThrownBy(() -> {
                 try (PreparedStatement ps = c.prepareStatement(
                         "INSERT INTO knowledge_base_member (kb_id, user_id, role, created_by) VALUES (?, ?, ?, ?)")) {

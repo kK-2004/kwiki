@@ -8,14 +8,14 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Default queries never return archived pages: navigation scopes are derived from
- * the caller's authorization scope and combined with ACTIVE status filtering.
+ * 默认查询永不返回已归档页面：导航作用域由调用方的授权作用域派生，
+ * 并与 ACTIVE 状态过滤相结合。
  */
 public interface WikiPageRepository extends JpaRepository<WikiPage, Long> {
 
     Optional<WikiPage> findByUuid(String uuid);
 
-    /** All nodes regardless of lifecycle; used for subtree snapshots and restore. */
+    /** 不论生命周期状态的所有节点；用于子树快照与恢复。 */
     List<WikiPage> findByKbId(Long kbId);
 
     Optional<WikiPage> findByIdAndStatus(Long id, String status);

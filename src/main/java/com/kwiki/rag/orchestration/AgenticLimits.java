@@ -6,12 +6,12 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 /**
- * Budget ceilings of one agentic run under the QA-gated state machine. The
- * defaults cover the worst valid knowledge path: 1 route call + 2 rewrite
- * calls + up to 12 candidate generations + 12 QA reviews = 27 conversational
- * model calls inside 32; 6 hybrid retrievals and 6 parent fetches inside 12
- * tool calls; 128 steps; a single 300s deadline shared by everything. The
- * ceilings are upper bounds, not targets — the deadline can end a run early.
+ * 单个智能体化运行在 QA 门控状态机下的预算上限。该
+ * 默认值覆盖最差的有效知识路径：1 次路由调用 + 2 次查询改写
+ * 调用 + 最多 12 次候选生成 + 12 次 QA 评审 = 32 次对话内
+ * 模型调用；12 次工具调用内含 6 次混合检索与 6 次父级拉取；
+ * 128 个步骤；以及所有环节共享的单个 300s 截止时间。这些
+ * 上限是上界而非目标——截止时间可提前结束运行。
  */
 @Component
 public record AgenticLimits(
@@ -92,7 +92,7 @@ public record AgenticLimits(
         this.modelDeadline = modelDeadline;
     }
 
-    /** Legacy accessor: a "round" is one query round in the new semantics. */
+    /** 旧版访问器：在新语义中，一个「round」即一个查询轮次。 */
     public int rounds() {
         return queryRounds;
     }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { scanMediaBlocks, serializeMedia, type MediaAttrs } from '../src/features/wiki/components/mediaBlocks';
 import { renderMarkdown } from '../src/features/wiki/components/render';
 
-/** Applies one editor-style media edit (layout/size) at segment level. */
+/** 在段级别应用一次编辑器风格的媒体编辑（布局/尺寸）。 */
 function editMedia(source: string, index: number, patch: Partial<MediaAttrs>): string {
   const mediaSegments = scanMediaBlocks(source).filter(segment => segment.type === 'media');
   const segment = mediaSegments[index];
@@ -46,7 +46,7 @@ describe('media complete-node roundtrip', () => {
     const media = mediaOf(`文本\n${withSourceChild}`);
     expect(media.kind).toBe('VIDEO');
     expect(media.src).toBe('https://cdn/w.webm');
-    // editing normalizes to the canonical single-src form
+    // 编辑会归一化为规范的单一 src 形态
     const edited = editMedia(`文本\n${withSourceChild}`, 0, { align: 'left' });
     expect(edited).toBe('文本\n<video src="https://cdn/w.webm" controls data-align="left"></video>');
   });
@@ -75,13 +75,13 @@ describe('legacy duplicated closing tags', () => {
     const source = '前\n<video src="https://cdn/v.mp4" controls></video></video> </video>\n中间\n</video>\n后';
     const segments = scanMediaBlocks(source);
     const media = segments.find(segment => segment.type === 'media');
-    // element + directly adjacent residue (horizontal whitespace only); the
-    // newline-separated one is not 紧随 and must stay text
+    // 元素 + 紧邻的残留（仅水平空白）；该
+    // 以换行分隔的那一个并不紧邻，必须保持为文本
     expect(media && media.type === 'media' && media.end).toBe(source.indexOf('中间') - 1);
-    // one edit removes the redundant adjacent closings, other text byte-identical
+    // 次编辑会移除多余的相邻结束标签，其他文本保持字节一致
     const edited = editMedia(source, 0, { align: 'center' });
     expect(edited).toBe('前\n<video src="https://cdn/v.mp4" controls data-align="center"></video>\n中间\n</video>\n后');
-    expect(countOccurrences(edited, '</video>')).toBe(2); // element + untouched distant text
+    expect(countOccurrences(edited, '</video>')).toBe(2); // 元素 + 未改动的远端文本
   });
 
   it('absorbs repeated directly-adjacent residue from historical edits', () => {
@@ -96,7 +96,7 @@ describe('legacy duplicated closing tags', () => {
     const trailing = segments.at(-1);
     expect(trailing?.type === 'text' && trailing.text).toContain('</video>');
     const edited = editMedia(source, 0, { align: 'left' });
-    expect(countOccurrences(edited, '</video>')).toBe(2); // element + untouched text
+    expect(countOccurrences(edited, '</video>')).toBe(2); // 元素 + 未改动的文本
   });
 
   it('does not touch media syntax inside code or escaped text', () => {
@@ -106,7 +106,7 @@ describe('legacy duplicated closing tags', () => {
     expect(scanMediaBlocks(inline).every(segment => segment.type === 'text')).toBe(true);
     const escaped = '\\<video src="https://cdn/v.mp4"></video>';
     expect(scanMediaBlocks(escaped).every(segment => segment.type === 'text')).toBe(true);
-    // fenced examples also stay literal in previews
+    // 围栏示例在预览中也保持字面文本
     expect(renderMarkdown(fenced)).not.toContain('<video src=');
   });
 });
@@ -132,7 +132,7 @@ describe('repeated edit stability (five adjustments + save/reopen)', () => {
     for (let round = 0; round < 5; round += 1) {
       const mediaSegments = scanMediaBlocks(source).filter(segment => segment.type === 'media');
       expect(mediaSegments).toHaveLength(2);
-      // "save and reopen": serialize+rescan yields the same segments again
+      // “保存并重新打开”：序列化后再扫描会再次得到相同的段
       let rewritten = source;
       for (const segment of mediaSegments.reverse()) {
         if (segment.type !== 'media') continue;

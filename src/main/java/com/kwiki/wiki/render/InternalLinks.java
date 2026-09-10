@@ -6,9 +6,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Extracts stable page references from Markdown. Internal links use the
- * kwiki-page: scheme ([title](kwiki-page:{uuid})), so renames and moves never
- * break links — resolution goes through the page uuid, not the title.
+ * 从 Markdown 中提取稳定的页面引用。内部链接使用 kwiki-page: 方案
+ * （[title](kwiki-page:{uuid})），因此重命名与移动都不会破坏链接——
+ * 解析走页面 uuid 而非标题。
  */
 public final class InternalLinks {
 
@@ -17,7 +17,7 @@ public final class InternalLinks {
     private InternalLinks() {
     }
 
-    /** Page uuids referenced by internal links, in first-occurrence order, deduplicated. */
+    /** 内部链接引用的页面 uuid，按首次出现顺序去重。 */
     public static Set<String> extractPageUuids(String markdown) {
         Set<String> uuids = new LinkedHashSet<>();
         if (markdown == null) {

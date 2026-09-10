@@ -16,10 +16,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Production parent fetch: multi-get by chunkKey on the chunks alias, then
- * re-apply the caller's scope filter AND the authoritative lifecycle
- * exclusions before anything is returned. A parent that is archived, out of
- * scope, or missing is omitted — never substituted.
+ * 生产环境的父块获取：先在 chunks 别名上按 chunkKey 进行 multi-get，再
+ * 在返回任何结果前重新应用调用方的范围过滤器（scope filter）与权威的
+ * 生命周期排除项。已归档、超出范围或缺失的父块会被省略——绝不替换。
  */
 @Component
 public class EsParentChunkFetcher implements ParentEvidenceResolver.ParentChunkFetcher {

@@ -15,7 +15,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 
-/** Persists Java/String (UTF-16 code-unit) offsets against a concrete published revision. */
+/** 针对某个具体已发布修订版本持久化 Java/String（UTF-16 代码单元）偏移。 */
 @Service
 public class SelectionAnchorService {
     private final JdbcOperations jdbc;
@@ -40,9 +40,9 @@ public class SelectionAnchorService {
     }
 
     /**
-     * Resolves a notification/comment anchor against the current published revision.
-     * The original revision is kept as a safe fallback whenever a new revision has
-     * no unique match; callers must never highlight an arbitrary duplicate quote.
+     * 针对当前已发布修订版本解析通知/评论锚点。
+     * 只要新修订版本中没有唯一匹配，就保留原修订版本作为
+     * 安全兜底；调用方绝不能高亮任意一个重复的引文。
      */
     @Transactional(readOnly = true)
     public AnchorResolution resolve(CurrentUser user, long kbId, long pageId, long anchorId) {

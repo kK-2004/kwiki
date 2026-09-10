@@ -7,7 +7,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import java.util.Locale;
 
-/** Loads login credentials from the app_user table instead of Boot's generated user. */
+/** 从 app_user 表加载登录凭据，而非 Boot 自动生成的用户。 */
 @Service
 public class DatabaseUserDetailsService implements UserDetailsService {
 

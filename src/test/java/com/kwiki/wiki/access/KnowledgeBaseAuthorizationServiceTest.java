@@ -15,9 +15,9 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Table-driven policy tests covering every role/action combination, non-member
- * denial, admin bypass, and the fail-closed behavior when membership storage is
- * unavailable.
+ * 表驱动策略测试，覆盖每一种角色/动作组合、非成员
+ * 被拒、管理员绕过，以及成员关系存储不可用时的
+ * 故障关闭行为。
  */
 class KnowledgeBaseAuthorizationServiceTest {
 

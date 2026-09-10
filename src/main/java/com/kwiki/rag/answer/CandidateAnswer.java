@@ -6,10 +6,10 @@ import com.kwiki.rag.retrieval.ChildEvidence;
 import java.util.List;
 
 /**
- * A server-side bounded candidate answer produced from retained evidence and
- * evaluated by QA before anything is sent to the client. Tokens of an
- * un-reviewed candidate never reach the browser and are never persisted as the
- * final conversation answer.
+ * 服务端有界的候选回答，由保留下来的证据生成，
+ * 并在任何内容发送给客户端之前经过 QA 评审。未经评审的
+ * 候选的 token 绝不会到达浏览器，也绝不会被持久化为
+ * 最终的对话回答。
  */
 public record CandidateAnswer(
         String candidateId,
@@ -35,7 +35,7 @@ public record CandidateAnswer(
         return content == null ? 0 : content.length();
     }
 
-    /** All evidence actually available to the reviewer for this candidate. */
+    /** 评审者针对该候选实际可获得的全部 evidence。 */
     public List<ParentEvidence> effectiveEvidence() {
         return evidenceLevel == EvidenceLevel.PARENT ? parentEvidence : List.of();
     }

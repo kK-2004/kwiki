@@ -45,7 +45,7 @@ class RunContextTest {
             clock.now = clock.now.plusSeconds(10);
             assertThatThrownBy(run::remaining).hasMessage("timeout");
         }
-        // defaults carry a 300s global deadline now
+        // 现在默认携带 300 秒的全局截止时间
         assertThat(run.remaining()).isEqualTo(Duration.ofSeconds(290));
         clock.now = clock.now.plusSeconds(290);
         assertThatThrownBy(run::check).hasMessage("timeout");

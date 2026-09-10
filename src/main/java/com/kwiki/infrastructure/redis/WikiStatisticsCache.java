@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-/** Best-effort document counters; MySQL remains the source of truth. */
+/** 尽力而为的文档计数器；MySQL 仍是真实来源。 */
 @Component
 public class WikiStatisticsCache {
     private static final String PREFIX = "kwiki:wiki:stats:v1:";
@@ -115,7 +115,7 @@ public class WikiStatisticsCache {
                 if (likes != 0) redis.opsForHash().increment(key, "likes", likes);
                 if (favorites != 0) redis.opsForHash().increment(key, "favorites", favorites);
                 if (comments != 0) redis.opsForHash().increment(key, "comments", comments);
-                // A zero delta is still a deliberate touch when the row exists.
+                // 当记录行存在时，零增量也是一次有意为之的触达。
                 redis.expire(key, TTL);
             });
             if (!applied) requestRepair(pageId, "stats_lock_unavailable");
@@ -124,12 +124,12 @@ public class WikiStatisticsCache {
         }
     }
 
-    /** Applies a delta only after the surrounding business transaction commits. */
+    /** 仅在外层业务事务提交之后才应用增量。 */
     public void incrementAfterCommit(long pageId, long likes, long favorites, long comments) {
         incrementAfterCommit(pageId, likes, favorites, comments, -1L);
     }
 
-    /** Version-aware after-commit delta. A jump or stale version is repaired from MySQL. */
+    /** 感知版本的事务提交后增量。版本跳变或版本过期时从 MySQL 修复。 */
     public void incrementAfterCommit(long pageId, long likes, long favorites, long comments, long dbVersion) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             if (dbVersion > 0) incrementVersioned(pageId, likes, favorites, comments, dbVersion);
@@ -177,7 +177,7 @@ public class WikiStatisticsCache {
         try {
             jdbc.update("INSERT INTO stats_repair (page_id, reason) VALUES (?, ?)", pageId, reason);
         } catch (RuntimeException ignored) {
-            // Redis failure must not turn a committed interaction into a failed API call.
+            // Redis 故障不得把一次已提交的互动变成失败的 API 调用。
         }
     }
 
@@ -212,7 +212,7 @@ public class WikiStatisticsCache {
         }
     }
 
-    /** Writes, repair replacement and invalidation share the read-miss lock. */
+    /** 写入、修复替换与失效共享同一读未命中锁。 */
     private boolean withStatsLock(long pageId, Runnable action) {
         if (lockFactory == null) { action.run(); return true; }
         DistributedLock lock = lockFactory.getDistributedLock(PREFIX + pageId + ":lock");

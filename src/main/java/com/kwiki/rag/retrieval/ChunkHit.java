@@ -1,6 +1,6 @@
 package com.kwiki.rag.retrieval;
 
-/** One retrieved CHILD chunk with the provenance needed for citations. */
+/** 一个被检索到的 CHILD 分块，并带有生成引用所需的溯源信息。 */
 public record ChunkHit(
         String chunkKey,
         String parentChunkKey,

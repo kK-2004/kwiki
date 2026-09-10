@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.Instant;
 import java.util.List;
 
-/** Real data sources for agent, shared-space and global-search navigation pages. */
+/** 供智能体、共享空间与全局搜索导航页使用的真实数据源。 */
 @RestController
 @RequestMapping("/api/v1")
 @PreAuthorize("isAuthenticated()")

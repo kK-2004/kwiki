@@ -6,8 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Content-identity lifecycle rules: a PENDING attachment may have no content-center
- * file id, and only a validated positive file id can complete the STORED transition.
+ * 内容标识的生命周期规则：PENDING 附件可以没有内容中心
+ * 的 file id，而只有经过校验的正数 file id 才能完成 STORED 转换。
  */
 class AttachmentTest {
 

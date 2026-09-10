@@ -8,7 +8,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.util.Collection;
 import java.util.List;
 
-/** Spring Security view of an app_user row; the password is always a hash. */
+/** app_user 记录在 Spring Security 中的视图；密码始终是哈希值。 */
 public final class DatabaseUserDetails implements UserDetails {
 
     private final Long id;
@@ -39,7 +39,7 @@ public final class DatabaseUserDetails implements UserDetails {
 
     @Override
     public String getPassword() {
-        // A legacy row without credentials can never authenticate successfully.
+        // 缺少凭据的历史记录行永远无法认证成功。
         return passwordHash == null ? "" : passwordHash;
     }
 

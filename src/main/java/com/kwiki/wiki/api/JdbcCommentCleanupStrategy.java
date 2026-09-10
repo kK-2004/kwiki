@@ -5,7 +5,7 @@ import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Idempotent, bounded MySQL cleanup that may later be invoked by XXL-JOB. */
+/** 幂等且有界的 MySQL 清理，日后可由 XXL-JOB 调用。 */
 @Service
 public class JdbcCommentCleanupStrategy implements CommentCleanupStrategy {
     private final JdbcOperations jdbc;

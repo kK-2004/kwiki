@@ -20,10 +20,10 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Export endpoint: POST the exact snapshot (editor draft, possibly unsaved) or
- * a revision number (reader view). Always answers with a single Markdown/HTML
- * file; attachment:// references point at the durable content endpoint.
- * Nothing here publishes or persists content.
+ * 导出端点：POST 精确快照（编辑器草稿，可能尚未保存）或
+ * 修订版本号（阅读器视图）。始终以单个 Markdown/HTML
+ * 文件作答；attachment:// 引用指向持久的内容端点。
+ * 这里不会发布或持久化任何内容。
  */
 @RestController
 @RequestMapping("/api/v1/knowledge-bases/{kbId}/pages/{pageId}/export")

@@ -10,10 +10,10 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Lease-based batch claiming over the indexing_job table. Eligible jobs are
- * PENDING/RETRY_WAIT rows whose backoff elapsed plus LEASED rows whose lease
- * expired (deterministic reclaim). A single guarded UPDATE leases up to the batch
- * size, so two concurrent claimers can never own the same live lease.
+ * 基于租约、作用于 indexing_job 表的批量认领。可领取的任务是
+ * PENDING/RETRY_WAIT 中退避已到期的记录，以及 LEASED 中租约
+ * 已过期的记录（确定性的重新收回）。一次带守卫的 UPDATE 最多租出批量
+ * 大小的任务，因此两个并发的认领者绝不会同时持有同一份有效租约。
  */
 @Repository
 public class IndexingJobClaimer {
@@ -27,7 +27,7 @@ public class IndexingJobClaimer {
         this.defaultLeaseSeconds = defaultLeaseSeconds;
     }
 
-    /** Claims up to {@code max} jobs for {@code owner}; returns the leased job ids. */
+    /** 为 {@code owner} 认领最多 {@code max} 个任务；返回已租出的任务 id。 */
     @Transactional
     public List<Long> claim(String owner, int max) {
         if (jdbc == null) {

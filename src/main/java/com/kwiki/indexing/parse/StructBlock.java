@@ -1,8 +1,8 @@
 package com.kwiki.indexing.parse;
 
 /**
- * One block of structured text: headings carry their level (1-6), everything else
- * is a paragraph (level 0). Character ranges point into the document's plain text.
+ * 一段结构化文本：标题携带其层级（1-6），其他一切
+ * 都是段落（层级 0）。字符区间指向文档的纯文本。
  */
 public record StructBlock(int headingLevel, String text, int charStart, int charEnd) {
 

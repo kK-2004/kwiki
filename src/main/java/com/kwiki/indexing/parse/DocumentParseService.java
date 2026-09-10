@@ -11,10 +11,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Parse boundary for indexable inputs: allowlist gate (extension + declared MIME),
- * Tika-based detection, structure-aware extraction (Markdown parser for .md, Tika
- * XHTML structure otherwise), and a hard no-text rejection that prevents scanned
- * PDFs/images from ever reaching embedding or the index.
+ * 可索引输入的解析边界：白名单准入（扩展名 + 声明的 MIME）、
+ * 基于 Tika 的检测、结构感知抽取（.md 用 Markdown 解析器，其他用 Tika
+ * XHTML 结构），以及一道「无文本即拒绝」的硬性检查，阻止扫描版
+ * PDF/图片进入向量嵌入或索引。
  */
 @Service
 public class DocumentParseService {

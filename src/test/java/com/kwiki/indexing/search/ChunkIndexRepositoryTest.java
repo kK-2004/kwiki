@@ -28,10 +28,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Bulk-write contract with a mocked client: deterministic ids (= chunk keys),
- * writes target the alias, resource deletes filter on type AND id, and bulk
- * failures classify as transient or permanent. Document shapes are covered by
- * the ChunkDocument tests.
+ * 使用模拟客户端的批量写入契约：确定性的 id（= chunk key）、
+ * 写入目标为别名、资源删除同时按 type 与 id 过滤，且批量
+ * 失败会归类为临时性或永久性。文档形态由
+ * ChunkDocument 的测试覆盖。
  */
 @ExtendWith(MockitoExtension.class)
 class ChunkIndexRepositoryTest {
@@ -104,7 +104,7 @@ class ChunkIndexRepositoryTest {
     void deleteFiltersOnBothResourceTypeAndId() throws Exception {
         java.util.concurrent.atomic.AtomicReference<DeleteByQueryRequest> captured =
                 new java.util.concurrent.atomic.AtomicReference<>();
-        // repository calls the fluent Function overload: apply it ourselves and capture
+        // 仓储调用的是流式 Function 重载：我们自己应用它并捕获
         when(client.deleteByQuery(org.mockito.ArgumentMatchers
                 .<java.util.function.Function<DeleteByQueryRequest.Builder,
                         co.elastic.clients.util.ObjectBuilder<DeleteByQueryRequest>>>any()))

@@ -10,7 +10,7 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@kk-2004/ui-components": "^0.3.4",
+    "@kk-2004/ui-components": "^0.3.6",
     "highlight.js": "11.11.1",
     "naive-ui": "^2.40.3",
     "pinia": "^2.2.6",

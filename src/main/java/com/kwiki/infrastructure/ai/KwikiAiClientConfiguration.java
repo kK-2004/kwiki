@@ -14,9 +14,9 @@ import reactor.netty.http.client.HttpClient;
 import java.time.Duration;
 
 /**
- * AI provider adapter base. Creates low-level chat clients and an independent Qwen embedding
- * WebClient using kwiki-specific credentials. Clients are lazy: building them performs no network
- * call, so application startup never depends on provider availability.
+ * AI 服务提供方适配器基类。创建底层对话客户端以及独立的千问（Qwen）向量嵌入
+ * WebClient，并使用 kwiki 专属凭据。客户端为懒加载：构建它们不会发起任何网络
+ * 调用，因此应用启动从不依赖服务提供方是否可用。
  */
 @Configuration
 public class KwikiAiClientConfiguration {
@@ -69,9 +69,9 @@ public class KwikiAiClientConfiguration {
     }
 
     /**
-     * Builds on Spring Boot's auto-configured {@link WebClient.Builder} so every provider call is
-     * observed and automatically propagates the W3C traceparent of the in-flight request; the AI
-     * clients never need manual trace headers.
+     * 基于 Spring Boot 自动配置的 {@link WebClient.Builder} 构建，使每次
+     * 提供商调用都可被观测，并自动传播在途请求的 W3C traceparent；AI
+     * 客户端无需手动设置追踪头。
      */
     private WebClient buildClient(
             WebClient.Builder builder, String baseUrl, String apiKey, Duration responseTimeout) {

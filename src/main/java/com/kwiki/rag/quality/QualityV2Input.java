@@ -5,9 +5,9 @@ import com.kwiki.rag.answer.CandidateAnswer;
 import java.util.List;
 
 /**
- * Input contract of the quality-v2 analyzer: the review always sees the
- * original user question, the query actually used for retrieval, the concrete
- * candidate answer, and the evidence retained for that candidate.
+ * quality-v2 分析器的输入契约：评审始终能看到
+ * 原始用户问题、实际用于检索的查询、具象的
+ * 候选答案，以及为该候选保留的 evidence。
  */
 public record QualityV2Input(
         String originalQuery,

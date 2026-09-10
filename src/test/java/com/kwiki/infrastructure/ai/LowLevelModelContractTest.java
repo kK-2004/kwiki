@@ -68,8 +68,8 @@ class LowLevelModelContractTest {
             assertThat(calls.getFirst().callId()).isEqualTo("call-1");
             var request = ToolRegistry.parse(server.takeRequest().getBody().readUtf8());
             assertThat(adapter.specification().parameters().additionalProperties()).isFalse();
-            // Non-strict OpenAI projection omits this keyword; canonical server validation still
-            // enforces it.
+            // 非严格模式的 OpenAI 投影会省略该关键字；服务端规范校验仍
+            // 会强制执行它。
             assertThat(new ToolRegistry().get("es_search").inputSchema())
                     .contains("additionalProperties");
             assertThat(

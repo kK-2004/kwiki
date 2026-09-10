@@ -18,11 +18,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V4 schema contract against an operator-provided disposable MySQL
- * (KWIKI_IT_MYSQL_URL/USER/PASSWORD): the MinIO locator column is gone, pending
- * rows keep null file ids, non-null content-center file ids are unique, and stored
- * rows round-trip. Opt-in only; never pointed at a shared database (the BeforeAll
- * cleans the schema it runs against).
+ * V4 针对运维方提供的一次性 MySQL 的表结构契约
+ * （KWIKI_IT_MYSQL_URL/USER/PASSWORD）：MinIO 定位符列已移除、pending
+ * 记录保持 file id 为 null、非空的内容中心 file id 唯一，且已存储
+ * 记录可往返。仅通过显式开关启用；绝不指向共享数据库（BeforeAll
+ * 会清理它所运行的表结构）。
  */
 @EnabledIfEnvironmentVariable(named = "KWIKI_IT_MYSQL_URL", matches = ".+")
 class V4MigrationContractTest {
@@ -134,7 +134,7 @@ class V4MigrationContractTest {
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     10, 1001L))
                     .isInstanceOf(SQLIntegrityConstraintViolationException.class);
-            // a different file id is accepted
+            // 不同的 file id 可以被接受
             insert(c, insert, java.util.UUID.randomUUID().toString(), kb, creator,
                     "third.docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

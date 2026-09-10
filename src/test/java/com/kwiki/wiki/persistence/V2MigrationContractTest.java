@@ -17,9 +17,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Schema constraint contract for V2 against an operator-provided MySQL
- * (KWIKI_IT_MYSQL_URL/USER/PASSWORD). Verifies revision uniqueness, FK integrity,
- * link uniqueness, tag scoping, and attachment object-key uniqueness.
+ * V2 针对运维方提供的 MySQL 的表结构约束契约
+ * （KWIKI_IT_MYSQL_URL/USER/PASSWORD）。校验修订版本唯一性、外键完整性、
+ * 链接唯一性、标签作用域，以及附件 object-key 唯一性。
  */
 @EnabledIfEnvironmentVariable(named = "KWIKI_IT_MYSQL_URL", matches = ".+")
 class V2MigrationContractTest {

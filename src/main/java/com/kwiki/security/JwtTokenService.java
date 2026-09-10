@@ -17,9 +17,9 @@ import java.util.Date;
 import java.util.Set;
 
 /**
- * Issues and validates kwiki JWTs (HS256). The only business identity in a token is
- * the subject user id; username and permissions are re-derived from MySQL on every
- * request and are never trusted from claims.
+ * 签发并校验 kwiki 的 JWT（HS256）。令牌中唯一的业务身份是
+ * 主体用户 id；用户名与权限在每次请求时都从 MySQL 重新派生，
+ * 绝不信任令牌声明中的内容。
  */
 @Component
 public class JwtTokenService {
@@ -56,7 +56,7 @@ public class JwtTokenService {
     }
 
     /**
-     * @throws JwtException when the token is malformed, tampered with, or expired
+     * @throws JwtException 当令牌格式错误、被篡改或已过期时
      */
     public TokenIdentity parse(String token) {
         Claims claims = Jwts.parserBuilder()

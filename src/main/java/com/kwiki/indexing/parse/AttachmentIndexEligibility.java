@@ -4,20 +4,20 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Single source of truth for which attachments may enter the document index:
- * only images whose actual content was validated at upload. Audio, video,
- * PDF, Office and every other attachment stays page-display-only — no chunks,
- * no embedding, no ES upsert — across upload, retry, worker and restore
- * rebuild paths. Wiki page bodies remain indexed by the publish rules and are
- * unaffected by this classification.
+ * 判定哪些附件可以进入文档索引的唯一真相来源：
+ * 只有在上传时其真实内容已被校验的图片。音频、视频、
+ * PDF、Office 以及所有其他附件都仅供页面展示 —— 不产生分块、
+ * 不做向量嵌入、不写 ES —— 在上传、重试、工作线程与恢复
+ * 重建等各条路径上均如此。Wiki 页面正文仍按发布规则建立索引，
+ * 不受此分类影响。
  */
 public final class AttachmentIndexEligibility {
 
-    /** Image content types eligible for document indexing. */
+    /** 可进入文档索引的图片内容类型。 */
     public static final Set<String> INDEXABLE_IMAGE_TYPES = Set.of(
             "image/png", "image/jpeg", "image/gif", "image/webp");
 
-    /** All media content types accepted for upload (display + preview only). */
+    /** 允许上传的所有媒体内容类型（仅展示 + 预览）。 */
     public static final Set<String> MEDIA_AUDIO_TYPES = Set.of(
             "audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg");
     public static final Set<String> MEDIA_VIDEO_TYPES = Set.of(

@@ -1,13 +1,13 @@
 package com.kwiki.indexing.job;
 
 /**
- * Port used by content services to record indexing work inside the same
- * transaction that publishes or archives a resource. The MySQL-backed
- * implementation (indexing_job table) keeps jobs durable; callers never
- * interact with the queue directly.
+ * 内容服务用于在「发布或归档资源」的同一事务内
+ * 记录索引构建工作的端口。基于 MySQL 的
+ * 实现（indexing_job 表）使任务持久化；调用方绝不
+ * 直接与队列交互。
  *
- * <p>Versioned variants carry the lifecycle version observed at enqueue time so
- * the worker can fence stale work after an archive/restore transition.</p>
+ * <p>带版本号的变体携带入队时观测到的生命周期版本，以便
+ * 工作线程在归档/恢复切换之后能够防护过期的任务。</p>
  */
 public interface IndexingJobEnqueuer {
 
@@ -31,8 +31,8 @@ public interface IndexingJobEnqueuer {
         enqueueAttachmentDelete(attachmentId);
     }
 
-    /** Whole-knowledge-base chunk deletion (archive outbox / retry). */
+    /** 整知识库范围的分块删除（归档发件箱 / 重试）。 */
     default void enqueueKnowledgeBaseDelete(long kbId, long expectedLifecycleVersion) {
-        // no-op for in-memory/test implementations
+        // 内存/测试实现中为空操作
     }
 }

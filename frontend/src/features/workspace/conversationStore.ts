@@ -9,7 +9,7 @@ let generation = 0;
 let selection = 0;
 export const useConversationStore = defineStore('conversation', {
   state: () => ({ sessions: [] as Session[], history: [] as Message[], state: initialState() as StreamState,
-    /** Replayed/persisted activity timelines keyed by the producing run. */
+    /** 回放/持久化的活动时间线，以产生它的 run 为键。 */
     runActivities: {} as Record<string, ActivityStep[]>,
     query: '', lastQuery: '', sessionId: '', requestId: '', running: false, minimized: false, floatingOpen: false,
     selectedKnowledgeBaseIds: [] as number[], selectedPageIds: [] as number[],
@@ -19,14 +19,14 @@ export const useConversationStore = defineStore('conversation', {
     hasActiveConversation: s => Boolean(s.running || s.sessionId || s.query),
   },
   actions: {
-    /** Fetches stored run events and keeps only the merged activity timeline. */
+    /** 拉取已存储的运行事件，只保留合并后的活动时间线。 */
     async hydrateRunActivity(requestId: string) {
       if (!this.sessionId || !requestId || this.runActivities[requestId]) return;
       try {
         const events = await api.json<StoredEvent[]>(`/chat/sessions/${encodeURIComponent(this.sessionId)}/runs/${encodeURIComponent(requestId)}/events`);
         const replayed = replayStoredEvents(events);
         this.runActivities = { ...this.runActivities, [requestId]: replayed.activitySteps };
-      } catch { /* old runs without stored events simply show no timeline */ }
+      } catch { /* 没有存储事件的旧运行则不显示任何时间线 */ }
     },
     async hydrateHistoryActivities() {
       const targets = this.history.filter(m => m.role === 'ASSISTANT' && m.requestId).slice(-10);
@@ -77,7 +77,7 @@ export const useConversationStore = defineStore('conversation', {
     },
     async finishTurn(run: number) {
       const id = this.sessionId;
-      // Keep the live timeline attached to the finished run before reload.
+      // 重新加载前，先将实时时间线挂接到已结束的 run 上。
       if (this.requestId && this.state.activitySteps.length) {
         this.runActivities = { ...this.runActivities, [this.requestId]: this.state.activitySteps };
       }
@@ -89,7 +89,7 @@ export const useConversationStore = defineStore('conversation', {
             void this.hydrateHistoryActivities();
             if (this.history.at(-1)?.role === 'ASSISTANT' && this.history.at(-1)?.content === this.state.answer) this.state.answer = '';
           }
-        } catch { /* Keep the streamed result if history cannot be refreshed. */ }
+        } catch { /* 若历史记录无法刷新，则保留流式返回的结果。 */ }
       }
       await this.loadSessions();
     },

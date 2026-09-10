@@ -25,9 +25,9 @@
           @mouseleave="hoverMedia = null"
           @click="activeMedia = row.key"
         >
-          <!-- Tools live in the segment's stable container, not inside the
-               async viewer, so delete/layout stay reachable even while the
-               viewer chunk or media is still loading. -->
+          <!-- 工具条位于该段稳定的容器内，而不是放在
+               异步查看器内部，因此即使查看器分块或媒体
+               仍在加载，删除与布局操作依然可用。 -->
           <MediaBlock :media="row.segment.media" :resolver="mediaResolver" :kb-id="props.kbId" />
           <div v-if="(activeMedia === row.key || hoverMedia === row.key) && row.segment.media.kind !== 'ATTACHMENT'" class="media-controls" data-testid="media-controls">
               <label>
@@ -86,16 +86,16 @@
 
 <script setup lang="ts">
 /**
- * Block editing view over the markdown source. The source is split by
- * scanMediaBlocks into text and media segments with exact offsets: text
- * segments are native textareas (native input/undo inside a segment), media
- * segments render real previews with hover/focus layout+size controls, and
- * every edit splices only the range it touched — untouched text round-trips
- * byte for byte. The mapped source view is paired with the rendered preview;
- * there is no separate legacy editor mode.
- * Uploads insert an in-view placeholder that is never persisted into the
- * source; on success the stable attachment:// token replaces it at the
- * recorded cursor position. Unmounting cancels in-flight uploads.
+ * 基于 Markdown 源的块编辑视图。源由
+ * scanMediaBlocks 拆分为带精确偏移的文本段与媒体段：文本
+ * 段是原生 textarea（段内使用原生输入 / 撤销），媒体
+ * 段渲染真实的预览，并在悬停 / 聚焦时显示布局与尺寸控件，且
+ * 每次编辑只拼接所触及的那段区间 —— 未被改动的文本按
+ * 字节原样往返。映射后的源视图与渲染预览一一对应；
+ * 不存在单独的旧版编辑器模式。
+ * 上传会在视图内插入一个占位符，该占位符永远不会
+ * 持久化进源；成功后，稳定的 attachment:// token 在
+ * 记录的光标位置替换它。卸载（unmount）时取消进行中的上传。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
@@ -172,11 +172,11 @@ const rows = computed<Row[]>(() => {
     }
   }
   if (result.length === 0) {
-    // An empty document still needs one editable text segment.
+    // 空文档仍然需要一个可编辑的文本段。
     result.push({ kind: 'text', key: 't0', textIndex: 0, segment: { type: 'text', start: 0, end: 0, text: '' } });
   } else if (segments.value.at(-1)?.type === 'media') {
-    // Keep a trailing insertion point after the last media block so the whole
-    // editor surface remains editable, including a media-only document.
+    // 在最后一个媒体块之后保留一个尾随插入点，使整个
+    // 编辑器区域均可编辑，包括纯媒体文档。
     result.push({ kind: 'text', key: `t${textOrdinal}`, textIndex: textOrdinal, segment: { type: 'text', start: source.value.length, end: source.value.length, text: '' } });
   }
   for (const upload of pendingUploads.value) {
@@ -227,22 +227,22 @@ function editTextSegment(segment: Segment, next: string) {
 }
 
 // ------------------------------------------------------------------
-// media preview + layout/size controls
+// 媒体预览 + 布局/尺寸控件
 // ------------------------------------------------------------------
 const activeMedia = ref<string | null>(null);
-/** Hover shows the controls transiently; focus/click keeps them while the
+/** 悬停时控件短暂显示；聚焦或点击后保持显示，只要
  *  segment stays selected, so the dropdowns stay operable. */
 const hoverMedia = ref<string | null>(null);
-/** Hide the controls when focus leaves the segment entirely (click away,
- *  Tab into text); moving focus within — the viewer or the controls
- *  themselves — keeps them alive. */
+/** 当焦点完全离开该段时隐藏控件（点击别处、
+ *  Tab 进入文本）；在段内移动焦点 —— 无论查看器还是
+ *  控件本身 —— 都使其保持显示。 */
 function onMediaFocusOut(key: string, event: FocusEvent) {
   const next = event.relatedTarget as Node | null;
   const segment = event.currentTarget as HTMLElement | null;
   if (next && segment?.contains(next)) return;
   if (activeMedia.value === key) activeMedia.value = null;
 }
-/** One resolver per knowledge base shares preview-URL fetches across rows. */
+/** 每个知识库一个解析器，使预览 URL 的请求在多行之间共享。 */
 const mediaResolver = ref<MediaSourceResolver>(() => null);
 watch(
   () => props.kbId,
@@ -256,9 +256,9 @@ function focusEditor(event: MouseEvent) {
   const editable = editorRoot.value?.querySelectorAll('textarea');
   const textarea = editable?.[editable.length - 1] as HTMLTextAreaElement | undefined;
   if (!textarea) return;
-  // Prevent the browser's default mousedown focus on the outer block. Without
-  // this, the textarea briefly receives focus and the click immediately moves
-  // it back to the blank editor container.
+  // 阻止浏览器在外层块上的默认 mousedown 聚焦行为。否则
+  // textarea 会短暂获得焦点，而点击会立即把焦点
+  // 移回空的编辑器容器。
   event.preventDefault();
   textarea.focus();
   const end = textarea.value.length;
@@ -279,8 +279,8 @@ function updateMedia(segment: Segment, patch: Partial<MediaAttrs>) {
   if (patch.widthPx) next.widthPercent = undefined;
   const serialized = serializeMedia(next);
   source.value = source.value.slice(0, segment.start) + serialized + source.value.slice(segment.end);
-  // The segment key changes with its range; keep the controls alive so a
-  // sequence of adjustments does not close them after every change.
+  // 段 key 会随其区间变化；保持控件存活，这样连续的
+  // 调整操作不会在每次变更后关闭它们。
   if (activeMedia.value) activeMedia.value = `m${segment.start}-${segment.start + serialized.length}`;
 }
 
@@ -308,7 +308,7 @@ function onSizeChange(segment: Segment, value: string) {
 }
 
 // ------------------------------------------------------------------
-// uploads
+// 上传
 // ------------------------------------------------------------------
 const ACCEPT: Record<MediaKind, string> = {
   IMAGE: 'image/png,image/jpeg,image/gif,image/webp',
@@ -370,7 +370,7 @@ async function uploadFile(kind: MediaKind, file: File) {
   }
 }
 
-/** A failed upload retries by picking the file again at the recorded position. */
+/** 上传失败后，重新选择文件即可从记录的位置继续重试。 */
 function retryUpload(id: number) {
   const upload = pendingUploads.value.find(item => item.id === id);
   if (!upload) return;
@@ -417,7 +417,7 @@ function insertAtFocus(text: string) {
 }
 
 // ------------------------------------------------------------------
-// toolbar commands (selection-based, shared contract with PageEditor)
+// 工具栏命令（基于选区，与 PageEditor 共用约定）
 // ------------------------------------------------------------------
 type EditorCommand = 'h1' | 'h2' | 'bold' | 'code';
 

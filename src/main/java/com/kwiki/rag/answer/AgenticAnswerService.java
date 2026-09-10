@@ -36,7 +36,7 @@ public class AgenticAnswerService {
         return workflow.answer(user, query);
     }
 
-    /** Adds the session envelope without changing the legacy query-only workflow port. */
+    /** 在不改变原有「仅查询」工作流端口的前提下，增加会话信封。 */
     public Flux<ChatStreamEvent> answer(CurrentUser user, String query,
                                         String sessionId, String clientMessageId,
                                         String agentId) {
@@ -53,7 +53,7 @@ public class AgenticAnswerService {
                 run = sessions.begin(user, sessionId, clientMessageId, agentId, query);
             } catch (IllegalStateException unavailable) {
                 if (!"database is unavailable".equals(unavailable.getMessage())) throw unavailable;
-                // The query-only stream remains available while the optional DB is offline.
+                // 当可选的数据库离线时，「仅查询」流仍然可用。
             }
         }
         final ChatSessionService.RunHandle durableRun = run;
@@ -85,8 +85,8 @@ public class AgenticAnswerService {
                 Flux.just(ChatStreamEvent.of("session", sequence.incrementAndGet(), requestId, session)),
                 workflowEvents.map(event -> ChatStreamEvent.of(
                         event.type(), sequence.incrementAndGet(), requestId, event.payloadMap()))
-                        // Persist the re-sequenced wire events for replay; a
-                        // store failure never breaks the live stream.
+                        // 持久化重新编号后的线缆事件以便回放；
+                        // 存储失败绝不打断实时流。
                         .doOnNext(event -> {
                             if (runEvents != null) {
                                 runEvents.append(requestId, sessionRowId, event);

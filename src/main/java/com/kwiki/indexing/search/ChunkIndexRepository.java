@@ -17,11 +17,11 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 
 /**
- * Elasticsearch writer for chunk documents. Document ids are the stable chunk
- * keys (index = alias), so bulk writes are idempotent UPSERTs. Resource deletion
- * filters on resourceType AND resourceId, never deleting other resources' chunks.
- * Partial bulk failures are classified: transient statuses rethrow as retryable,
- * permanent rejections fail fast.
+ * 分块文档的 Elasticsearch 写入器。文档 id 是稳定的 chunk
+ * key（index = alias），因此批量写入是幂等的 UPSERT。资源删除
+ * 同时按 resourceType 与 resourceId 过滤，绝不会删除其他资源的分块。
+ * 批量写入的部分失败会被分类：临时性状态码以可重试异常抛出，
+ * 永久性拒绝则快速失败。
  */
 @Component
 public class ChunkIndexRepository implements ChunkIndexPort {
@@ -87,7 +87,7 @@ public class ChunkIndexRepository implements ChunkIndexPort {
         }
     }
 
-    /** Result of a checked deletion: enough evidence to claim SYNCED or PENDING. */
+    /** 带检验的删除结果：足以判定为 SYNCED 或 PENDING 的证据。 */
     public record DeleteOutcome(long deleted, boolean timedOut, int failures) {
         public boolean clean() {
             return !timedOut && failures == 0;
@@ -95,14 +95,14 @@ public class ChunkIndexRepository implements ChunkIndexPort {
     }
 
     /**
-     * Deletion with an inspectable outcome for the recycle-bin flow: the
-     * response's timedOut flag, bulk failure list, and deleted count are all
-     * checked; a clean result is only reported after the refresh has made the
-     * deletion visible to search.
+     * 删除操作带有可检验的结果，供回收站流程使用：
+     * 会检查响应里的 timedOut 标志、批量失败列表与删除计数；
+     * 只有在 refresh 使删除对搜索可见之后，
+     * 才会报告结果为干净。
      */
     public DeleteOutcome deleteResourceChunksChecked(String resourceType, long resourceId) {
         if (client == null) {
-            // No ES wiring (offline/tests): nothing to clean, treat as synced.
+            // 未接入 ES（离线/测试）：无需清理，视为已同步。
             return new DeleteOutcome(0, false, 0);
         }
         try {
@@ -128,8 +128,8 @@ public class ChunkIndexRepository implements ChunkIndexPort {
     }
 
     /**
-     * Knowledge-base-wide deletion covering every parent/child chunk of every
-     * resource (pages, attachments, source documents) inside the base.
+     * 知识库范围的删除，覆盖该库内每个资源的
+     * 每一个父/子分块（页面、附件、源文档）。
      */
     public DeleteOutcome deleteKnowledgeBaseChunksChecked(long kbId) {
         if (client == null) {

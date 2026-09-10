@@ -8,7 +8,7 @@ import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Resource invitation approval switch. Page invitations inherit their KB switch. */
+/** 资源邀请审批开关。页面邀请继承其知识库的开关。 */
 @Service
 public class KnowledgeBaseCollaborationSettingsService {
     private final JdbcOperations jdbc;

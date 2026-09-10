@@ -8,11 +8,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Deterministic parent chunker over heading sections. Sections below the minimum
- * merge with neighbors without crossing a superior heading; sections above the
- * maximum split on subordinate headings first, then paragraphs, and only hard-cut
- * when no natural boundary exists. The same input plus key prefix always yields
- * the same parents, keys, ordinals, and boundaries.
+ * 基于标题层级的确定性父分块器。低于最小长度的章节
+ * 与相邻章节合并，且不跨越更上级标题；超过最大长度的章节
+ * 先按下级标题切分，再按段落切分，只有在不存在自然
+ * 边界时才硬切。相同的输入加上 key 前缀总是产出
+ * 相同的父分块、key、序号与边界。
  */
 @Component
 public class ParentChunker {
@@ -78,7 +78,7 @@ public class ParentChunker {
         return sections;
     }
 
-    /** Merges adjacent sections up to the minimum without crossing superior headings. */
+    /** 将相邻章节合并至最小长度，且不跨越更上级标题。 */
     private List<Section> mergeShortSections(List<Section> sections) {
         List<Section> result = new ArrayList<>();
         Section group = null;
@@ -87,7 +87,7 @@ public class ParentChunker {
                 group = section;
                 continue;
             }
-            // merging only allowed into deeper sections: a superior heading starts a new parent
+            // 只允许并入更深的章节：遇到更上级标题即开启新的父分块
             boolean deeper = section.topLevel() > group.topLevel();
             boolean fits = group.length() + section.length() < config.parentMinChars();
             if (deeper && fits) {
@@ -116,7 +116,7 @@ public class ParentChunker {
                     boundaryOf(section)));
             return;
         }
-        // oversized: accumulate paragraphs (and subordinate-heading boundaries) up to max
+        // 超长时：累积段落（以及下级标题边界）直至上限
         emitByAccumulation(section, plainText, keyPrefix, parents);
     }
 
@@ -126,7 +126,7 @@ public class ParentChunker {
         int currentLength = 0;
         for (StructBlock block : section.blocks()) {
             int blockLength = block.text().length();
-            // a heading-only accumulator never flushes: a parent must carry body text
+            // 只有标题的累加器永不落地：父分块必须携带正文文本
             boolean onlyHeadings = current.stream().allMatch(StructBlock::isHeading);
             if (!current.isEmpty() && !onlyHeadings
                     && currentLength + blockLength > config.parentMaxChars()) {
@@ -146,7 +146,7 @@ public class ParentChunker {
                            List<ParentChunk> parents, List<StructBlock> blocks) {
         int start = blocks.get(0).charStart();
         int end = blocks.get(blocks.size() - 1).charEnd();
-        // contiguous range exceeding the maximum: hard cut into max-size windows
+        // 连续区间超出最大尺寸：按最大尺寸的窗口硬切
         if (end - start > config.parentMaxChars()) {
             int offset = start;
             while (offset < end) {

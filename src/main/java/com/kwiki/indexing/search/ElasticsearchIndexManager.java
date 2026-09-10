@@ -13,11 +13,11 @@ import java.io.StringReader;
 import java.util.Map;
 
 /**
- * Versioned index lifecycle behind an alias: create kwiki-chunks-v{n}, validate
- * mapping compatibility (dimensions + provenance fields), switch the alias
- * atomically, and roll back to the previous index on demand. The current readable
- * index stays active whenever validation fails. Alias removals are scoped to
- * kwiki-* because deployment API keys only grant read/write on that range.
+ * 别名背后的带版本索引生命周期：创建 kwiki-chunks-v{n}、校验
+ * 映射兼容性（维度 + 溯源字段）、原子地切换
+ * 别名，并按需回滚到上一个索引。校验失败时
+ * 当前可读索引保持活动。别名删除被限定在
+ * kwiki-* 范围内，因为部署用的 API key 只授予该范围的读写权限。
  */
 @Component
 public class ElasticsearchIndexManager {
@@ -41,7 +41,7 @@ public class ElasticsearchIndexManager {
         return "kwiki-chunks-v" + version;
     }
 
-    /** Creates the versioned index (idempotent) and returns its name. */
+    /** 创建带版本号的索引（幂等）并返回其名称。 */
     public String createVersionedIndex(int version) throws Exception {
         if (client == null) {
             return indexNameFor(version);
@@ -63,7 +63,7 @@ public class ElasticsearchIndexManager {
         return indexName;
     }
 
-    /** Returns null when compatible; otherwise the reason alias switching is rejected. */
+    /** 兼容时返回 null；否则返回拒绝切换别名的原因。 */
     public String validateIndex(String indexName) throws Exception {
         if (client == null) {
             return null;
@@ -74,7 +74,7 @@ public class ElasticsearchIndexManager {
         return MappingValidator.validate(mapping, embeddingDimensions);
     }
 
-    /** Atomic alias switch: removes the alias everywhere, then adds it to the new index. */
+    /** 原子切换别名：先在所有位置移除该别名，再将其指向新索引。 */
     public void activateAlias(String indexName) throws Exception {
         if (client == null) {
             return;

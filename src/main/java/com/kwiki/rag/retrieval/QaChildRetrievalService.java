@@ -13,14 +13,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Two-branch child recall for the QA-gated knowledge path. Every call is an
- * independent hybrid retrieval: BM25 and vector run with the same server-side
- * ACL + lifecycle filter before their branch TopK, the two ordered lists are
- * fused with standard RRF (constant 60) on this call's ranks only — previous
- * queries or previous TopK levels never contribute — and the fused result is
- * trimmed to the stage's final TopK as {@link ChildEvidence} carrying both
- * branch ranks and the fused score. Query embeddings are reused within one
- * run; nothing else carries over.
+ * QA 门控知识路径的双分支子召回。每次调用都是一次
+ * 独立的混合检索：BM25 与向量在相同服务端
+ * ACL + 生命周期过滤器之后再做分支 TopK，两个有序列表
+ * 仅在本调用的排名上用标准 RRF（常量 60）融合——先前的
+ * 查询或先前 TopK 层级绝不参与——融合结果
+ * 裁剪到该阶段的 final TopK，作为携带双分支排名与
+ * 融合分数的 {@link ChildEvidence}。查询嵌入在一次
+ * 运行内复用；其他内容均不沿用。
  */
 @Component
 public class QaChildRetrievalService {
@@ -44,8 +44,8 @@ public class QaChildRetrievalService {
     }
 
     /**
-     * @param embeddingCache run-owned query→vector map; embeddings are computed
-     *                       at most once per query per run
+     * @param embeddingCache 运行私有的 查询→向量 映射；向量嵌入
+     * 每条查询每次运行最多只计算一次
      */
     public StageOutcome retrieveChildren(AuthorizationScope scope, RunContext run,
                                          String query, QaRetrievalBudgets.StageBudget stage,

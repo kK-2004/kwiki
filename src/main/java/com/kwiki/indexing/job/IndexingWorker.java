@@ -36,11 +36,11 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * At-least-once worker over leased jobs: parse → parent chunks → child chunks →
- * child-only embedding → idempotent index writes. Deterministic keys make replays
- * safe (crash after write simply overwrites the same versioned documents).
- * Failures use bounded exponential backoff; unsupported inputs fail terminally;
- * errors are sanitized before storage.
+ * 作用于已租用任务的至少一次（at-least-once）工作线程：解析 → 父分块 → 子分块 →
+ * 仅对子分块做向量嵌入 → 幂等写索引。确定性的 key 使重放
+ * 安全（写入后崩溃只会覆盖同一份带版本号的文档）。
+ * 失败使用有界指数退避；不支持的输入直接终止性失败；
+ * 错误在存储前已被净化。
  */
 @Component
 public class IndexingWorker {
@@ -112,7 +112,7 @@ public class IndexingWorker {
         this.cancelled = true;
     }
 
-    /** Claims and processes one batch; returns the number of processed jobs. */
+    /** 认领并处理一个批次；返回已处理的任务数。 */
     public int runBatch(String owner, int batchSize) {
         List<Long> claimed = claimer.claim(owner, batchSize);
         int processed = 0;
@@ -141,8 +141,8 @@ public class IndexingWorker {
                     sanitize(e.getMessage()), 0, baseBackoffSeconds, maxBackoffSeconds);
             metrics.counter("kwiki_indexing_jobs_total", "outcome", "unsupported").increment();
         } catch (AttachmentStorageException e) {
-            // Permanent storage problems (rejected request, missing file id, oversized
-            // content) dead-letter immediately; transient ones re-enter the backoff.
+            // 永久性存储故障（请求被拒、文件 id 缺失、内容过大）
+            // 立即进入死信；临时性故障则重新进入退避。
             int attempts = e.getCategory() == AttachmentStorageException.Category.PERMANENT
                     ? 0 : maxAttempts;
             jobs.fail(jobId, e.getClass().getSimpleName(),
@@ -176,7 +176,7 @@ public class IndexingWorker {
             return;
         }
         if ("KNOWLEDGE_BASE".equals(resourceType)) {
-            return; // upserts only exist for PAGE and ATTACHMENT
+            return; // upsert 只针对 PAGE 与 ATTACHMENT
         }
         if ("PAGE".equals(resourceType)) {
             executeFencedPageUpsert(resourceId, revisionId, expectedVersion);
@@ -186,10 +186,10 @@ public class IndexingWorker {
     }
 
     /**
-     * Lifecycle fencing for deletes: a job whose expected version no longer
-     * matches (the resource was restored, bumping the version) is skipped so a
-     * delayed delete can never remove a restored index. Unversioned deletes
-     * (legacy non-image cleanup) always run — they target chunks, not state.
+     * 删除操作的生命周期防护：若某任务的预期版本已不再
+     * 匹配（资源被恢复，版本号递增），则跳过该任务，因此
+     * 延迟的删除绝不会移除已恢复的索引。不带版本的删除
+     * （历史遗留的非图片清理）始终执行 —— 它们针对的是分块，而非状态。
      */
     private void executeFencedDelete(String resourceType, long resourceId, Long expectedVersion) {
         switch (resourceType) {
@@ -201,7 +201,7 @@ public class IndexingWorker {
                     return;
                 }
                 if (expectedVersion != null && kb.getLifecycleVersion() != expectedVersion) {
-                    return; // restored after enqueue: keep the new index
+                    return; // 入队之后被恢复：保留新索引
                 }
                 var checked = chunkIndexChecked();
                 if (checked != null) {
@@ -217,13 +217,13 @@ public class IndexingWorker {
                     return;
                 }
                 if (expectedVersion != null && page.getLifecycleVersion() != expectedVersion) {
-                    return; // restored after enqueue: keep the new index
+                    return; // 入队之后被恢复：保留新索引
                 }
                 index.deleteResourceChunks(resourceType, resourceId);
             }
             default -> {
-                // ATTACHMENT: versioned deletes came from an archive batch; skip
-                // when the attachment was restored to STORED in the meantime.
+                // ATTACHMENT：带版本的删除来自归档批次；若该附件
+                // 在此期间已被恢复为 STORED，则跳过。
                 if ("ATTACHMENT".equals(resourceType) && expectedVersion != null) {
                     Attachment attachment = attachments.findById(resourceId).orElse(null);
                     if (attachment != null && attachment.isStored()) {
@@ -238,13 +238,13 @@ public class IndexingWorker {
     private void executeFencedPageUpsert(long pageId, Long revisionId, Long expectedVersion) {
         WikiPage page = pages.findById(pageId).orElse(null);
         if (page == null || page.isArchived()) {
-            return; // archived pages never (re)enter the index
+            return; // 已归档的页面绝不会（重新）进入索引
         }
         if (expectedVersion != null && page.getLifecycleVersion() != expectedVersion) {
-            return; // lifecycle moved on since enqueue: stale upsert
+            return; // 自入队以来生命周期已变化：过期的 upsert
         }
         indexVersion(pageVersion(pageId, revisionId));
-        // Post-write recheck: an archive may have committed while we wrote.
+        // 写入后复查：归档可能在我们写入期间已提交。
         WikiPage after = pages.findById(pageId).orElse(null);
         if (after == null || after.isArchived()
                 || after.getLifecycleVersion() != page.getLifecycleVersion()) {
@@ -253,15 +253,15 @@ public class IndexingWorker {
     }
 
     /**
-     * Attachment upserts are restricted to validated images. Non-image
-     * attachments are display-only: any legacy chunks are cleared and the job
-     * completes without upserting anything.
+     * 附件 upsert 仅限已校验的图片。非图片
+     * 附件仅供展示：任何历史遗留的分块都会被清除，任务
+     * 不做任何 upsert 即完成。
      */
     private void executeAttachmentUpsert(long attachmentId) {
         Attachment attachment = attachments.findById(attachmentId)
                 .orElseThrow(() -> new IllegalStateException("attachment missing for indexing job"));
         if (!attachment.isStored()) {
-            return; // archived attachment must not revive
+            return; // 已归档的附件不得复活
         }
         if (!AttachmentIndexEligibility.isIndexableImage(attachment.getContentType())) {
             index.deleteResourceChunks("ATTACHMENT", attachmentId);
@@ -294,15 +294,15 @@ public class IndexingWorker {
                 .orElseThrow(() -> new IllegalStateException("attachment missing for indexing job"));
         Long fileId = attachment.getContentCenterFileId();
         if (fileId == null || fileId <= 0) {
-            // Fail closed: without the content identity there is nothing safe to read.
+            // 故障关闭：没有内容标识，就没有任何可安全读取的东西。
             throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
                     "attachment has no content-center file id for indexing");
         }
         StructuredDocument document;
         if (AttachmentIndexEligibility.isIndexableImage(attachment.getContentType())) {
-            // Image indexing is metadata-based (name/kind/origin). The image
-            // bytes are not transcribed: no OCR, no transcription, no invented
-            // content. A failed content read surfaces as an explicit failure.
+            // 图片索引基于元数据（名称/类型/来源）。图片
+            // 字节不会被转录：不做 OCR、不做转写、不编造
+            // 内容。内容读取失败会以显式失败暴露出来。
             byte[] bytes = storage.readContent(fileId);
             document = imageDescriptorDocument(attachment, bytes);
         } else {
@@ -314,9 +314,9 @@ public class IndexingWorker {
     }
 
     /**
-     * Searchable descriptor for an image attachment. Parsing failures (bytes
-     * that do not match the declared image type) are explicit; empty chunks
-     * must never masquerade as successful parsing.
+     * 图片附件的可检索描述符。解析失败（字节
+     * 与声明的图片类型不符）是显式的；空分块
+     * 绝不能伪装成解析成功。
      */
     private StructuredDocument imageDescriptorDocument(Attachment attachment, byte[] bytes) {
         String declared = attachment.getContentType() == null

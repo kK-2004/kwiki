@@ -13,15 +13,14 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * Surfaces the Micrometer-managed trace id on the response. Trace identity itself is
- * owned by Micrometer Tracing (Brave): the server observation filter, which runs at
- * HIGHEST_PRECEDENCE+1, extracts an incoming W3C {@code traceparent} or starts a new
- * trace, and puts traceId/spanId into the MDC for log correlation; outgoing
- * {@code RestClient}/{@code WebClient} calls built from Spring Boot's auto-configured
- * builders inject the {@code traceparent} header automatically. This filter only echoes
- * the current trace id as {@code X-Trace-Id} so API callers can correlate responses
- * with support queries. Runs before the security chain so authentication failures
- * still carry a trace id.
+ * 在响应上暴露由 Micrometer 管理的链路追踪 ID（trace id）。追踪身份本身由
+ * Micrometer Tracing（Brave）拥有：位于 HIGHEST_PRECEDENCE+1 运行的
+ * 服务端观测过滤器会提取传入的 W3C {@code traceparent} 或启动一条新
+ * 追踪，并将 traceId/spanId 放入 MDC 以便日志关联；基于 Spring Boot
+ * 自动配置的构建器发出的 {@code RestClient}/{@code WebClient} 调用会
+ * 自动注入 {@code traceparent} 头。本过滤器仅将当前链路追踪 ID 回显为
+ * {@code X-Trace-Id}，以便 API 调用方可将响应与支持查询相关联。它在安全链之前运行，
+ * 因此认证失败仍能携带链路追踪 ID。
  */
 @Component
 @Order(-200)

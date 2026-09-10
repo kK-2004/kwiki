@@ -16,9 +16,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Verifies the readiness/liveness split: a simulated dependency outage (an indicator
- * reporting OUT_OF_SERVICE) must move readiness to OUT_OF_SERVICE while liveness
- * stays UP, so a flaky external service never restarts the process.
+ * 校验就绪/存活的分离：模拟的依赖故障（某个指示器
+ * 报告 OUT_OF_SERVICE）必须把就绪状态置为 OUT_OF_SERVICE，而存活
+ * 状态保持 UP，因此不稳定的外部服务绝不会重启进程。
  */
 @SpringBootTest
 @org.springframework.context.annotation.Import(com.kwiki.testutil.WikiMockBeans.class)

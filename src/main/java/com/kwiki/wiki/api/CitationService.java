@@ -16,15 +16,15 @@ import java.util.Optional;
 import java.util.function.Function;
 
 /**
- * Authorized citation resolution: a child chunk key resolves to page, published
- * revision, parent key, heading path, character range, and excerpt — but only
- * inside the caller's current scope. Revoked access returns no restricted
- * metadata at all.
+ * 已授权的引用解析：一个子分块 key 可解析出页面、已发布
+ * 修订版本、父分块 key、标题路径、字符区间与摘录 —— 但仅限于
+ * 调用方当前的作用域之内。访问权已被撤销时不返回任何受限
+ * 元数据。
  */
 @Service
 public class CitationService {
 
-    /** Lookup port; the Elasticsearch adapter resolves by document id = chunkKey. */
+    /** 查询端口；Elasticsearch 适配器按文档 id = chunkKey 解析。 */
     public interface ChunkLookup {
         Optional<ChunkHit> byKey(String childChunkKey);
     }
@@ -52,7 +52,7 @@ public class CitationService {
         boolean resourceAllowed = resources == null || !"PAGE".equalsIgnoreCase(hit.resourceType())
                 || resources.can(user, hit.resourceId(), ResourceAction.READ);
         if (!scope.includes(hit.kbId()) || !resourceAllowed) {
-            // revoked or never granted: indistinguishable from missing
+            // 已被撤销或从未授予：与不存在无法区分
             throw new NotFoundException("citation not found");
         }
         return Map.of(
@@ -68,7 +68,7 @@ public class CitationService {
                         ? hit.content() : hit.content().substring(0, 160));
     }
 
-    /** Function-style adapter so tests and ES implementations stay trivial. */
+    /** 函数式适配器，使测试与 ES 实现保持极简。 */
     public static ChunkLookup fromFunction(Function<String, Optional<ChunkHit>> function) {
         return function::apply;
     }

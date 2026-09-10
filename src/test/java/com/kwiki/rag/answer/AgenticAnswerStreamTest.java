@@ -27,11 +27,11 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Golden-stream contract of the QA-gated path: activity events precede
- * tokens, exactly one terminal done (or error) event ends the stream,
- * sequences are monotonic with a stable requestId, no-evidence never calls the
- * provider, provider failure produces a sanitized terminal error, and client
- * cancellation cancels the provider stream.
+ * QA 门禁链路的黄金流契约：活动事件先于
+ * token，恰好一个终止性 done（或 error）事件结束流，
+ * 序号单调递增且 requestId 稳定，无证据时绝不调用
+ * 服务提供方，服务提供方故障产生已净化的终止性错误，客户端
+ * 取消会取消服务提供方的流。
  */
 class AgenticAnswerStreamTest {
 
@@ -149,8 +149,8 @@ class AgenticAnswerStreamTest {
                 .answer(ADMIN, "什么是 kwiki 的部署方式"));
 
         List<String> types = events.stream().map(ChatStreamEvent::type).toList();
-        // The refusal text itself streams as tokens (it IS the published
-        // answer); the provider never runs, so its content never appears.
+        // 拒绝文案本身也以 token 形式流式输出（它就是被发布的
+        // 回答）；服务提供方从不运行，因此其内容绝不会出现。
         var streamed = events.stream()
                 .filter(event -> event.type().equals("token"))
                 .map(event -> String.valueOf(event.payloadMap().get("text")))

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * Two sequential confirmation modals for every archive entry. Step 1 explains
- * the object and its subtree impact; step 2 states the recycle-bin semantics
- * (7-day retention, immediate retrieval stop) and shows the affected count.
- * Cancelling either step never calls the backend; the final confirm emits
- * exactly once — the caller keeps the submit disabled while pending
- * (debounce + idempotent server call).
+ * 针对每个归档条目的两段式顺序确认对话框。第一步说明
+ * 归档对象及其子树影响；第二步说明回收站语义
+ *（保留 7 天、立即停止检索）并展示受影响数量。
+ * 取消任一步都不会调用后端；最终确认只会
+ * 触发一次 —— 调用方在等待期间保持提交按钮禁用
+ *（防抖 + 幂等的服务端调用）。
  */
 import { computed, ref, watch } from 'vue';
 

@@ -4,11 +4,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.ZoneId;
 
-/** Configures the display time zone used for JSON serialization of timestamps. */
+/** 配置时间戳 JSON 序列化所使用的展示时区。 */
 @ConfigurationProperties(prefix = "kwiki.time")
 public class JacksonTimeProperties {
 
-    /** Application display time zone; defaults to Asia/Shanghai. */
+    /** 应用显示时区；默认值为 Asia/Shanghai。 */
     private String displayZone = "Asia/Shanghai";
 
     public String getDisplayZone() {

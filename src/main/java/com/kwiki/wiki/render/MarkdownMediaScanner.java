@@ -6,12 +6,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Scans markdown for inline media references with source ranges. Recognizes
- * standard images {@code ![alt](url)} and restricted
- * {@code <img>/<audio>/<video>} tags; fenced code blocks and escaped markers
- * are skipped so code samples never masquerade as media. Only
- * {@code attachment://uuid} references are reported as ATTACHMENT references —
- * external http(s) links stay display-only and are never fetched server-side.
+ * 扫描 Markdown 中的行内媒体引用及其源码区间。可识别标准的
+ * {@code ![alt](url)} 图片与受限的 {@code <img>/<audio>/<video>} 标签；
+ * 围栏代码块与转义标记会被跳过，使代码示例不会被误当作媒体。
+ * 仅 {@code attachment://uuid} 引用会被记为 ATTACHMENT 引用——
+ * 外部 http(s) 链接保持仅展示，绝不在服务端发起请求获取。
  */
 public final class MarkdownMediaScanner {
 
@@ -98,7 +97,7 @@ public final class MarkdownMediaScanner {
         return backslashes % 2 == 1;
     }
 
-    /** Extracts the attachment uuid of an attachment:// reference, or null. */
+    /** 提取 attachment:// 引用的附件 uuid，若非此类则返回 null。 */
     public static String attachmentUuid(String src) {
         if (src == null || !src.startsWith("attachment://")) {
             return null;

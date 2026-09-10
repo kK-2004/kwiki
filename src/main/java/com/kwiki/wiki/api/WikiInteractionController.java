@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** Page likes, favorites, statistics and the root/reply comment API. */
+/** 页面点赞、收藏、统计以及根/回复评论 API。 */
 @RestController
 @RequestMapping("/api/v1/knowledge-bases/{kbId}/pages/{pageId}")
 @PreAuthorize("isAuthenticated()")

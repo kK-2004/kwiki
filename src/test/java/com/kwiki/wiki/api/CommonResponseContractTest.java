@@ -34,11 +34,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Golden JSON contract for the shared kk-common envelope (intentional breaking
- * change, recorded here): success responses are {code:200, success:true, message:"OK",
- * data:<payload>}; business failures stay in the envelope with the SDK body code
- * (HTTP stays 200 for shared-handler errors); Spring Security's filter-level 401/403
- * bodies keep their own sanitized contract and are never wrapped.
+ * 共享 kk-common 信封的黄金 JSON 契约（有意引入的破坏性
+ * 变更，特此记录）：成功响应为 {code:200, success:true, message:"OK",
+ * data:<payload>}；业务失败仍留在该信封内，并携带 SDK 响应体的错误码
+ * （共享处理器错误时 HTTP 仍为 200）；Spring Security 过滤器层面的 401/403
+ * 响应体保持各自已净化的契约，绝不会被包装。
  */
 @SpringBootTest
 @AutoConfigureMockMvc

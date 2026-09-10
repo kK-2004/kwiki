@@ -20,10 +20,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 /**
- * Consumer-side contract of the kk-common feature switches: web and exception
- * auto-configurations default on, Redis toolkit and the Redisson lock factory only
- * exist after an explicit opt-in, and a disabled switch can never create a client or
- * touch the default Redis endpoint. Everything runs without external middleware.
+ * kk-common 功能开关的消费方契约：web 与异常
+ * 自动配置默认开启，Redis 工具集与 Redisson 锁工厂只有在
+ * 显式开启后才存在，且被禁用的开关绝不会创建客户端或
+ * 触碰默认的 Redis 端点。一切都无需外部中间件即可运行。
  */
 class CommonSdkSwitchContextTest {
 
@@ -34,7 +34,7 @@ class CommonSdkSwitchContextTest {
                     RedisToolkitAutoConfiguration.class,
                     RedissonLockAutoConfiguration.class));
 
-    /** Redis tooling context: SDK auto-configs plus a (never-connecting) fake factory. */
+    /** Redis 工具上下文：SDK 自动配置加一个（永不连接的）假工厂。 */
     private final ApplicationContextRunner redisRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(RedisToolkitAutoConfiguration.class))
             .withBean(RedisConnectionFactory.class, () -> mock(RedisConnectionFactory.class));
@@ -70,8 +70,8 @@ class CommonSdkSwitchContextTest {
 
     @Test
     void explicitlyDisabledRedissonNeverTouchesTheDefaultEndpoint() {
-        // The app still resolves spring.data.redis.* to localhost:6379 here; the run
-        // only succeeds because nothing may create a client while the switch is off.
+        // 应用在此处仍会把 spring.data.redis.* 解析到 localhost:6379；该用例
+        // 之所以能通过，仅仅是因为开关关闭时不允许任何东西创建客户端。
         servletRunner.withPropertyValues(
                         "spring.data.redis.host=127.0.0.1",
                         "spring.data.redis.port=6379",
@@ -108,8 +108,8 @@ class CommonSdkSwitchContextTest {
 
     @Test
     void enabledRedissonNeedsARedissonClientAndThenBuildsTheLockFactory() {
-        // A real RedissonClient would dial out; providing one keeps the context offline
-        // while proving the factory is derived from it once the switch is on.
+        // 真实的 RedissonClient 会向外拨号；提供一个假实例让上下文保持离线，
+        // 同时证明开关打开后该工厂确实由它派生而来。
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(RedissonLockAutoConfiguration.class))
                 .withPropertyValues("kk.common.redisson.enabled=true")

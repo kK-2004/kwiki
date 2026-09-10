@@ -36,8 +36,8 @@ public class RetrievalPlannerAdapter implements RetrievalPlannerPort {
                 (com.fasterxml.jackson.databind.node.ObjectNode)
                         ToolRegistry.parse(def.inputSchema());
         parameters.remove(
-                "$schema"); // Provider schema dialect marker is not part of the SDK object
-        // representation.
+                "$schema"); // 服务提供方的 schema 方言标记不属于 SDK 对象
+        // 表示的一部分。
         return ToolSpecification.fromJson(
                 ToolRegistry.json(
                         Map.of(
@@ -85,7 +85,7 @@ public class RetrievalPlannerAdapter implements RetrievalPlannerPort {
                                         gaps,
                                         "validationError",
                                         error == null ? "" : error))));
-        // Reconstitute complete model turns, with a result for every call in that turn.
+        // 重建完整的模型轮次，并为该轮中的每次调用附带结果。
         var turns = new LinkedHashMap<String, List<ToolExchange>>();
         history.forEach(
                 h -> turns.computeIfAbsent(h.call().modelTurnId(), k -> new ArrayList<>()).add(h));

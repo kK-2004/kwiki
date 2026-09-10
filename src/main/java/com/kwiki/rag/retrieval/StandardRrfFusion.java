@@ -6,14 +6,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Standard reciprocal rank fusion: score(chunk) = Σ 1 / (rankConstant + rank_i)
- * with ranks starting at one, accumulated across every successful list by stable
- * chunk key. Elasticsearch raw scores never enter the formula. Ties break by
- * best branch rank, BM25 rank, vector rank, then the stable chunk key.
+ * 标准倒数排名融合：score(chunk) = Σ 1 / (rankConstant + rank_i)，
+ * 排名从 1 开始，按稳定的 chunk key 在每一个成功的
+ * 列表上累加。Elasticsearch 的原始分数绝不进入该公式。并列时依次按
+ * 最佳分支排名、BM25 排名、向量排名，最后按稳定的 chunk key 排序。
  */
 public final class StandardRrfFusion {
 
-    /** A named ranked list of chunk keys, most relevant first. */
+    /** 一个具名的、按相关度降序排列的 chunk key 分级列表。 */
     public record RankedList(String branch, List<String> orderedChunkKeys) {
 
         public RankedList {
@@ -21,7 +21,7 @@ public final class StandardRrfFusion {
         }
     }
 
-    /** Fused candidate with its accumulated score and per-branch best ranks. */
+    /** 融合候选，含其累计分数与各分支最优排名。 */
     public record FusedChunk(String chunkKey, double score,
                              Map<String, Integer> bestRankByBranch) {
 

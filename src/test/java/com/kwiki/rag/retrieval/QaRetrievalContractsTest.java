@@ -16,10 +16,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Retrieval contracts of the QA-gated path with exact numbers: both branches
- * hitting the same child fuse to 1/65 + 1/62, expansion refetches with fresh
- * rankings only, context budgets trim deterministically, and the lifecycle
- * exclusions fail closed / exclude archived ids for superusers too.
+ * QA 门禁链路的检索契约（精确数值）：两个分支都
+ * 命中同一个子分块时融合为 1/65 + 1/62，扩展只用全新的
+ * 排名重新获取，上下文字符预算确定性地裁剪，且生命周期
+ * 排除项故障关闭 / 对超级用户同样排除已归档 id。
  */
 class QaRetrievalContractsTest {
 
@@ -79,7 +79,7 @@ class QaRetrievalContractsTest {
     void sameChunkInBothBranchesFusesToOneCandidateWithExactRrfScore() {
         var bm25 = new RecordingBranch();
         var vector = new RecordingBranch();
-        // chunk A ranks 5th on BM25 and 2nd on VECTOR; fillers pad the lists
+        // 分块 A 在 BM25 上排第 5、在 VECTOR 上排第 2；填充项把列表补满
         bm25.hits = List.of(hit("B", "PB", "b"), hit("C", "PC", "c"), hit("D", "PD", "d"),
                 hit("E", "PE", "e"), hit("A", "PA", "a"));
         vector.hits = List.of(hit("Z", "PZ", "z"), hit("A", "PA", "a"));
@@ -95,7 +95,7 @@ class QaRetrievalContractsTest {
         assertThat(a.bm25Rank()).isEqualTo(5);
         assertThat(a.vectorRank()).isEqualTo(2);
         assertThat(outcomes.children().stream().filter(child -> child.chunkKey().equals("A")))
-                .hasSize(1); // deduped by chunkKey
+                .hasSize(1); // 按 chunkKey 去重
     }
 
     @Test
@@ -114,12 +114,12 @@ class QaRetrievalContractsTest {
 
         assertThat(bm25.lastTopK).isEqualTo(50);
         assertThat(expanded.fusedCandidateCount()).isEqualTo(2);
-        // each call fuses only its own rankings; scores equal a single-call fusion
+        // 每次调用只融合自己的排名；分数等于单次调用融合的结果
         var b = expanded.children().stream()
                 .filter(child -> child.chunkKey().equals("B")).findFirst().orElseThrow();
         assertThat(b.rrfScore()).isCloseTo(1.0 / 61 + 1.0 / 62,
                 org.assertj.core.data.Offset.offset(1e-12));
-        // embedding reused within the run: single identity, no re-embedding
+        // 向量嵌入在同一次运行内复用：单一身份，不重复嵌入
         assertThat(cache).containsKey("query");
     }
 
@@ -136,8 +136,8 @@ class QaRetrievalContractsTest {
                         new java.util.HashMap<>());
 
         assertThat(outcomes.fusedCandidateCount()).isEqualTo(20);
-        assertThat(outcomes.children()).hasSize(8); // base final TopK
-        assertThat(outcomes.children().get(0).chunkKey()).isEqualTo("K1"); // rank order
+        assertThat(outcomes.children()).hasSize(8); // 基础最终 TopK
+        assertThat(outcomes.children().get(0).chunkKey()).isEqualTo("K1"); // 排名顺序
     }
 
     @Test
@@ -187,7 +187,7 @@ class QaRetrievalContractsTest {
 
         var evidence = assembler.assemble(List.of(parentA, parentB), 1000);
 
-        // first-hit order; second parent fits only its remaining budget share
+        // 首次命中顺序；第二个父分块只能用到它所分得的剩余预算
         assertThat(evidence).hasSize(2);
         assertThat(evidence.get(0).truncated()).isFalse();
         assertThat(evidence.get(1).truncated()).isTrue();

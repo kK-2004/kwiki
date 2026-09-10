@@ -4,7 +4,7 @@ import com.kwiki.rag.routing.RewriteMode;
 
 import java.util.List;
 
-/** Rewrite outcome: original always preserved; effective queries are retrieval inputs. */
+/** 改写结果：原文始终保留；生效查询是检索的输入。 */
 public record RewriteResult(
         String original,
         RewriteMode mode,

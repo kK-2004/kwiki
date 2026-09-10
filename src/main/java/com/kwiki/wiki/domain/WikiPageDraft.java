@@ -11,7 +11,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
-/** Mutable working copy kept outside immutable published revision history. */
+/** 保存在不可变已发布修订历史之外的可变工作副本。 */
 @Entity
 @Table(name = "wiki_page_draft")
 public class WikiPageDraft {

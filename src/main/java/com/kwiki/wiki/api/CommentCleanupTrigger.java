@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.dao.EmptyResultDataAccessException;
 
-/** Default trigger; an XXL-JOB adapter can call the same strategy later. */
+/** 默认触发器；XXL-JOB 适配器日后可以调用同一套策略。 */
 @Component
 @EnableScheduling
 public class CommentCleanupTrigger {

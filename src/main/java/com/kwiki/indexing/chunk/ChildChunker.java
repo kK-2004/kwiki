@@ -10,15 +10,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Deterministic child chunker within one parent: paragraphs stay intact and
- * accumulate while they fit the 128-512 range; an oversized paragraph splits on
- * sentence boundaries first and only hard-cuts at the maximum when no sentence
- * boundary exists. Every child references exactly one parent key.
+ * 单个父分块内的确定性子分块器：段落保持完整，在 128-512 区间内累积；
+ * 超长段落优先在句边界切分，仅在不存在句子边界时才在最大尺寸处硬切。
+ * 每个子分块都精确引用一个父分块键。
  */
 @Component
 public class ChildChunker {
 
-    /** CJK terminators split immediately; Latin ones split on trailing whitespace. */
+    /** CJK 终止符立即切分；拉丁终止符在尾部空白处切分。 */
     private static final Pattern SENTENCE_BOUNDARY = Pattern.compile(
             "[。！？!?；;…]+|(?<=[.!?])\\s+");
 
@@ -64,7 +63,7 @@ public class ChildChunker {
         if (blocks.isEmpty()) {
             return;
         }
-        // a too-small tail merges into the previous child when it fits
+        // 过小的尾部在放得下时并入前一个子分块
         int start = blocks.get(0).charStart();
         int end = blocks.get(blocks.size() - 1).charEnd();
         int length = end - start;
@@ -94,7 +93,7 @@ public class ChildChunker {
         int sentenceStart = 0;
         while (matcher.find()) {
             if (matcher.end() > sentenceStart) {
-                // sentence ranges include their terminating punctuation
+                // 句子区间包含其结尾标点
                 sentences.add(new int[]{sentenceStart, matcher.end()});
             }
             sentenceStart = matcher.end();

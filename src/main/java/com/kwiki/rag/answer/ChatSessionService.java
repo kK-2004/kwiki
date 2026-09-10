@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.UUID;
 import com.kwiki.rag.rewrite.ChatTurn;
 
-/** Owns durable session/run state; the workflow itself remains storage agnostic. */
+/** 负责持久化的会话/运行状态；工作流本身与存储无关。 */
 @Service
 public class ChatSessionService {
     private final JdbcOperations jdbc;
@@ -145,9 +145,9 @@ public class ChatSessionService {
     @Transactional(readOnly = true)
     public List<ChatTurn> historyBefore(long runId) {
         if (jdbc == null) return List.of();
-        // Assistant messages may contain citations whose page access changed after
-        // the turn. Only prior user questions are safe to reuse without rehydrating
-        // every historical citation through the document authorization service.
+        // 助手消息可能包含引用，而这些引用对应的页面访问权限在该轮
+        // 之后发生了变化。只有此前的用户提问可以安全复用，无需再通过
+        // 文档授权服务逐条重新加载每个历史引用。
         List<ChatTurn> rows = jdbc.query("SELECT m.role, m.content FROM chat_message m JOIN chat_run r ON r.session_id = m.session_id "
                         + "WHERE r.id = ? AND m.id < (SELECT MIN(id) FROM chat_message WHERE run_id = ?) AND m.role = 'USER' "
                         + "ORDER BY m.id DESC LIMIT 12", (rs, row) -> new ChatTurn(rs.getString(1), truncateContext(rs.getString(2))), runId, runId);
@@ -190,7 +190,7 @@ public class ChatSessionService {
 
     public record SessionView(String id, String title, Instant createdAt, Instant updatedAt) {}
     public record SessionPage(List<SessionView> items, String nextCursor) {}
-    /** requestId links an assistant message to its stored run events (activity replay). */
+    /** requestId 将助手消息与它已存储的运行事件关联起来（活动回放）。 */
     public record MessageView(long id, String role, String content, Instant createdAt, String requestId) {}
     public record SessionDetail(String id, String title, List<MessageView> messages) {}
     public record RunHandle(String sessionUuid, String clientMessageId, String requestId, long sessionId, long runId, boolean existing) {}

@@ -31,11 +31,11 @@
 
 <script setup lang="ts">
 /**
- * kwiki-side bridge onto the shared KMediaViewer: maps scanner MediaAttrs to
- * the viewer props and keeps the ATTACHMENT link card local. All three
- * display contexts (source card, preview, reader) render media through this
- * block so behavior stays identical; editor tools travel in the default slot
- * and stay available even in error states.
+ * 连接 kwiki 与共享 KMediaViewer 的桥接：将扫描器（scanner）的 MediaAttrs 映射为
+ * 查看器（viewer）的属性，并将 ATTACHMENT 链接卡片保留在本地。三种
+ * 展示场景（源卡片、预览、阅读器）都通过此
+ * 媒体块渲染媒体，从而保持行为一致；编辑器工具经由默认插槽（slot）
+ * 传递，即使在错误状态下也保持可用。
  */
 import { computed, defineAsyncComponent, onMounted, ref } from 'vue';
 import { attachmentUuidOf } from './mediaBlocks';
@@ -43,8 +43,8 @@ import { resolveAttachmentDownloadUrl } from './mediaResolver';
 import type { MediaAttrs } from './mediaBlocks';
 import type { KMediaViewerProps, MediaSourceResolver } from '@kk-2004/ui-components/components/KMediaViewer';
 
-// Isolated subpath import: the viewer chunk (and, inside it, Plyr for
-// audio/video) is only fetched when a media block actually renders.
+// 隔离的子路径导入：查看器（viewer）代码块（以及其中的 Plyr，用于
+// 音视频）仅在该媒体块真正渲染时才被加载。
 const KMediaViewer = defineAsyncComponent(() =>
   Promise.all([
     import('@kk-2004/ui-components/components/KMediaViewer'),

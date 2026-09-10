@@ -22,7 +22,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
-/** Creates and accepts high entropy, resource-scoped invitations. */
+/** 创建并接受高熵的、以资源为作用域的邀请。 */
 @Service
 public class InvitationService {
     private final JdbcOperations jdbc;

@@ -19,12 +19,12 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Global Jackson time handling.
+ * 全局 Jackson 时间处理。
  *
- * <p>Timestamps are persisted as UTC {@link Instant}s; on the wire (JSON responses
- * and request bodies) they are serialized in the application display time zone so
- * consumers see a stable local wall-clock time. The display zone is configurable
- * via {@code kwiki.time.display-zone} and defaults to Asia/Shanghai.
+ * <p>时间戳以 UTC {@link Instant} 持久化；在传输层（JSON 响应
+ * 与请求体）则按应用的展示时区序列化，以便
+ * 消费方看到稳定的本地墙上时钟时间。展示时区可通过
+ * {@code kwiki.time.display-zone} 配置，默认值为 Asia/Shanghai。
  */
 @Configuration
 public class JacksonConfiguration {
@@ -38,7 +38,7 @@ public class JacksonConfiguration {
                 .deserializerByType(Instant.class, new InstantDeserializer(displayZone));
     }
 
-    /** Serializes an {@link Instant} as display-zone local wall-clock text. */
+    /** 将 {@link Instant} 序列化为展示时区的本地墙上时钟文本。 */
     private static final class InstantSerializer extends JsonSerializer<Instant> {
 
         private final DateTimeFormatter formatter;
@@ -65,7 +65,7 @@ public class JacksonConfiguration {
         }
     }
 
-    /** Parses offset-bearing or display-zone local wall-clock text into an {@link Instant}. */
+    /** 将带偏移量或展示时区本地墙上时钟的文本解析为 {@link Instant}。 */
     private static final class InstantDeserializer extends JsonDeserializer<Instant> {
 
         private final ZoneId zone;
@@ -83,7 +83,7 @@ public class JacksonConfiguration {
             }
             String trimmed = text.trim();
             if (hasOffset(trimmed)) {
-                // Offset-bearing input (e.g. ISO_INSTANT "...Z" or "+08:00").
+                // 带偏移量的输入（如 ISO_INSTANT 的 "...Z" 或 "+08:00"）。
                 try {
                     return Instant.parse(trimmed);
                 } catch (RuntimeException e) {
@@ -91,7 +91,7 @@ public class JacksonConfiguration {
                             DateTimeFormatter.ISO_DATE_TIME).toInstant();
                 }
             }
-            // Bare local wall-clock text: interpret it in the display zone.
+            // 不带时区的本地墙上时钟文本：按展示时区解释。
             return LocalDateTime.parse(trimmed, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
                     .atZone(zone).toInstant();
         }

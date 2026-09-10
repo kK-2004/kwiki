@@ -13,7 +13,7 @@ import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** V5 contract: the development super-admin is seeded with a BCrypt password hash. */
+/** V5 契约：开发用超级管理员以 BCrypt 密码哈希播种。 */
 @EnabledIfEnvironmentVariable(named = "KWIKI_IT_MYSQL_URL", matches = ".+")
 class V5MigrationContractTest {
 

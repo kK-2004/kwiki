@@ -52,7 +52,7 @@ public class AttachmentController {
         return TransDTO.success(Map.of("url", attachments.downloadUrl(user, kbId, attachmentUuid)));
     }
 
-    /** Authorized inline-media preview: page-reference + lifecycle checked. */
+    /** 已授权的内联媒体预览：校验页面引用与生命周期。 */
     @GetMapping("/{attachmentUuid}/media-preview-url")
     TransDTO<Map<String, String>> mediaPreviewUrl(@AuthenticationPrincipal CurrentUser user,
                                                   @PathVariable long kbId,
@@ -61,7 +61,7 @@ public class AttachmentController {
                 "url", attachments.mediaPreviewUrl(user, kbId, attachmentUuid)));
     }
 
-    /** Stable inline bytes — the durable link target written into exports. */
+    /** 稳定的内联字节 —— 写入导出文件的持久链接目标。 */
     @GetMapping("/{attachmentUuid}/content")
     ResponseEntity<byte[]> content(@AuthenticationPrincipal CurrentUser user,
                                    @PathVariable long kbId,

@@ -8,9 +8,8 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 /**
- * MembershipLookup adapter backed by the knowledge_base_member table. When JPA
- * repositories are not available (connection-free test contexts) it fails closed
- * by resolving no roles.
+ * 由 knowledge_base_member 表支撑的 MembershipLookup 适配器。当 JPA
+ * 仓储不可用时（无连接的测试环境），它会默认拒绝，即解析不出任何角色。
  */
 @Repository
 public class JpaMembershipLookup implements MembershipLookup {

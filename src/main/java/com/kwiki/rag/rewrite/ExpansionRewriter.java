@@ -7,9 +7,9 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * Bounded expansion for short/low-information queries. The LLM contract forbids
- * changing named entities or adding permission/infrastructure terms; a guard
- * rejects outputs that violate it and falls back to the original query.
+ * 面向短查询/低信息量查询的有界扩展。LLM 契约禁止
+ * 修改命名实体，也禁止加入权限或基础设施相关词汇；一道
+ * 守卫会拒绝违反该约定的输出，并回退到原始查询。
  */
 @Component
 public class ExpansionRewriter {
@@ -48,7 +48,7 @@ public class ExpansionRewriter {
                 List.of(candidate), null);
     }
 
-    /** Longest token is treated as the named entity the expansion must preserve. */
+    /** 最长 token 被视为扩展必须保留的命名实体。 */
     static String primaryEntityOf(String query) {
         String[] tokens = query.strip().split("\\s+");
         String longest = "";

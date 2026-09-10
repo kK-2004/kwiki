@@ -12,10 +12,10 @@ import java.io.InputStream;
 import java.util.regex.Pattern;
 
 /**
- * Tika-based structure parser for DOCX/HTML/TXT/PDF: captures h1-h6 heading
- * elements and paragraphs from the XHTML stream. Documents whose extraction
- * yields no text (scanned PDFs) surface as blank and are rejected upstream —
- * no OCR is configured or invoked.
+ * 基于 Tika 的 DOCX/HTML/TXT/PDF 结构解析器：从 XHTML 流中
+ * 捕获 h1-h6 标题元素与段落。抽取不出文本的文档
+ * （扫描版 PDF）会表现为空白，并在上游被拒绝 ——
+ * 不会配置、也不会调用 OCR。
  */
 @Component
 public class TikaStructParser {
@@ -27,8 +27,8 @@ public class TikaStructParser {
             StructHandler handler = new StructHandler();
             AutoDetectParser parser = new AutoDetectParser();
             ParseContext context = new ParseContext();
-            // Only import the main document text. Embedded media must never invoke
-            // image parsers/OCR or fail an otherwise valid Word document.
+            // 只导入主文档文本。内嵌媒体绝不得触发
+            // 图片解析器/OCR，或让一份本应有效的 Word 文档失败。
             context.set(org.apache.tika.extractor.EmbeddedDocumentExtractor.class,
                     new org.apache.tika.extractor.EmbeddedDocumentExtractor() {
                         @Override public boolean shouldParseEmbedded(Metadata metadata) { return false; }

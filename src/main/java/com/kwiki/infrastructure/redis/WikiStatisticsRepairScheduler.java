@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.scheduling.annotation.Scheduled;
 
-/** Rebuilds counters from MySQL after an uncertain Redis write; it never replays deltas. */
+/** 在 Redis 写入结果不确定后从 MySQL 重建计数器；绝不重放增量。 */
 @Configuration
 @ConditionalOnProperty(name = "kwiki.stats.repair.enabled", havingValue = "true")
 public class WikiStatisticsRepairScheduler {

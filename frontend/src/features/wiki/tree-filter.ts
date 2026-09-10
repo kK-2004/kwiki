@@ -1,8 +1,8 @@
 import type { TreeNodeDto } from './api';
 
 /**
- * Filters a tree by a search phrase: matching nodes stay visible together with
- * their full ancestor path. Returns the pruned tree and the match count.
+ * 按搜索词（search phrase）过滤树：匹配的节点（node）与其
+ * 完整的祖先路径一起保留。返回裁剪后的树与匹配数量。
  */
 export function filterTree(
   nodes: TreeNodeDto[],
@@ -34,7 +34,7 @@ function countNodes(nodes: TreeNodeDto[]): number {
   return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0);
 }
 
-/** Flattens a tree while tracking depth for keyboard navigation and indentation. */
+/** 展开并扁平化树，同时记录深度用于键盘导航与缩进。 */
 export function flattenTree(
   nodes: TreeNodeDto[],
   expanded: Set<number>,

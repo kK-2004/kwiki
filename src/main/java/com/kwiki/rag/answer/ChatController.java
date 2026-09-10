@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import reactor.core.publisher.Flux;
 
-/** SSE chat stream and authorized citation resolution. */
+/** SSE 对话流与已授权的引用解析。 */
 @RestController
 @RequestMapping("/api/v1")
 @PreAuthorize("isAuthenticated()")

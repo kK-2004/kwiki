@@ -15,9 +15,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Builder mapping from kwiki.content-center properties onto the singleton SDK
- * client, plus startup failure behavior: a blank token or base URL must abort
- * context startup without echoing the secret.
+ * 从 kwiki.content-center 配置到单例 SDK 客户端的
+ * Builder 映射，以及启动失败行为：空的 token 或 base URL 必须中止
+ * 上下文启动，且不回显该密钥。
  */
 class ContentCenterConfigurationTest {
 

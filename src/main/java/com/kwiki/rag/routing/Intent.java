@@ -1,8 +1,8 @@
 package com.kwiki.rag.routing;
 
 /**
- * Terminal routing intents. Graph-specific intents and tools from k-Rag are
- * deliberately excluded: kwiki has no Neo4j or Cypher capability.
+ * 终止性路由意图。来自 k-Rag 的图相关意图与工具被
+ * 有意排除：kwiki 不具备 Neo4j 或 Cypher 能力。
  */
 public enum Intent {
     DIRECT_ANSWER,

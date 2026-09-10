@@ -133,7 +133,7 @@ const exportError = ref('');
 const publishDialogOpen = ref(false);
 const publishNote = ref('');
 const publishing = ref(false);
-/** Shared preview resolver: one signed-URL fetch per attachment per editor. */
+/** 共享预览解析器：每个编辑器对每个附件只获取一次已签名 URL。 */
 const mediaResolver = ref<MediaSourceResolver>(() => null);
 watch(
   () => props.kbId,
@@ -171,10 +171,10 @@ onMounted(async () => {
     const saved = await store.loadDraft(props.kbId, props.pageId);
     draft.value = saved.markdown;
     savedDraft.value = saved.markdown;
-  } catch { /* A page without a separate draft starts from the published content. */ }
+  } catch { /* 没有独立草稿的页面从已发布内容开始。 */ }
 });
 
-// The page may finish loading after the editor opens; adopt it while clean.
+// 页面可能在编辑器打开之后才加载完成；在页面未被修改时接受它。
 watch(initial, (value) => {
   if (!dirty.value) {
     draft.value = value;
@@ -235,7 +235,7 @@ async function save(changeNote = '') {
   }
 }
 
-/** Publish always saves the current draft first; blocked while uploads run. */
+/** 发布总是先保存当前草稿；在上传进行中时被阻止。 */
 async function publish() {
   if (publishBlocked.value) return;
   publishing.value = true;
@@ -291,7 +291,7 @@ function fileNameOf(response: Response, format: 'md' | 'html'): string {
     try {
       return decodeURIComponent(match[1]);
     } catch {
-      /* fall through */
+      /* 继续向下执行 */
     }
   }
   const title = (store.page?.title || 'export').replace(/\s+/g, '-');

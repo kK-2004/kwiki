@@ -12,10 +12,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * Wraps every request so downstream consumers of the query string (request logging,
- * error reporting, traces) only ever see redacted credentials, e.g. signed download-link
- * presigned parameters. Combined with the %redactedMsg logback converter this keeps
- * authorization headers, API keys, app tokens, passwords, and signatures out of captured logs.
+ * 包装每个请求，使查询字符串的下游消费者（请求日志、
+ * 错误上报、链路追踪）只能看到经过脱敏（redaction）的凭据，例如签名下载链接的
+ * 预签名（presigned）参数。结合 %redactedMsg logback 转换器（converter），
+ * 可将认证头、API key、app token、密码与签名排除在捕获的日志之外。
  */
 @Component
 @Order(-190)

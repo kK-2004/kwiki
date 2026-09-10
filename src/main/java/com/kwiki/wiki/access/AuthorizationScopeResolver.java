@@ -15,9 +15,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Resolves the immutable per-request authorization scope: member knowledge bases
- * plus their current scope versions (admins are superusers). Goes through the Redis
- * scope cache; every cache path degrades to direct resolution without widening.
+ * 解析每次请求一次的不可变授权作用域：成员知识库及其当前作用域版本（管理员即超级用户）。
+ * 经由 Redis 作用域缓存；每条缓存路径都会降级为直接解析，而不会扩大范围。
  */
 @Component
 public class AuthorizationScopeResolver {
@@ -51,7 +50,7 @@ public class AuthorizationScopeResolver {
         return scopeCache.getOrLoad(user.id(), this::loadFromDatabase);
     }
 
-    /** Narrows the caller's authorized scope to an optional user selection. */
+    /** 将调用方的已授权作用域收窄为可选的用户选择。 */
     public AuthorizationScope resolve(CurrentUser user, Set<Long> requestedKbIds, Set<Long> requestedPageIds) {
         AuthorizationScope base = resolve(user);
         boolean constrained = (requestedKbIds != null && !requestedKbIds.isEmpty())
@@ -87,8 +86,8 @@ public class AuthorizationScopeResolver {
         Set<Long> kbIds = memberships.stream()
                 .map(KnowledgeBaseMember::getKbId)
                 .collect(Collectors.toSet());
-        // Archived knowledge bases never widen the retrieval scope: membership
-        // rows survive archiving, the authoritative status does not.
+        // 归档的知识库永不扩大检索作用域：成员关系记录会保留过归档，
+        // 但权威状态不会。
         if (jdbc != null && !kbIds.isEmpty()) {
             String placeholders = String.join(",", java.util.Collections.nCopies(kbIds.size(), "?"));
             Object[] args = new Object[kbIds.size()];

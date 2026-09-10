@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-/** Parses a text document and creates a real Wiki page/revision transactionally. */
+/** 解析文本文档，并以事务方式创建真实的 Wiki 页面/修订版本。 */
 @Service
 public class WikiImportService {
     private static final long MAX_IMPORT_BYTES = 20 * 1024 * 1024;
@@ -84,7 +84,7 @@ public class WikiImportService {
         return new ImportedPage(page.getId(), page.getUuid(), title, document.blocks().size(), warnings);
     }
 
-    /** Validates the multipart boundary before any durable attachment is stored. */
+    /** 在存储任何持久附件之前校验 multipart 边界。 */
     public void validateUpload(String fileName, String contentType, byte[] content) {
         try { validateUploadChecked(fileName, contentType, content); }
         catch (IllegalArgumentException ex) {

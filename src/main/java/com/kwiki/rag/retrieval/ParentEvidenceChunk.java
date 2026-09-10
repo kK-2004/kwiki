@@ -2,7 +2,7 @@ package com.kwiki.rag.retrieval;
 
 import java.util.List;
 
-/** Authorized parent chunk with its matched children attached for citation. */
+/** 已授权的父分块，并附上其命中的子分块以供引用。 */
 public record ParentEvidenceChunk(
         String parentChunkKey,
         long kbId,

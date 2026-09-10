@@ -17,10 +17,10 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Page-to-page links resolved to stable page ids. Links refresh on publish from
- * the published Markdown; unresolved, cross-knowledge-base, archived, or
- * self-referencing targets are skipped. Backlinks survive renames and moves
- * because rows reference page ids only.
+ * 页面到页面的链接会解析为稳定的页面 id。链接在发布时依据
+ * 已发布的 Markdown 刷新；无法解析、跨知识库、已归档或
+ * 自引用的目标会被跳过。反向链接在重命名与移动后依然存活，
+ * 因为记录只引用页面 id。
  */
 @Service
 public class PageLinkService {
@@ -37,7 +37,7 @@ public class PageLinkService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setResources(ResourceAuthorizationService resources) { this.resources = resources; }
 
-    /** Replaces the outgoing link set of a page from its published Markdown. */
+    /** 依据页面的已发布 Markdown 替换其出站链接集合。 */
     @Transactional
     public void refreshLinks(long pageId, long kbId, String markdown) {
         links.deleteAllBySourcePageId(pageId);
@@ -54,7 +54,7 @@ public class PageLinkService {
         }
     }
 
-    /** Pages that link to the given page; archived sources are hidden. */
+    /** 链接到给定页面的那些页面；已归档的来源会被隐藏。 */
     public List<WikiPage> backlinks(long pageId) {
         List<WikiPage> result = new ArrayList<>();
         for (WikiLink link : links.findByTargetPageId(pageId)) {
@@ -64,8 +64,8 @@ public class PageLinkService {
         return result;
     }
 
-    /** Backlinks are filtered one by one because sharing the target page must not
-     * expose the source page's title or id. */
+    /** 反向链接逐条过滤，因为共享目标页面绝不能
+     * * 暴露来源页面的标题或 id。 */
     public List<WikiPage> backlinks(CurrentUser user, long pageId) {
         return backlinks(pageId).stream()
                 .filter(page -> resources == null || resources.can(user, page.getId(), ResourceAction.READ))

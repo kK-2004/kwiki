@@ -75,15 +75,15 @@ const page = computed(() => store.page);
 const error = computed(() => store.pageError);
 const errorText = computed(() => normalizedError(error.value));
 
-/** Server-rendered HTML is already sanitized by MarkdownPort. */
+/** 服务端渲染的 HTML 已由 MarkdownPort 净化。 */
 const sanitizedHtml = computed(() => page.value?.html ?? '');
 
 /**
- * Media in the rendered HTML is displayed by the shared viewer via
- * MediaMountRegion (markers → one live instance per media). attachment://
- * references are resolved client-side to fresh authorized links; unresolved
- * ones keep the stable reference instead of a broken source URL. Signed URLs
- * never enter stored content.
+ * 渲染后 HTML 中的媒体由共享查看器通过
+ * MediaMountRegion（标记 → 每种媒体一个存活实例）展示。attachment://
+ * 引用在客户端被解析为全新的授权链接；无法
+ * 解析的则保留稳定引用，而非损坏的源 URL。已签名的 URL
+ * 永远不会进入持久化内容。
  */
 const mediaResolver = ref<MediaSourceResolver>(() => null);
 watch(
@@ -120,7 +120,7 @@ watch(sanitizedHtml, (html) => {
   }
 }, { immediate: true });
 
-/** Reader export of the currently viewed revision (never publishes). */
+/** 阅读器导出当前查看的修订版本（绝不会触发发布）。 */
 const exportOpen = ref(false);
 const exporting = ref(false);
 async function exportRevision(format: 'md' | 'html') {
@@ -145,7 +145,7 @@ async function exportRevision(format: 'md' | 'html') {
     const match = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
     let name = `${displayTitle.value || 'export'}.${format}`;
     if (match) {
-      try { name = decodeURIComponent(match[1]); } catch { /* keep fallback */ }
+      try { name = decodeURIComponent(match[1]); } catch { /* 保留兜底 */ }
     }
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -158,7 +158,7 @@ async function exportRevision(format: 'md' | 'html') {
   }
 }
 
-/** Title and path fall back to the tree entry of the selected page. */
+/** 标题与路径回退到所选页面在树中的条目。 */
 function findPath(nodes: TreeNodeDto[], id: number, trail: TreeNodeDto[]): TreeNodeDto[] | null {
   for (const node of nodes) {
     const next = [...trail, node];
@@ -245,7 +245,7 @@ async function askQuestion() {
     const renewed = response.headers.get('X-Auth-Token'); if (renewed) setAuthToken(renewed);
     if (!response.ok || !response.body) throw new Error('selection question failed');
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
-    for (;;) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); let boundary = buffer.indexOf('\n\n'); while (boundary >= 0) { const raw = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2); const event = raw.match(/^event: (.+)$/m)?.[1]; const data = raw.match(/^data: (.+)$/m)?.[1]; if (event === 'token' && data) { try { answer.value += String((JSON.parse(data) as { text?: string }).text ?? ''); } catch { /* ignore malformed frame */ } } else if (event === 'error') throw new Error('selection question failed'); boundary = buffer.indexOf('\n\n'); } }
+    for (;;) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); let boundary = buffer.indexOf('\n\n'); while (boundary >= 0) { const raw = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2); const event = raw.match(/^event: (.+)$/m)?.[1]; const data = raw.match(/^data: (.+)$/m)?.[1]; if (event === 'token' && data) { try { answer.value += String((JSON.parse(data) as { text?: string }).text ?? ''); } catch { /* 忽略格式错误的帧 */ } } else if (event === 'error') throw new Error('selection question failed'); boundary = buffer.indexOf('\n\n'); } }
   } catch (error) { if ((error as { name?: string })?.name !== 'AbortError') questionError.value = '问 AI 失败，请重试'; } finally { if (questionController.value === controller) questionController.value = null; asking.value = false; }
 }
 watch([() => props.anchorResolution?.anchorId, () => page.value?.revisionNo], () => { void locateAnchor(); }, { immediate: true });

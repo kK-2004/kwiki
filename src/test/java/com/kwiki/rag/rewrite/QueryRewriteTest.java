@@ -20,10 +20,10 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Rewrite contract: table-driven strategy selection over the fixed regression
- * corpus, conversation completion with deterministic fallback, guarded expansion,
- * bounded decomposition, and orchestrator safety (blank/failed rewrites never
- * abort retrieval; dedupe preserves order).
+ * 改写契约：在固定的回归语料上进行表驱动的策略选择、
+ * 带确定性兜底的对话补全、受守卫保护的扩展、
+ * 有界分解，以及编排器安全性（空白/失败的改写绝不
+ * 中止检索；去重保持原有顺序）。
  */
 class QueryRewriteTest {
 
@@ -100,7 +100,7 @@ class QueryRewriteTest {
 
         rewriter.rewrite("它怎么配置", bigHistory.subList(0, 20));
 
-        // deterministic fallback uses only the latest user turn; no exception, bounded cost
+        // 确定性兜底只使用最近一轮用户输入；不抛异常，成本有界
         RewriteResult result = rewriter.rewrite("它怎么配置", bigHistory);
         assertThat(result.effectiveQueries()).hasSize(1);
         assertThat(result.effectiveQueries().get(0)).contains("turn 49");

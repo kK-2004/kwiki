@@ -4,11 +4,11 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Structured output of the quality-v2 review. The three scores are independent
- * 0–1 dimensions; the server gate takes their minimum against the configured
- * threshold (default 0.80) and additionally requires passed=true, no
- * unsupported claims, and supported ids that all belong to the retained
- * evidence. RRF scores must never be interpreted as quality confidence.
+ * quality-v2 评审的结构化输出。三个分数是彼此独立的
+ * 0–1 维度；服务端门禁取它们相对已配置阈值
+ * （默认 0.80）的最小值，并额外要求 passed=true、
+ * 不存在无依据的论断，且 supported id 全部属于保留下来的
+ * 证据。RRF 分数绝不能被解读为质量置信度。
  */
 public record QualityAssessment(
         double relevance,
@@ -32,8 +32,8 @@ public record QualityAssessment(
     }
 
     /**
-     * Server-side gate. {@code threshold} is inclusive on every dimension;
-     * supported ids must be a subset of the retained evidence ids.
+     * 服务端门控。{@code threshold} 对每个维度都取闭区间；
+     * supported id 必须是保留 evidence id 的子集。
      */
     public boolean gatePasses(double threshold, Set<String> retainedEvidenceIds) {
         if (relevance < 0 || relevance > 1 || coverage < 0 || coverage > 1 || faithfulness < 0 || faithfulness > 1)

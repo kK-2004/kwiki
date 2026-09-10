@@ -45,7 +45,7 @@ async function submit() {
     const target = typeof route.query.returnTo === 'string' && route.query.returnTo.startsWith('/')
       ? route.query.returnTo : '/knowledge-bases';
     await router.replace(target);
-  } catch { /* the store exposes a stable error message */ }
+  } catch { /* 状态仓库（store）会对外暴露一条稳定的错误信息 */ }
 }
 </script>
 

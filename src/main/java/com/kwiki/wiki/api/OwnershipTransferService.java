@@ -19,7 +19,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
-/** CAS-protected creator transfer; historical created_by values are untouched. */
+/** CAS 保护下的创建者转让；历史的 created_by 值保持不变。 */
 @Service
 public class OwnershipTransferService {
     private final JdbcOperations jdbc;

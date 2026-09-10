@@ -20,10 +20,10 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Knowledge-base lifecycle and membership management. Every read requires the caller
- * to be inside the knowledge base (admins excepted); membership mutations bump the
- * knowledge-base scope version and invalidate cached scopes so in-flight requests
- * under the old scope are aborted by the outbound guard.
+ * 知识库生命周期与成员管理。每次读取都要求调用方
+ * 位于该知识库之内（管理员除外）；成员关系变更会递增
+ * 知识库的作用域版本并使缓存的作用域失效，因此在旧作用域下
+ * 进行中的请求会被出站守卫中止。
  */
 @Service
 public class KnowledgeBaseService {
@@ -68,7 +68,7 @@ public class KnowledgeBaseService {
         return kb;
     }
 
-    /** Knowledge bases visible to the caller: memberships for users, everything for admins. */
+    /** 调用方可见的知识库：普通用户看自己的成员关系，管理员看全部。 */
     public List<KnowledgeBase> listAccessible(CurrentUser user) {
         if (user.admin()) {
             return knowledgeBases.findByStatusOrderByNameAsc(KnowledgeBase.STATUS_ACTIVE);
@@ -79,7 +79,7 @@ public class KnowledgeBaseService {
         return knowledgeBases.findByIdInAndStatusOrderByNameAsc(kbIds, KnowledgeBase.STATUS_ACTIVE);
     }
 
-    /** Loads a knowledge base, hiding existence of inaccessible ones behind 404. */
+    /** 加载知识库，对不可访问的库以 404 隐藏其是否存在。 */
     public KnowledgeBase requireAccessible(CurrentUser user, long kbId) {
         KnowledgeBase kb = knowledgeBases.findById(kbId)
                 .filter(candidate -> !candidate.isArchived())
@@ -107,15 +107,15 @@ public class KnowledgeBaseService {
     }
 
     /**
-     * Delegates to the unified recycle-bin service: batch over all valid
-     * pages/attachments/sources, 7-day retention, immediate index isolation.
+     * 委托给统一的回收站服务：对所有有效的
+     * 页面/附件/源文档分批处理，保留 7 天，立即隔离索引。
      */
     public void archive(CurrentUser user, long kbId) {
         if (archiveService != null) {
             archiveService.archiveKnowledgeBase(user, kbId);
             return;
         }
-        // Test/fallback path without the recycle-bin wiring.
+        // 未接入回收站的测试/兜底路径。
         authorization.require(user, kbId, WikiAction.ARCHIVE_KNOWLEDGE_BASE);
         KnowledgeBase kb = requireAccessible(user, kbId);
         kb.archive();

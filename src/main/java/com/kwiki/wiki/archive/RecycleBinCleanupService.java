@@ -20,18 +20,15 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Daily physical cleanup of recycle-bin batches whose retention window has
- * fully elapsed. One fixed cutoff per job; only purgeAfter &lt; cutoff rows are
- * eligible (a batch that merely reached its expiry stays until the next run —
- * and is no longer restorable). Items are processed in short transactions with
- * the batch row locked, re-verifying state/expiry so a concurrent restore can
- * never race a deletion to a half-state. Failures isolate per item: failed
- * items simply stay un-purged and are retried by the next run — batches are
- * walked by id, never by an advancing cursor that could skip them.
+ * 对保留窗口已完全届满的回收站批次执行的每日物理清理。每次任务使用固定的
+ * 一个截止点；只有 purgeAfter &lt; cutoff 的行符合条件（仅到达过期的批次会
+ * 保留到下一次运行——且不再可恢复）。条目在锁定批次行的短事务中处理，
+ * 并重新校验状态/过期时间，使并发恢复绝不会与删除竞态进入半成品状态。
+ * 失败按条目隔离：失败的条目保持未清除，由下一次运行重试——批次按 id 遍历，
+ * 绝不经由可能跳过的滚动游标。
  *
- * <p>Local data only: content-center files keep their own lifecycle (the SDK
- * exposes no delete); shared attachments, live resources, and conversation
- * snapshots are never touched.</p>
+ * <p>仅本地数据：内容中心文件保留其自身的生命周期（SDK 不提供删除）；
+ * 共享附件、实时资源与对话快照均不会被触及。</p>
  */
 @Service
 public class RecycleBinCleanupService {
@@ -80,7 +77,7 @@ public class RecycleBinCleanupService {
         this.clock = clock;
     }
 
-    /** One full pass over expired batches; returns the aggregate counters. */
+    /** 对过期批次的一次完整遍历；返回聚合计数器。 */
     public CleanupStats runOnce(String jobId) {
         Instant cutoff = clock.instant();
         long started = System.nanoTime();
@@ -118,8 +115,8 @@ public class RecycleBinCleanupService {
             if (outcome == ItemOutcome.PURGED || outcome == ItemOutcome.SKIPPED) {
                 continue;
             }
-            // PARTIAL/FAILED: stop this pass to avoid a hot loop on the same
-            // stuck batch; the next scheduled run retries it.
+            // PARTIAL/FAILED：停止本次遍历，避免对同一卡住的批次空转；
+            // 下一次计划运行会重试它。
             break;
         }
         long durationMs = (System.nanoTime() - started) / 1_000_000;
@@ -133,9 +130,8 @@ public class RecycleBinCleanupService {
     }
 
     /**
-     * Purges one batch item by item. The whole batch (items + row) disappears
-     * only when every item completed; single-item failures keep the batch for
-     * the next run.
+     * 逐条目清除一个批次。整个批次（条目 + 行）只有在每个条目都完成后才会消失；
+     * 单个条目的失败会使该批次保留到下一次运行。
      */
     private ItemOutcome purgeBatch(ArchiveBatch batch, Instant cutoff) {
         List<ArchiveBatchItem> items = batchItems.findByBatchIdOrderByIdAsc(batch.getId());
@@ -171,9 +167,8 @@ public class RecycleBinCleanupService {
     }
 
     /**
-     * One item in one short transaction: lock the batch row, re-verify state
-     * and expiry, idempotently re-delete ES chunks, then remove local rows in
-     * dependency order and mark the item purged.
+     * 在一条短事务中处理一个条目：锁定批次行，重新校验状态与过期时间，
+     * 幂等地重新删除 ES 分块，随后按依赖顺序删除本地行并标记该条目已清除。
      */
     private boolean purgeItem(ArchiveBatch batch, ArchiveBatchItem item, Instant cutoff) {
         return Boolean.TRUE.equals(transactions.inTransactionReturning(() -> {
@@ -184,13 +179,13 @@ public class RecycleBinCleanupService {
                     Long.class, batch.getId());
             ArchiveBatch locked = batches.findById(batch.getId()).orElse(null);
             if (locked == null || !ArchiveBatch.STATE_ARCHIVED.equals(locked.getState())) {
-                return true; // restored concurrently: nothing to purge
+                return true; // 并发已恢复：无可清除内容
             }
             if (!locked.getPurgeAfter().isBefore(cutoff)) {
-                return true; // re-check against the fixed cutoff
+                return true; // 针对固定截止点重新校验
             }
-            // Idempotent ES re-delete first: never claim local purge while
-            // chunks could still be searchable.
+            // 先幂等地重复删除 ES：在分块仍可能被搜索到之前，
+            // 绝不声称已完成本地清除。
             if (chunkIndex != null) {
                 if (ArchiveBatchItem.RESOURCE_PAGE.equals(item.getResourceType())) {
                     chunkIndex.deleteResourceChunksChecked("PAGE", item.getResourceId());
@@ -213,7 +208,7 @@ public class RecycleBinCleanupService {
         }));
     }
 
-    /** FK/logical dependency order (see implementation-notes.md §1.3). */
+    /** 外键/逻辑依赖顺序（见 implementation-notes.md §1.3）。 */
     private void deletePageRows(long pageId) {
         jdbc.update("DELETE FROM notification WHERE page_id = ?", pageId);
         jdbc.update("""
@@ -249,7 +244,7 @@ public class RecycleBinCleanupService {
         jdbc.update("DELETE FROM wiki_page WHERE id = ?", pageId);
     }
 
-    /** Only physically deletes attachments nothing else still references. */
+    /** 只物理删除没有任何其他对象仍引用的附件。 */
     private void deleteAttachmentIfUnreferenced(long attachmentId) {
         Integer sources = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM source_document WHERE attachment_id = ?",
@@ -258,7 +253,7 @@ public class RecycleBinCleanupService {
                 "SELECT COUNT(*) FROM page_revision_media WHERE attachment_id = ?",
                 Integer.class, attachmentId);
         if ((sources != null && sources > 0) || (mediaRefs != null && mediaRefs > 0)) {
-            return; // shared: keep file/metadata, only the index is gone
+            return; // 共享：保留文件/元数据，只有索引被移除
         }
         jdbc.update("DELETE FROM indexing_job WHERE resource_type = 'ATTACHMENT' AND resource_id = ?",
                 attachmentId);
@@ -266,8 +261,8 @@ public class RecycleBinCleanupService {
     }
 
     private void deleteKnowledgeBaseRows(long kbId) {
-        // Pages/attachments of this kb were their own batch items; this only
-        // removes kb-level relationships and the row itself.
+        // 该知识库的页面/附件本就是各自的批次项；这里只
+        // 移除知识库级的关系与那一行本身。
         jdbc.update("DELETE FROM resource_invitation WHERE kb_id = ?", kbId);
         jdbc.update("DELETE FROM resource_join_request WHERE kb_id = ?", kbId);
         jdbc.update("DELETE FROM ownership_transfer WHERE kb_id = ?", kbId);

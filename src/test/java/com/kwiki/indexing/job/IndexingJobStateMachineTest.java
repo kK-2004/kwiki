@@ -9,12 +9,12 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Transition matrix for the indexing-job state machine, written before worker behavior. */
+/** 索引任务状态机的状态转移矩阵，编写于 worker 行为之前。 */
 class IndexingJobStateMachineTest {
 
     private static IndexingJob job(IndexingJobState state) {
         IndexingJob job = new IndexingJob("UPSERT", "PAGE", 1, 1L, "PAGE:1:1:UPSERT");
-        // force initial state for matrix testing
+        // 为矩阵测试强行设置初始状态
         org.springframework.test.util.ReflectionTestUtils.setField(job, "state", state);
         return job;
     }
@@ -68,7 +68,7 @@ class IndexingJobStateMachineTest {
     @Test
     void failureBeforeMaxAttemptsGoesToRetryWaitWithSanitizedFields() {
         IndexingJob job = job(IndexingJobState.LEASED);
-        job.incrementAttempts(); // attempts = 1 < 8
+        job.incrementAttempts(); // 尝试次数 = 1 < 8
 
         job.recordFailure("ElasticsearchException", "bulk reject: 3 items", 8,
                 Instant.now().plusSeconds(60));

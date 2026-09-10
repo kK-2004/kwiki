@@ -17,9 +17,9 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Lease-concurrency contract against operator-provided MySQL (KWIKI_IT_MYSQL_*):
- * two sequential claims never share a job, an unexpired lease blocks re-claiming,
- * and an expired lease is deterministically reclaimed.
+ * 针对运维方提供的 MySQL（KWIKI_IT_MYSQL_*）的租约并发契约：
+ * 两次顺序领取绝不会共享同一任务，未过期的租约会阻止重复领取，
+ * 已过期的租约会被确定性地重新领取。
  */
 @EnabledIfEnvironmentVariable(named = "KWIKI_IT_MYSQL_URL", matches = ".+")
 class IndexingJobClaimContractTest {
@@ -92,7 +92,7 @@ class IndexingJobClaimContractTest {
         enqueue(201L, "lease:201");
         assertThat(claimer().claim("worker-a", 1)).containsExactly(201L);
 
-        // expire the lease deterministically
+        // 确定性地让租约过期
         jdbc.update("UPDATE indexing_job SET lease_expires_at = ? WHERE id = ?",
                 Instant.now().minusSeconds(1), 201L);
 

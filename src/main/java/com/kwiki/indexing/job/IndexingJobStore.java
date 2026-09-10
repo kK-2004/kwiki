@@ -9,9 +9,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * JDBC operations for job lifecycle bookkeeping: completion, bounded-backoff
- * failure, administrator retry, queue metrics, and detail/list reads for the
- * admin API. Errors are stored sanitized (class + bounded summary).
+ * 用于任务生命周期记账的 JDBC 操作：完成、有界退避
+ * 失败、管理员重试、队列指标，以及供管理端 API 使用的
+ * 详情/列表读取。错误以净化后的形式存储（类名 + 有界摘要）。
  */
 @Repository
 public class IndexingJobStore {
@@ -31,7 +31,7 @@ public class IndexingJobStore {
                 + "WHERE id = ? AND state = 'LEASED'", jobId);
     }
 
-    /** Bounded exponential backoff: base * 2^attempts capped at maxBackoffSeconds. */
+    /** 有界指数退避：base * 2^attempts，上限为 maxBackoffSeconds。 */
     public void fail(long jobId, String errorClass, String sanitizedSummary, int maxAttempts,
                      long baseBackoffSeconds, long maxBackoffSeconds) {
         if (jdbc == null) {
@@ -51,7 +51,7 @@ public class IndexingJobStore {
                 baseBackoffSeconds, maxBackoffSeconds, jobId);
     }
 
-    /** Administrator retry: re-opens a terminal job from PENDING with a clean slate. */
+    /** 管理员重试：把已终止的任务从 PENDING 重新打开，清空原有状态。 */
     public boolean adminRetry(long jobId) {
         if (jdbc == null) {
             return false;

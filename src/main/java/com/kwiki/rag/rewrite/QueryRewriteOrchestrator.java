@@ -11,10 +11,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Orchestrates rewrite selection and execution. Deadlines live in the LLM adapter;
- * the orchestrator guarantees that blank, invalid, or failed rewrites never abort
- * safe retrieval — the normalized original query is always the last resort — and
- * that equivalent subqueries are deduplicated while order is preserved.
+ * 编排改写的选取与执行。截止时间由 LLM 适配器负责；
+ * 编排器保证空白、无效或失败的改写绝不中止
+ * 安全检索——归一化后的原始查询始终是最后兜底——并
+ * 在保持顺序的同时对等价子查询去重。
  */
 @Component
 public class QueryRewriteOrchestrator {

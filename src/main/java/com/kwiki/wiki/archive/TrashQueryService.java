@@ -20,11 +20,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Paged recycle-bin listing. Authorization is checked against the saved
- * management permission over the batch scope — never through the
- * ACTIVE-requiring resource loaders, because everything listed here is
- * archived by definition. Workspace view (no kbId): archived knowledge bases;
- * knowledge-base view: page batches inside that base.
+ * 分页式回收站列表。授权针对批次作用域上已保存的管理权限进行校验——
+ * 绝不经由要求 ACTIVE 状态的资源加载器，因为此处列出的内容按定义都已归档。
+ * 工作空间视图（无 kbId）：已归档的知识库；知识库视图：该库内的页面批次。
  */
 @Service
 public class TrashQueryService {
@@ -71,7 +69,7 @@ public class TrashQueryService {
         int pageSize = Math.min(Math.max(limit, 1), 50);
         List<ArchiveBatch> rows;
         if (kbId == null) {
-            // Workspace view: only archived knowledge bases the caller manages.
+            // 工作空间视图：仅调用方管理的已归档知识库。
             rows = batches.findByStateOrderByArchivedAtDesc(
                     ArchiveBatch.STATE_ARCHIVED, PageRequest.of(0, pageSize * 8));
             List<ArchiveBatch> visible = new ArrayList<>();
@@ -80,7 +78,7 @@ public class TrashQueryService {
                     continue;
                 }
                 if (cursor != null && batch.getId() >= cursor) {
-                    continue; // stable id-descending pagination
+                    continue; // 稳定的按 id 降序分页
                 }
                 if (user.admin()
                         || authorization.can(user, batch.getKbId(),
@@ -93,7 +91,7 @@ public class TrashQueryService {
             }
             return toPage(visible, pageSize);
         }
-        // Knowledge-base view: page batches inside the base.
+        // 知识库视图：库内的页面批次。
         authorization.require(user, kbId, WikiAction.ARCHIVE_PAGE);
         rows = batches.findByStateAndKbIdOrderByArchivedAtDesc(
                 ArchiveBatch.STATE_ARCHIVED, kbId, PageRequest.of(0, pageSize * 8));
@@ -104,7 +102,7 @@ public class TrashQueryService {
                 continue;
             }
             if (cursor != null && batch.getId() >= cursor) {
-                continue; // stable id-descending pagination
+                continue; // 稳定的按 id 降序分页
             }
             visible.add(batch);
             if (visible.size() >= pageSize + 1) {

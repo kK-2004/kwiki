@@ -31,15 +31,15 @@ import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 /**
- * Deterministic QA-gated knowledge workflow. Every knowledge query walks the
- * fixed stage order base-child → base-parent → expanded-child →
- * expanded-parent (each stage regenerates and re-reviews its own candidate)
- * and only a gate-passing candidate is published. Stage exhaustion hands the
- * original question plus the complete failure history to the Query Rewrite
- * Agent; at most 3 query rounds / 2 rewrite calls exist, and content
- * exhaustion answers with the exact insufficient message. The planner/tool
- * path no longer participates in the main chain; its adapters stay available
- * for other callers.
+ * 确定性的、以 QA 质量门禁把关的知识工作流。每次知识查询都按
+ * 固定阶段顺序推进：base-child → base-parent → expanded-child →
+ * expanded-parent（每个阶段都会重新生成并重新评审自己的候选），
+ * 只有通过门禁的候选才会被发布。阶段耗尽后会把
+ * 原始问题连同完整的失败历史交给查询改写
+ * Agent；最多存在 3 个查询轮次 / 2 次改写调用，内容
+ * 耗尽时以固定的信息不足文案作答。规划器/工具
+ * 路径不再参与主链路；其适配器仍对其他
+ * 调用方可用。
  */
 @Service
 public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
@@ -137,8 +137,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                     destinations);
         }
         g.addEdge(START, "route");
-        // LangGraph4j 1.8.20 uses the compile-time recursion limit. RunContext
-        // remains the authoritative application step budget.
+        // LangGraph4j 1.8.20 使用编译期递归上限。RunContext
+        // 仍是应用层权威的步骤预算。
         graph = g.compile(CompileConfig.builder().recursionLimit(limits.steps() + 2).build());
     }
 
@@ -338,7 +338,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     }
 
     // ------------------------------------------------------------------
-    // nodes
+    // 节点
     // ------------------------------------------------------------------
 
     private void route(Session s) {
@@ -374,12 +374,12 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
                 ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
                 s.sinceMs(startedAt), "已识别为知识检索", Map.of(), null));
-        // Round 1 uses the normalized original query verbatim: no semantic
-        // rewrite before the first retrieval.
+        // 第 1 轮原样使用归一化后的原始查询：首次检索
+        // 之前不做语义改写。
         s.next = "retrieve";
     }
 
-    /** Executes the retrieval half of the current stage (child or parent). */
+    /** 执行当前阶段的检索部分（子分块或父分块）。 */
     private void retrieve(Session s) {
         if (s.stage.isParentStage()) {
             retrieveParents(s);
@@ -429,7 +429,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                         "retainedChildCount", s.children.size(),
                         "degradations", s.lastDegradations));
         if (s.children.isEmpty()) {
-            // Successful zero hits: never spin the generation model on nothing.
+            // 成功但命中为零：绝不让生成模型空转。
             s.recordStageFailure("no-evidence");
             s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, s.stage.name(),
                     ActivityEvent.Phase.RETRIEVAL, ActivityEvent.Status.SKIPPED, startedAt,
@@ -560,10 +560,10 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         advanceRecovery(s);
     }
 
-    /** Publishes exactly the reviewed candidate text; no second generation. */
+    /** 只发布被评审过的候选文本；不做二次生成。 */
     private void publish(Session s) {
-        // Output boundary: re-validate scope/evidence validity before any byte
-        // leaves the server.
+        // 输出边界：在任何字节离开服务端之前，
+        // 重新校验作用域与证据的有效性。
         s.run.authorize();
         String text = s.candidate.content();
         for (String token : paragraphs(text)) {
@@ -586,7 +586,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     }
 
     private void rewrite(Session s) {
-        // Rewrite budget / query-round budget exhausted → exact refusal.
+        // 改写预算 / 查询轮次预算耗尽 → 精确拒绝。
         if (s.rewritesUsed >= limits.rewrites()
                 || s.queryRound >= limits.queryRounds()
                 || !s.run.canModel()) {
@@ -620,8 +620,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.rewritesUsed++;
         var rewritten = feedbackRewriter.rewrite(input);
         if (rewritten.isEmpty() && s.rewritesUsed < limits.rewrites() && s.run.canModel()) {
-            // Invalid/echoing rewrite consumed one call; one retry with the
-            // validation failure attached when budget remains.
+            // 无效或原样回显的改写消耗掉一次调用；若预算仍有余，则带
+            // 校验失败信息重试一次。
             s.recordStageFailure("rewrite-validation-failed");
             FeedbackRewriteInput retry = new FeedbackRewriteInput(
                     s.query, s.rewriteHistory, s.currentQuery, s.stageFailures,
@@ -644,7 +644,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.rewriteHistory.add(newQuery);
         s.currentQuery = newQuery;
         s.queryRound++;
-        s.stage = AttemptStage.BASE_CHILD; // new round resets the base TopK
+        s.stage = AttemptStage.BASE_CHILD; // 新一轮会重置基础 TopK
         s.usedParentKeys.clear();
         s.stageFailures.clear();
         s.debugStage("rewrite", "complete", 0, () -> Map.of(
@@ -682,12 +682,12 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     }
 
     // ------------------------------------------------------------------
-    // state machine helpers
+    // 状态机辅助方法
     // ------------------------------------------------------------------
 
     /**
-     * Fixed recovery order: base-child → base-parent → expanded-child →
-     * expanded-parent → rewrite. Expansion happens once per query round.
+     * 固定的恢复顺序：base-child → base-parent → expanded-child →
+     * expanded-parent → rewrite。扩展在每个查询轮次中只发生一次。
      */
     private void advanceRecovery(Session s) {
         AttemptStage next = s.stage.next();
@@ -720,7 +720,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         return "缺少关键方面：" + String.join("；", assessment.missingAspects());
     }
 
-    /** Up to four distinct authorized source titles for the activity timeline. */
+    /** 活动时间线最多展示四个互不相同的已授权来源标题。 */
     private static List<String> sourceTitles(List<ChildEvidence> children) {
         return children.stream()
                 .map(child -> child.headingPath() == null || child.headingPath().isBlank()
@@ -771,7 +771,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         return ids;
     }
 
-    /** Splits the reviewed candidate into paragraph-sized publish chunks. */
+    /** 把已评审的候选拆分成段落粒度的发布分块。 */
     static List<String> paragraphs(String text) {
         if (text == null || text.isEmpty()) {
             return List.of();

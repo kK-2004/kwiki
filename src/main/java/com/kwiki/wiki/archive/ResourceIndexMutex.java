@@ -10,11 +10,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 /**
- * Shared lifecycle mutex between archive/restore and the indexing worker.
- * Both GET_LOCK and RELEASE_LOCK run on one dedicated connection held for the
- * whole critical section — never two pooled connections — so a process crash
- * releases the lock with the connection. When no DataSource is wired
- * (offline/unit tests) the mutex degrades to a no-op.
+ * 归档/恢复与索引构建 worker 之间共享的生命周期互斥锁。
+ * GET_LOCK 与 RELEASE_LOCK 都在整段临界区持有的同一专用连接上执行——
+ * 绝不使用两个池化连接——因此进程崩溃时会随连接一起释放锁。
+ * 当未接入 DataSource（离线/单元测试）时，该互斥锁降级为无操作。
  */
 @Component
 public class ResourceIndexMutex {
@@ -28,11 +27,11 @@ public class ResourceIndexMutex {
     }
 
     /**
-     * Acquires the per-knowledge-base index mutex. The returned handle must be
-     * closed in a finally block; it releases the lock and closes the connection.
+     * 获取按知识库维度的索引互斥锁。返回的句柄必须在 finally 块中关闭；
+     * 它会释放锁并关闭连接。
      *
-     * @throws InterruptedException when the calling thread is interrupted while waiting
-     * @throws IllegalStateException when the lock cannot be acquired in time
+     * @throws InterruptedException 当调用线程在等待过程中被中断时
+     * @throws IllegalStateException 当无法及时获取锁时
      */
     public AutoCloseable acquireKb(long kbId, int timeoutSeconds)
             throws InterruptedException {
@@ -64,7 +63,7 @@ public class ResourceIndexMutex {
                         release.setString(1, name);
                         release.executeQuery();
                     } catch (SQLException ignored) {
-                        // connection close releases the lock regardless
+                        // 无论如何，连接关闭都会释放锁
                     } finally {
                         try {
                             held.close();

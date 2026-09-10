@@ -10,9 +10,8 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 
 /**
- * Server-side document boundary. A knowledge-base role is only one input: a
- * private/selected page can narrow it, while a page owner or page administrator
- * can manage that page without widening access to sibling pages.
+ * 服务端文档边界。知识库角色只是其中一个输入：私有/指定页面会收窄它，
+ * 而页面所有者或页面管理员可以在不扩大对同级页面访问的前提下管理该页面。
  */
 @Service
 public class ResourceAuthorizationService {

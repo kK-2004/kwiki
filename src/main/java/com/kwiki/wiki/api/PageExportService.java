@@ -23,15 +23,15 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Markdown/HTML export of an exact snapshot. Editing mode exports the draft
- * snapshot the editor submits (including unsaved text); reading mode exports
- * the revision being viewed — neither path publishes anything. Every
- * {@code attachment://uuid} reference is rewritten, construct intact, to the
- * content-center CDN link of the stored file (durable by CDN policy, unlike
- * the presigned preview links); when no CDN link can be issued the reference
- * falls back to kwiki's own authorized content endpoint. Manually typed
- * external links stay exactly as authored and are never fetched. The result is
- * always a single {@code .md}/{@code .html} file — no ZIP packaging.
+ * 精确快照的 Markdown/HTML 导出。编辑模式导出编辑器
+ * 提交的草稿快照（包括未保存的文本）；阅读模式导出
+ * 当前正在查看的修订版本 —— 两条路径都不会发布任何内容。每一个
+ * {@code attachment://uuid} 引用都会被改写为已存储文件的
+ * 内容中心 CDN 链接，且保持原结构不变（按 CDN 策略为持久链接，
+ * 这点不同于预签名预览链接）；当无法签发 CDN 链接时，
+ * 该引用会回退到 kwiki 自有的已授权内容端点。手动输入的
+ * 外部链接完全保持作者所写的样子，且绝不会被抓取。结果始终是
+ * 单个 {@code .md}/{@code .html} 文件 —— 不打 ZIP 包。
  */
 @Service
 public class PageExportService {
@@ -63,11 +63,11 @@ public class PageExportService {
     }
 
     /**
-     * @param snapshotMarkdown editor snapshot (may be unsaved); used when
-     *                         {@code revisionNo} is null, otherwise the stored
-     *                         revision is exported (read permission required)
-     * @param baseUrl          absolute origin used to build durable media links;
-     *                         blank means same-origin relative links
+     * @param snapshotMarkdown 编辑器快照（可能未保存）；当
+     * {@code revisionNo} 为 null 时使用，否则导出已存储的
+     * 修订版本（需要读权限）
+     * @param baseUrl 用于构建持久媒体链接的绝对源；
+     * 为空表示使用同源的相对链接
      */
     public ExportPayload export(CurrentUser user, long kbId, long pageId, String format,
                                 String snapshotMarkdown, Integer revisionNo, String baseUrl) {
@@ -95,8 +95,8 @@ public class PageExportService {
                 html ? "text/html;charset=UTF-8" : "text/markdown;charset=UTF-8");
     }
 
-    /** Replaces every attachment://uuid token with a durable media URL,
-     *  keeping the surrounding ![alt](…) / <img> / <a> construct intact. */
+    /** 把每一个 attachment://uuid 标记替换为持久的媒体 URL，
+     * 同时保持其外围的 ![alt](…) / <img> / <a> 结构不变。 */
     private String rewriteAttachmentTokens(String snapshot, long kbId, String baseUrl) {
         var references = MarkdownMediaScanner.scan(snapshot);
         if (references.isEmpty()) {
@@ -123,8 +123,8 @@ public class PageExportService {
         return rewritten.toString();
     }
 
-    /** CDN link when the stored file can resolve one; otherwise kwiki's own
-     *  authorized content endpoint so the reference never silently dies. */
+    /** 当已存储文件能解析出 CDN 链接时使用 CDN；否则使用 kwiki 自有的
+     * 已授权内容端点，使该引用绝不会无声失效。 */
     private String mediaLink(long kbId, String uuid, String base, Map<String, String> linkByUuid) {
         return linkByUuid.computeIfAbsent(uuid, key -> {
             Long fileId = attachments.findByUuid(key)
@@ -137,7 +137,7 @@ public class PageExportService {
                 try {
                     return storage.cdnLink(fileId);
                 } catch (AttachmentStorageException e) {
-                    // fall through to the app endpoint below
+                    // 继续向下落到下面的应用端点
                 }
             }
             return base + "/api/v1/knowledge-bases/" + kbId + "/attachments/" + key + "/content";
@@ -160,8 +160,8 @@ public class PageExportService {
                 + "img,video{max-width:100%;height:auto}\n"
                 + "pre{background:#f4f7f4;padding:14px;border-radius:8px;overflow:auto}\n"
                 + "table{border-collapse:collapse}th,td{border:1px solid #e1eae3;padding:8px 12px}\n"
-                // kwiki media conventions (data-align / data-width-percent) survive
-                // sanitization but no script interprets them in a standalone file.
+                // kwiki 媒体约定（data-align / data-width-percent）能在
+                // 净化中保留，但独立文件中没有脚本会解释它们。
                 + "[data-align=\"center\"]{display:block;margin-left:auto;margin-right:auto}\n"
                 + "[data-align=\"right\"]{display:block;margin-left:auto}\n"
                 + "[data-align=\"left\"]{display:block;margin-right:auto}\n"

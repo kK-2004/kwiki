@@ -3,9 +3,9 @@ package com.kwiki.rag.routing;
 import java.util.Locale;
 
 /**
- * Deterministic query normalization: trims, collapses whitespace, lower-cases
- * Latin characters, and keeps CJK text intact. The raw query is never modified —
- * normalization exists only for rule matching and audits.
+ * 确定性的查询归一化：去除首尾空白、合并连续空白、将
+ * 拉丁字符转为小写，并保持 CJK 文本不变。原始查询永远不会被修改 ——
+ * 归一化仅用于规则匹配与审计。
  */
 public final class QueryNormalizer {
 

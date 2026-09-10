@@ -23,7 +23,7 @@ import java.util.Map;
 import java.util.List;
 import java.util.UUID;
 
-/** Streams a selection answer after rebuilding context from the authorized revision. */
+/** 在从已授权修订版本重建上下文之后，流式输出选区问答的答案。 */
 @RestController
 @RequestMapping("/api/v1/knowledge-bases/{kbId}/pages/{pageId}")
 @PreAuthorize("isAuthenticated()")

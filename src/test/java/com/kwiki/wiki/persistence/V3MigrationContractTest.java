@@ -17,10 +17,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Schema constraint contract for V3 against an operator-provided MySQL
- * (KWIKI_IT_MYSQL_URL/USER/PASSWORD). Verifies idempotency-key uniqueness
- * (duplicate job rejection), state/attempt CHECK constraints, lease field
- * defaults, and monotonic scope-version rows.
+ * V3 针对运维方提供的 MySQL 的表结构约束契约
+ * （KWIKI_IT_MYSQL_URL/USER/PASSWORD）。校验幂等键唯一性
+ * （重复任务被拒绝）、state/attempt CHECK 约束、租约字段
+ * 默认值，以及单调递增的作用域版本记录。
  */
 @EnabledIfEnvironmentVariable(named = "KWIKI_IT_MYSQL_URL", matches = ".+")
 class V3MigrationContractTest {
@@ -135,7 +135,7 @@ class V3MigrationContractTest {
                 assertThat(rs.next()).isTrue();
                 assertThat(rs.getLong("version")).isEqualTo(1);
             }
-            // decrementing a scope version is structurally rejected
+            // 递减作用域版本会在结构层面被拒绝
             try (PreparedStatement bad = c.prepareStatement(
                     "UPDATE scope_version SET version = 0 WHERE kb_id = ?")) {
                 bad.setLong(1, kb);

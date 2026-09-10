@@ -28,7 +28,7 @@ public class Attachment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Flyway defines CHAR(36); a plain String would validate as VARCHAR(255)
+    // Flyway 定义为 CHAR(36)；普通 String 会被校验为 VARCHAR(255)
     @JdbcTypeCode(SqlTypes.CHAR)
     private String uuid;
     private Long kbId;
@@ -36,8 +36,8 @@ public class Attachment {
     private String fileName;
     private String contentType;
     private long byteSize;
-    // Canonical content-center file id; null while the upload is PENDING. The only
-    // persisted content identity — storage keys/sources stay inside the content center.
+    // 规范的内容中心文件 id；上传处于 PENDING 时为 null。这是唯一
+    // 持久化的内容标识——存储密钥/来源保留在内容中心内部。
     private Long contentCenterFileId;
     private String status = STATUS_PENDING;
     private String purpose = PURPOSE_GENERAL;
@@ -115,9 +115,8 @@ public class Attachment {
     }
 
     /**
-     * Marks the attachment STORED. Only a validated positive content-center file id
-     * can complete this transition; a PENDING row without one is never downloadable
-     * or indexable.
+     * 将附件标记为 STORED。只有经过校验的正向内容中心文件 id 才能完成此次
+     * 状态转换；缺少该 id 的 PENDING 行永远不可下载，也不可被索引。
      */
     public void markStored(long contentCenterFileId) {
         if (contentCenterFileId <= 0) {
@@ -131,7 +130,7 @@ public class Attachment {
         this.status = STATUS_ARCHIVED;
     }
 
-    /** Recycle-bin restore: back to STORED with the validated file id intact. */
+    /** 回收站恢复：回到 STORED 状态，且已校验的文件 id 保持不变。 */
     public void restore() {
         this.status = STATUS_STORED;
     }

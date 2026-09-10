@@ -39,7 +39,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
-/** Real sockets verify server extraction, MDC correlation and both AI clients' injection. */
+/** 真实套接字验证服务端抽取、MDC 关联，以及两个 AI 客户端的注入。 */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureObservability
 @Import({WikiMockBeans.class, TracePropagationIntegrationTest.ProbeEndpoint.class})
@@ -85,7 +85,7 @@ class TracePropagationIntegrationTest {
                                 provider.equals("answer")
                                         ? "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}"
                                         : "ok"));
-        // A plain JDK client leaves the supplied parent untouched by client instrumentation.
+        // 普通 JDK 客户端会保持传入的 parent 不被客户端埋点修改。
         try (HttpClient client = HttpClient.newHttpClient()) {
             HttpResponse<String> response =
                     client.send(

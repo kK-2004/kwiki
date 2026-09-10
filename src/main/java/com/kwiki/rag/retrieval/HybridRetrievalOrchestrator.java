@@ -13,10 +13,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Hybrid retrieval pipeline: embed the query, run scoped child branches per effective query, fuse
- * all successful lists with standard RRF, trim fused children, distinct-expand to authorized
- * parents, and guard the outbound scope version before returning. No rerank and no graph path.
- * Degradation can never widen authorization scope: the filter is identical in every branch.
+ * 混合检索流水线：对查询做嵌入，按有效查询执行带作用域的子分支，用
+ * 标准 RRF 融合所有成功列表，裁剪融合后的子分块，去重扩展到已授权的
+ * 父级，返回前校验出向作用域版本。不做重排，也无图检索路径。
+ * 降级绝不会扩大授权作用域：每个分支使用的过滤器完全相同。
  */
 @Component
 public class HybridRetrievalOrchestrator {
@@ -49,7 +49,7 @@ public class HybridRetrievalOrchestrator {
         this.budgets = budgets;
     }
 
-    /** Request-owned rankings and vectors. Never cache evidence across users. */
+    /** 请求私有的排名与向量。绝不在用户之间缓存证据。 */
     public static final class Accumulation {
         public final Map<String, float[]> vectors = new LinkedHashMap<>();
         public final Map<String, ChunkHit> hits = new LinkedHashMap<>();

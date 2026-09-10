@@ -10,11 +10,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Durable per-run SSE event log (chat_run_event). Events are persisted in
- * delivery order with their exact wire payloads so reopening a conversation
- * replays the same activity timeline; persistence failures never break the
- * live stream (counted by a metric instead). Old runs without stored events
- * keep rendering from the persisted assistant message.
+ * 每次运行的持久化 SSE 事件日志（chat_run_event）。事件按
+ * 投递顺序连同其精确的线上负载一并持久化，因此重新打开对话
+ * 时会回放同一条活动时间线；持久化失败绝不会中断
+ * 实时流（而是通过指标计数）。没有存储事件的旧运行
+ * 仍会依据持久化的助手消息渲染。
  */
 @Repository
 public class ChatRunEventStore {
@@ -47,7 +47,7 @@ public class ChatRunEventStore {
 
     public record StoredEvent(long seq, String type, String payloadJson) {}
 
-    /** Replay source: stored wire events of one run in seq order. */
+    /** 回放来源：单个运行按序号排列的已存储线缆事件。 */
     public List<StoredEvent> replay(String requestId) {
         if (jdbc == null || requestId == null) {
             return List.of();
@@ -59,7 +59,7 @@ public class ChatRunEventStore {
                 requestId);
     }
 
-    /** All runs (request ids) of a session that have stored events. */
+    /** 某个会话中所有已存储事件的运行（request id）。 */
     public List<String> runsOfSession(long sessionId) {
         if (jdbc == null) {
             return List.of();

@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 
-/** Administrator-only visibility into the indexing queue with sanitized failures. */
+/** 仅管理员可见的索引构建队列视图，失败信息已净化。 */
 @RestController
 @RequestMapping("/api/v1/admin/indexing-jobs")
 @PreAuthorize("hasRole('ADMIN')")
@@ -40,7 +40,7 @@ public class AdminIndexingJobController {
                 .orElseThrow(() -> new NotFoundException("indexing job not found"));
     }
 
-    /** Re-opens a terminal FAILED job for a fresh processing run. */
+    /** 重新打开一个已终止的 FAILED 任务，重新走一遍处理流程。 */
     @PostMapping("/{jobId}/retry")
     TransDTO<Map<String, Object>> retry(@PathVariable long jobId) {
         boolean reopened = jobs.adminRetry(jobId);

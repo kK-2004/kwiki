@@ -12,8 +12,8 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
- * Sanitized 401 body: a stable error code only, never exception messages,
- * token details, or stack traces.
+ * 经过脱敏的 401 响应体：仅包含稳定的错误码，绝不返回
+ * 异常信息、令牌详情或堆栈跟踪。
  */
 @Component
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {

@@ -5,7 +5,7 @@ import com.kwiki.indexing.chunk.ParentChunk;
 
 import java.util.List;
 
-/** One fully processed resource version ready for idempotent index writes. */
+/** 一个已完整处理、可用于幂等写索引的资源版本。 */
 public record IndexedVersion(
         String resourceType,
         long resourceId,

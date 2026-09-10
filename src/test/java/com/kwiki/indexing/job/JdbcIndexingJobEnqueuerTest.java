@@ -42,7 +42,7 @@ class JdbcIndexingJobEnqueuerTest {
         java.util.List<Object> values = java.util.Arrays.asList(args.getValue());
         assertThat(values.subList(0, 3)).containsExactly("UPSERT", "PAGE", 7L);
         assertThat(values.get(3)).isEqualTo(103L);
-        assertThat(values.get(4)).isNull(); // expected lifecycle version (legacy path)
+        assertThat(values.get(4)).isNull(); // 预期的生命周期版本（历史路径）
         assertThat(values.get(5)).isEqualTo("PAGE:7:103:UPSERT");
     }
 

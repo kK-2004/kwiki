@@ -36,9 +36,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Role enforcement and scope-version behavior of the knowledge-base API. Membership
- * changes must bump the scope version and invalidate cached scopes; inaccessible
- * knowledge bases must be indistinguishable from missing ones.
+ * 知识库 API 的角色强制与作用域版本行为。成员关系
+ * 变更必须递增作用域版本并使缓存的作用域失效；不可访问的
+ * 知识库必须与不存在的知识库无法区分。
  */
 @SpringBootTest
 @AutoConfigureMockMvc

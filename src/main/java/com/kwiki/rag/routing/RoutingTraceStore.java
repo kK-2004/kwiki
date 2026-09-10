@@ -9,9 +9,9 @@ import org.springframework.stereotype.Repository;
 import java.util.Map;
 
 /**
- * Persists sanitized routing/rewrite trace metadata (request_trace table) for
- * audit: source, rule version, intent, rewrite mode, subquery count, latency,
- * and fallback reason. Credentials and unrestricted evidence never enter traces.
+ * 持久化已净化的路由/改写追踪元数据（request_trace 表），用于
+ * 审计：来源、规则版本、意图、改写模式、子查询数量、耗时，
+ * 以及回退原因。凭据与未受限的证据绝不会进入追踪记录。
  */
 @Repository
 public class RoutingTraceStore {
@@ -45,7 +45,7 @@ public class RoutingTraceStore {
                     MDC.get("traceId") == null ? "no-trace-id" : MDC.get("traceId"),
                     userId, traceJson);
         } catch (Exception e) {
-            // trace persistence must never break request handling
+            // 追踪持久化绝不能中断请求处理
         }
     }
 }

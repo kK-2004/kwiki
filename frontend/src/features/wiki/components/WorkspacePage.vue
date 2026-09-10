@@ -117,7 +117,9 @@ function loadCurrentPage() {
   if (kb && page) {
     store.selectPage(page);
     void store.loadPage(kb, page);
-    void api.post(`/knowledge-bases/${kb}/pages/${page}/visit`);
+    void api.post(`/knowledge-bases/${kb}/pages/${page}/visit`)
+      .then(() => store.loadRecentVisits(true))
+      .catch(() => { /* 最近访问记录失败不阻断页面阅读。 */ });
     const rawAnchor = Array.isArray(route.query.anchor) ? route.query.anchor[0] : route.query.anchor;
     const anchorId = rawAnchor ? Number(rawAnchor) : 0;
     anchorResolution.value = null;
@@ -138,7 +140,7 @@ async function onRestore(revisionNo: number) {
     await store.loadPage(numericKbId.value, numericPageId.value);
     mode.value = 'edit';
   } catch {
-    // The server reports a conflict or permission error through the API client.
+    // 服务端通过 API 客户端返回冲突或权限错误。
   }
 }
 
@@ -149,7 +151,7 @@ async function beginSelectionComment(text: string) {
   selectionForComment.value = text;
   selectionAnchorId.value = null;
   if (numericKbId.value && numericPageId.value) {
-    try { const anchor = await api.post<{ id: number }>(`/knowledge-bases/${numericKbId.value}/pages/${numericPageId.value}/anchors`, { selectedText: text }); selectionAnchorId.value = anchor.id; } catch { /* the comment can still be posted without an anchor */ }
+    try { const anchor = await api.post<{ id: number }>(`/knowledge-bases/${numericKbId.value}/pages/${numericPageId.value}/anchors`, { selectedText: text }); selectionAnchorId.value = anchor.id; } catch { /* 即使没有锚点，评论仍可发布 */ }
   }
   requestAnimationFrame(() => document.querySelector('[data-testid="wiki-interactions"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 }
@@ -157,7 +159,7 @@ async function beginSelectionComment(text: string) {
 const archiveDialogOpen = ref(false);
 const archivePending = ref(false);
 
-/** Fires only from the second modal confirm; debounce + idempotent server call. */
+/** 仅在二次弹窗确认时触发；带防抖，且服务端调用幂等。 */
 async function archivePage() {
   if (!numericKbId.value || !numericPageId.value || archivePending.value) return;
   archivePending.value = true;
@@ -167,7 +169,7 @@ async function archivePage() {
     await store.loadTree(numericKbId.value);
     await router.replace({ name: 'workspace', params: { kbId: numericKbId.value } });
   } catch {
-    // Keep the reader and dialog open when the server rejects the archive.
+    // 当服务端拒绝归档时，保持阅读器与对话框打开。
   } finally {
     archivePending.value = false;
   }

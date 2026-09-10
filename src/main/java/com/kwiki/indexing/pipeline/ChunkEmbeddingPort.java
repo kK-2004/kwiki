@@ -2,7 +2,7 @@ package com.kwiki.indexing.pipeline;
 
 import java.util.List;
 
-/** Embedding boundary used by the indexing worker (implemented by the Qwen adapter). */
+/** 索引构建工作线程使用的向量嵌入边界（由千问适配器实现）。 */
 public interface ChunkEmbeddingPort {
 
     default String cacheIdentity() {
@@ -10,7 +10,7 @@ public interface ChunkEmbeddingPort {
     }
 
     /**
-     * Embeds texts in order; result size must equal input size and match the configured dimension.
+     * 按顺序为文本生成向量嵌入；结果数量必须等于输入数量，且与配置的维度一致。
      */
     List<float[]> embed(List<String> texts);
 }

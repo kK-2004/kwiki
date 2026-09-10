@@ -13,8 +13,8 @@ import java.net.InetAddress;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Feature-flagged worker loop plus queue-depth gauge. The worker stays disabled
- * until operators enable it (design: Wiki first, then indexing, then Agentic).
+ * 带功能开关的工作线程循环与队列深度指标。工作线程保持禁用，
+ * 直到运维方启用它（设计顺序：先 Wiki，再索引构建，最后智能体化）。
  */
 @Configuration
 @EnableScheduling

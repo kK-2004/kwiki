@@ -12,8 +12,8 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
- * Sanitized 403 body: stable error code without echoing roles, endpoint
- * requirements, or exception internals.
+ * 经过脱敏的 403 响应体：稳定的错误码，不回显角色、
+ * 端点要求或异常内部信息。
  */
 @Component
 public class RestAccessDeniedHandler implements AccessDeniedHandler {

@@ -14,12 +14,10 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * One-shot startup sweep that enqueues DELETE jobs for every STORED non-image
- * attachment left over from the old "every attachment is indexed" behavior.
- * The worker intercepts the upsert path with the same image-only rule, so this
- * only clears historical chunks; attachment files, metadata, and page
- * references are preserved. Idempotent: repeated boots re-enqueue the same
- * keys and the jobs become no-ops once the chunks are gone.
+ * 一次性启动扫描：为旧版"每个附件都被索引"行为遗留的、所有 STORED 状态的非图片
+ * 附件入队 DELETE 任务。worker 以相同的"仅图片"规则拦截 upsert 路径，因此本清理
+ * 只清除历史分块；附件文件、元数据与页面引用均被保留。幂等：重复启动会重新入队
+ * 相同的 key，一旦分块被清除，这些任务即变为空操作。
  */
 @Component
 public class NonImageAttachmentIndexCleaner implements ApplicationRunner {

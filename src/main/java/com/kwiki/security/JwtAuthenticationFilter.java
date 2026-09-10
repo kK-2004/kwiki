@@ -20,8 +20,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Resolves the Bearer JWT into a CurrentUser principal. Invalid or missing tokens leave the context
- * empty so protected endpoints answer with a sanitized 401.
+ * 将 Bearer JWT 解析为 CurrentUser 主体。无效或缺失的令牌会让上下文
+ * 保持为空，因此受保护端点会返回已净化的 401。
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -35,7 +35,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.users = users;
     }
 
-    /** MVC resumes SSE on an ASYNC dispatch; restore JWT authentication there too. */
+    /** MVC 在 ASYNC 分派时恢复 SSE；此处也需恢复 JWT 认证。 */
     @Override
     protected boolean shouldNotFilterAsyncDispatch() {
         return false;

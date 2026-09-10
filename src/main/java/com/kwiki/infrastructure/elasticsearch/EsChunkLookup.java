@@ -10,8 +10,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Resolves citation chunk documents by their stable chunk key (document id).
- * Absent or unreachable indices resolve empty, which surfaces as a safe 404.
+ * 通过稳定的 chunk key（文档 id）解析引用块文档。
+ * 缺失或不可达的索引解析为空，表现为安全的 404。
  */
 @Component
 public class EsChunkLookup implements CitationService.ChunkLookup {

@@ -10,9 +10,9 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 
 /**
- * Persists chat turns and non-sensitive agent trace metadata after completion or failure. Raw
- * provider credentials and unrestricted evidence are never written: traces store only counts,
- * modes, sources, and durations.
+ * 在会话完成或失败后持久化对话轮次与非敏感的智能体追踪元数据。原始
+ * 服务提供方凭据与未受限的证据绝不会被写入：追踪记录只存储计数、
+ * 模式、来源与耗时。
  */
 @Service
 public class ChatPersistenceService {
@@ -87,7 +87,7 @@ public class ChatPersistenceService {
                     MAPPER.writeValueAsString(traceMetadata));
         } catch (Exception e) {
             if (metrics != null) metrics.counter("kwiki_chat_audit_failures_total").increment();
-            // persistence failures must never fail the chat stream
+            // 持久化失败绝不能导致聊天流失败
         }
     }
 

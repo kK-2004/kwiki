@@ -41,10 +41,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Recycle-bin lifecycle with a controllable clock and mocked persistence:
- * subtree batching with retention windows, idempotent re-archive keeping the
- * original timer, expiry/410-vs-conflict semantics on restore, kb-first
- * constraint, and root relocation when the prior parent is gone.
+ * 带可控时钟与模拟持久化的回收站生命周期：
+ * 带保留窗口的子树分批、幂等的重复归档保留
+ * 原定时器、恢复时的过期/410 与冲突语义、知识库优先的
+ * 约束，以及原父节点已消失时的根节点重定位。
  */
 class ResourceArchiveServiceTest {
 
@@ -129,7 +129,7 @@ class ResourceArchiveServiceTest {
         var root = page(1, 5, null, WikiPage.STATUS_ACTIVE);
         var child = page(2, 5, 1L, WikiPage.STATUS_ACTIVE);
         var grandChild = page(3, 5, 2L, WikiPage.STATUS_ACTIVE);
-        var archivedMiddle = page(4, 5, 1L, WikiPage.STATUS_ARCHIVED); // legacy mid-branch
+        var archivedMiddle = page(4, 5, 1L, WikiPage.STATUS_ARCHIVED); // 历史遗留的分支中途
         when(knowledgeBases.findById(5L)).thenReturn(Optional.of(kb(5)));
         when(pages.findByIdAndStatus(1L, WikiPage.STATUS_ACTIVE)).thenReturn(Optional.of(root));
         when(pages.findByKbId(5L)).thenReturn(List.of(root, child, grandChild, archivedMiddle));
@@ -138,7 +138,7 @@ class ResourceArchiveServiceTest {
 
         var result = service.archivePage(OWNER, 5, 1);
 
-        assertThat(result.itemCount()).isEqualTo(3); // active subtree only
+        assertThat(result.itemCount()).isEqualTo(3); // 仅 ACTIVE 子树
         assertThat(result.purgeAfter()).isEqualTo(NOW.plus(168, ChronoUnit.HOURS));
         assertThat(result.indexSyncStatus()).isEqualTo(ArchiveBatch.SYNC_SYNCED);
         assertThat(root.isArchived() && child.isArchived() && grandChild.isArchived()).isTrue();
@@ -166,7 +166,7 @@ class ResourceArchiveServiceTest {
         var result = service.archivePage(OWNER, 5, 1);
 
         assertThat(result.batchId()).isEqualTo(42L);
-        // original window (now+68h), NOT re-anchored at the fixed clock's now+168h
+        // 原窗口（now+68h），不会重新锚定到固定时钟的 now+168h
         assertThat(result.purgeAfter()).isEqualTo(NOW.plus(68, ChronoUnit.HOURS));
         verify(batches, never()).save(any(ArchiveBatch.class));
     }
@@ -223,10 +223,10 @@ class ResourceArchiveServiceTest {
         var result = service.restore(OWNER, 42L);
 
         assertThat(result.relocatedToRoot()).isEqualTo(1);
-        assertThat(archived.getParentId()).isNull(); // moved to kb root
+        assertThat(archived.getParentId()).isNull(); // 移动到知识库根节点
         assertThat(archived.isArchived()).isFalse();
         verify(indexingJobs, never()).enqueuePageUpsert(anyLong(), anyLong(), anyLong());
-        // no published revision: nothing re-indexed
+        // 没有已发布修订版本：不会有任何内容被重新索引
     }
 
     @Test
@@ -267,8 +267,8 @@ class ResourceArchiveServiceTest {
         var result = service.archiveKnowledgeBase(OWNER, 5);
 
         assertThat(kbRow.isArchived()).isTrue();
-        assertThat(result.itemCount()).isEqualTo(3); // kb + 1 page + 1 attachment
-        verify(indexingJobs).enqueueKnowledgeBaseDelete(5L, 2L); // post-bump version
+        assertThat(result.itemCount()).isEqualTo(3); // 知识库 + 1 个页面 + 1 个附件
+        verify(indexingJobs).enqueueKnowledgeBaseDelete(5L, 2L); // 递增后的版本
         verify(indexingJobs).enqueueAttachmentDelete(33L, 2L);
     }
 }

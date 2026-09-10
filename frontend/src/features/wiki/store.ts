@@ -4,8 +4,26 @@ import { api, type PageDto, type TreeNodeDto } from './api';
 let knowledgeBaseController: AbortController | null = null;
 let treeController: AbortController | null = null;
 let pageController: AbortController | null = null;
+let recentVisitsController: AbortController | null = null;
 
-/** Workspace state: knowledge bases, tree, selected page, loading/error states. */
+export type RecentVisit = { id: string | number; title: string; path: string };
+
+/**
+ * 刷新最近访问时保留已显示条目的相对位置，避免用户点击后链接突然换位。
+ * 新出现的页面补到列表末尾；超出容量时只淘汰尾部旧条目。
+ */
+export function keepRecentVisitOrder(previous: RecentVisit[], latest: RecentVisit[], limit = 12): RecentVisit[] {
+  const latestById = new Map(latest.map((visit) => [String(visit.id), visit]));
+  const retained = previous
+    .map((visit) => latestById.get(String(visit.id)))
+    .filter((visit): visit is RecentVisit => Boolean(visit));
+  const retainedIds = new Set(retained.map((visit) => String(visit.id)));
+  const additions = latest.filter((visit) => !retainedIds.has(String(visit.id)));
+  const retainedLimit = Math.max(0, limit - additions.length);
+  return [...retained.slice(0, retainedLimit), ...additions].slice(0, limit);
+}
+
+/** 工作空间状态：知识库、树、当前选中页面、加载/错误状态。 */
 export const useWikiStore = defineStore('wiki', {
   state: () => ({
     knowledgeBases: [] as Array<{ id: number; uuid: string; name: string }>,
@@ -18,7 +36,7 @@ export const useWikiStore = defineStore('wiki', {
     summaryCount: 0,
     summaries: [] as Array<{ pageId: number; title: string; source: string }>,
     notificationUnread: 0,
-    recentVisits: [] as Array<{ id: string | number; title: string; path: string }>,
+    recentVisits: [] as RecentVisit[],
   }),
   actions: {
     async loadKnowledgeBases() {
@@ -77,11 +95,18 @@ export const useWikiStore = defineStore('wiki', {
       try { this.notificationUnread = await api.json<number>('/notifications/unread-count'); }
       catch { this.notificationUnread = 0; }
     },
-    async loadRecentVisits() {
+    async loadRecentVisits(keepOrder = false) {
+      recentVisitsController?.abort(); const controller = new AbortController(); recentVisitsController = controller;
       try {
-        const rows = await api.json<Array<{ pageId: number; kbId: number; title: string }>>('/recent-visits');
-        this.recentVisits = rows.map((row) => ({ id: row.pageId, title: row.title, path: `/knowledge-bases/${row.kbId}/${row.pageId}` }));
-      } catch { this.recentVisits = []; }
+        const rows = await api.json<Array<{ pageId: number; kbId: number; title: string }>>('/recent-visits', controller.signal);
+        if (recentVisitsController !== controller) return;
+        const latest = rows
+          .slice(0, 12)
+          .map((row) => ({ id: row.pageId, title: row.title, path: `/knowledge-bases/${row.kbId}/${row.pageId}` }));
+        this.recentVisits = keepOrder ? keepRecentVisitOrder(this.recentVisits, latest) : latest;
+      } catch (error) {
+        if (recentVisitsController === controller && (error as { name?: string })?.name !== 'AbortError' && !keepOrder) this.recentVisits = [];
+      }
     },
     async loadSummary() {
       try { const value = await api.json<{ count: number; items?: Array<{ pageId: number; title: string; source: string }> }>('/summary'); this.summaryCount = value.count; this.summaries = value.items ?? []; }

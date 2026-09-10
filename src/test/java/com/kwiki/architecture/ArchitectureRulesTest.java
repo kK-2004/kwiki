@@ -10,9 +10,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Module boundary rules: wiki and rag domain packages stay free of infrastructure SDKs; only
- * infrastructure adapters may touch Elasticsearch, the content center, Redis, or AI provider
- * clients. The content-center SDK is additionally confined to its single adapter package.
+ * 模块边界规则：wiki 和 rag 领域包不得依赖基础设施 SDK；仅
+ * 基础设施适配器可以接触 Elasticsearch、内容中心、Redis 或 AI 服务商
+ * 客户端。内容中心 SDK 另外被限定在其唯一的适配器包内。
  */
 class ArchitectureRulesTest {
 
@@ -95,8 +95,8 @@ class ArchitectureRulesTest {
 
     @Test
     void indexingDomainStaysFreeOfContentCenterSdkTypes() {
-        // The indexing package owns its Elasticsearch ports; only the content-center
-        // SDK is foreign to it.
+        // indexing 包拥有自己的 Elasticsearch 端口；只有内容中心
+        // SDK 对它而言是外部的。
         ArchRule rule =
                 noClasses()
                         .that()
@@ -109,7 +109,7 @@ class ArchitectureRulesTest {
 
     @Test
     void contentCenterSdkIsConfinedToItsAdapterPackage() {
-        // Every kwiki class except the content-center adapter must stay SDK-free.
+        // 除内容中心适配器外，所有 kwiki 类都必须保持无 SDK 依赖。
         ArchRule rule =
                 noClasses()
                         .that()
@@ -124,9 +124,9 @@ class ArchitectureRulesTest {
 
     @Test
     void kkCommonSdkIsConfinedToApprovedPackages() {
-        // The shared kk-common toolkit is only allowed at the HTTP boundary
-        // (TransDTO/BusinessException), inside the Redis adapter (RedisUtil), and in
-        // the Boot 3.5 web-compatibility shim; everything else stays SDK-free.
+        // 共享的 kk-common 工具包仅允许出现在 HTTP 边界
+        //（TransDTO/BusinessException）、Redis 适配器内部（RedisUtil），以及
+        // Boot 3.5 的 Web 兼容性适配层中；其余部分都必须保持无 SDK 依赖。
         ArchRule rule =
                 noClasses()
                         .that()
@@ -151,9 +151,9 @@ class ArchitectureRulesTest {
 
     @Test
     void redisLayerMustNotOwnASecondJsonStrategy() {
-        // Serialization on the Redis path is owned by the kk-common kkRedisTemplate;
-        // no kwiki Redis class may wire its own Jackson machinery (and therefore no
-        // unsafe default typing can reappear here).
+        // Redis 路径上的序列化由 kk-common 的 kkRedisTemplate 负责；
+        // 任何 kwiki 的 Redis 类都不得自行接入 Jackson 机制（因此
+        // 不安全的默认类型推断不会在此处再次出现）。
         ArchRule rule =
                 noClasses()
                         .that()

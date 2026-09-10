@@ -4,11 +4,11 @@
 
 <script setup lang="ts">
 /**
- * Renders sanitized markdown HTML while mounting real media viewer instances
- * onto its media nodes: markers created by mediaHtmlToMarkers are reconciled
- * against mounted Vue apps, so every media has exactly one live viewer and
- * players are destroyed when their node disappears. Vue owns instance
- * lifecycle; no player markup is string-concatenated into v-html.
+ * 渲染经过净化的 Markdown HTML，同时将真实的媒体查看器（viewer）实例
+ * 挂载到其媒体节点上：由 mediaHtmlToMarkers 创建的标记会与
+ * 已挂载的 Vue 应用协调，使每个媒体恰好对应一个存活的查看器，且
+ * 节点消失时播放器被销毁。实例的
+ * 生命周期由 Vue 管理；没有任何播放器标记通过字符串拼接进入 v-html。
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { createApp, type App } from 'vue';

@@ -10,8 +10,8 @@ import org.springframework.validation.annotation.Validated;
 import java.time.Duration;
 
 /**
- * JWT signing settings. The secret is a credential: it must come from the
- * KWIKI_JWT_SECRET environment variable and must never have a committed default.
+ * JWT 签名配置。密钥属于凭据：必须来自
+ * KWIKI_JWT_SECRET 环境变量，绝不能提交默认值。
  */
 @ConfigurationProperties(prefix = "kwiki.security")
 @Validated
