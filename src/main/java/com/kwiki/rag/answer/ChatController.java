@@ -37,9 +37,14 @@ public class ChatController {
     public record ChatRequest(@NotBlank String query,
                               String sessionId,
                               String clientMessageId,
-                              String agentId) {
+                              String agentId,
+                              java.util.Set<Long> knowledgeBaseIds,
+                              java.util.Set<Long> pageIds) {
         public ChatRequest(String query) {
-            this(query, null, null, null);
+            this(query, null, null, null, java.util.Set.of(), java.util.Set.of());
+        }
+        public ChatRequest(String query, String sessionId, String clientMessageId, String agentId) {
+            this(query, sessionId, clientMessageId, agentId, java.util.Set.of(), java.util.Set.of());
         }
     }
 
@@ -48,7 +53,8 @@ public class ChatController {
             @AuthenticationPrincipal CurrentUser user, @Valid @RequestBody ChatRequest request) {
         Flux<ChatStreamEvent> events = request.sessionId() == null && request.clientMessageId() == null
                 ? answers.answer(user, request.query())
-                : answers.answer(user, request.query(), request.sessionId(), request.clientMessageId(), request.agentId());
+                : answers.answer(user, request.query(), request.sessionId(), request.clientMessageId(), request.agentId(),
+                        request.knowledgeBaseIds(), request.pageIds());
         return events
                 .map(
                         event ->

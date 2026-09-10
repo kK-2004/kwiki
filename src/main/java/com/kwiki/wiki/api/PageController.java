@@ -6,6 +6,7 @@ import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.ResourceAction;
 import com.kwiki.wiki.access.ResourceAuthorizationService;
 import com.kwiki.wiki.domain.WikiPageRevision;
+import com.kwiki.wiki.domain.WikiPageDraft;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpHeaders;
@@ -33,13 +34,14 @@ public class PageController {
     private final PageTagService pageTags;
     private final PageProvenanceService pageProvenance;
     private final ResourceAuthorizationService resources;
+    private final PublicationNotePort publicationNotes;
 
     public PageController(PageRevisionService pageRevisions,
                           com.kwiki.wiki.render.MarkdownPort renderer,
                           PageLinkService pageLinks,
                           PageTagService pageTags,
                           PageProvenanceService pageProvenance) {
-        this(pageRevisions, renderer, pageLinks, pageTags, pageProvenance, null);
+        this(pageRevisions, renderer, pageLinks, pageTags, pageProvenance, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -48,13 +50,15 @@ public class PageController {
                           PageLinkService pageLinks,
                           PageTagService pageTags,
                           PageProvenanceService pageProvenance,
-                          ResourceAuthorizationService resources) {
+                          ResourceAuthorizationService resources,
+                          PublicationNotePort publicationNotes) {
         this.pageRevisions = pageRevisions;
         this.renderer = renderer;
         this.pageLinks = pageLinks;
         this.pageTags = pageTags;
         this.pageProvenance = pageProvenance;
         this.resources = resources;
+        this.publicationNotes = publicationNotes;
     }
 
     public record SaveDraftRequest(
@@ -67,12 +71,28 @@ public class PageController {
                                java.time.Instant createdAt, String markdown) {
     }
 
+    public record DraftView(String changeNote, long updatedBy,
+                            java.time.Instant updatedAt, String markdown) {
+    }
+
     public record PublishedView(long revisionNo, String markdown, String html,
                                 long createdBy, java.time.Instant createdAt,
                                 boolean canEdit, boolean canManage) {
     }
 
     public record CompareView(RevisionView from, RevisionView to) {
+    }
+
+    public record PublicationNoteRequest(@NotBlank String markdown) { }
+    public record PublicationNoteView(String changeNote) { }
+
+    @PostMapping("/{pageId}/publication-note")
+    TransDTO<PublicationNoteView> publicationNote(@AuthenticationPrincipal CurrentUser user,
+                                                   @PathVariable long kbId,
+                                                   @PathVariable long pageId,
+                                                   @Valid @RequestBody PublicationNoteRequest request) {
+        if (publicationNotes == null) throw new IllegalStateException("publication note generator unavailable");
+        return TransDTO.success(new PublicationNoteView(publicationNotes.generate(user, kbId, pageId, request.markdown())));
     }
 
     @GetMapping("/{pageId}")
@@ -90,18 +110,18 @@ public class PageController {
     }
 
     @GetMapping("/{pageId}/draft")
-    TransDTO<RevisionView> draft(@AuthenticationPrincipal CurrentUser user,
+    TransDTO<DraftView> draft(@AuthenticationPrincipal CurrentUser user,
                                  @PathVariable long kbId,
                                  @PathVariable long pageId) {
-        return TransDTO.success(toView(pageRevisions.draft(user, kbId, pageId)));
+        return TransDTO.success(toDraftView(pageRevisions.draft(user, kbId, pageId)));
     }
 
     @PutMapping("/{pageId}/draft")
-    TransDTO<RevisionView> saveDraft(@AuthenticationPrincipal CurrentUser user,
+    TransDTO<DraftView> saveDraft(@AuthenticationPrincipal CurrentUser user,
                                      @PathVariable long kbId,
                                      @PathVariable long pageId,
                                      @Valid @RequestBody SaveDraftRequest request) {
-        return TransDTO.success(toView(pageRevisions.saveDraft(user, kbId, pageId, request.markdown(),
+        return TransDTO.success(toDraftView(pageRevisions.saveDraft(user, kbId, pageId, request.markdown(),
                 request.changeNote(), request.expectedLockVersion())));
     }
 
@@ -206,5 +226,10 @@ public class PageController {
     private RevisionView toView(WikiPageRevision revision) {
         return new RevisionView(revision.getRevisionNo(), revision.getChangeNote(),
                 revision.getCreatedBy(), revision.getCreatedAt(), revision.getMarkdown());
+    }
+
+    private DraftView toDraftView(WikiPageDraft draft) {
+        return new DraftView(draft.getChangeNote(), draft.getUpdatedBy(),
+                draft.getUpdatedAt(), draft.getMarkdown());
     }
 }

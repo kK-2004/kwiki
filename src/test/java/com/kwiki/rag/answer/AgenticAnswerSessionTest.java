@@ -15,9 +15,14 @@ class AgenticAnswerSessionTest {
     void durableTurnsUseTheSessionPathAndRecordErrorEventsAsFailures() {
         var workflow = mock(AgenticWorkflowPort.class);
         var sessions = mock(ChatSessionService.class);
+        var runEvents = mock(ChatRunEventStore.class);
         ObjectProvider<ChatSessionService> provider = new ObjectProvider<>() {
             public ChatSessionService getObject() { return sessions; }
             public ChatSessionService getIfAvailable() { return sessions; }
+        };
+        ObjectProvider<ChatRunEventStore> eventProvider = new ObjectProvider<>() {
+            public ChatRunEventStore getObject() { return runEvents; }
+            public ChatRunEventStore getIfAvailable() { return runEvents; }
         };
         var user = new CurrentUser(1L, "qa", false);
         var run = new ChatSessionService.RunHandle("s", "c", "r", 1L, 2L, false);
@@ -25,7 +30,7 @@ class AgenticAnswerSessionTest {
         when(sessions.historyBefore(2L)).thenReturn(List.of());
         when(workflow.answerInSession(user, "问题", List.of())).thenReturn(Flux.just(
                 ChatStreamEvent.of("error", 1, "r", Map.of("error", "retrieval-failed"))));
-        var events = new AgenticAnswerService(workflow, provider).answer(user, "问题", null, "c", null).collectList().block();
+        var events = new AgenticAnswerService(workflow, provider, eventProvider).answer(user, "问题", null, "c", null).collectList().block();
         assertThat(events).extracting(ChatStreamEvent::type).containsExactly("session", "error");
         verify(workflow, never()).answer(any(), anyString(), anyList());
         verify(sessions).finish(user, run, "问题", "", false, "answer_failed");

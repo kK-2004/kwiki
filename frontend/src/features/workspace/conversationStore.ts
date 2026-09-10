@@ -1,20 +1,39 @@
 import { defineStore } from 'pinia';
 import { api, errorMessage } from '../wiki/api';
-import { initialState, openStream, reduce, type StreamState } from '../wiki/sse';
+import { initialState, openStream, reduce, replayStoredEvents, type ActivityStep, type StreamState } from '../wiki/sse';
 export type Session = { id: string; title: string; createdAt?: string; updatedAt?: string };
-type Message = { id: number; role: string; content: string; createdAt: string };
+type Message = { id: number; role: string; content: string; createdAt: string; requestId?: string | null };
+type StoredEvent = { seq: number; event_type: string; payload_json: string };
 let disposeStream: (() => void) | null = null;
 let generation = 0;
 let selection = 0;
 export const useConversationStore = defineStore('conversation', {
   state: () => ({ sessions: [] as Session[], history: [] as Message[], state: initialState() as StreamState,
+    /** Replayed/persisted activity timelines keyed by the producing run. */
+    runActivities: {} as Record<string, ActivityStep[]>,
     query: '', lastQuery: '', sessionId: '', requestId: '', running: false, minimized: false, floatingOpen: false,
+    selectedKnowledgeBaseIds: [] as number[], selectedPageIds: [] as number[],
     loaded: false, loading: false, listError: '', historyError: '', }),
   getters: {
     answer: s => s.state.answer, progress: s => s.state.progress, reasoning: s => s.state.reasoning, error: s => s.state.error,
     hasActiveConversation: s => Boolean(s.running || s.sessionId || s.query),
   },
   actions: {
+    /** Fetches stored run events and keeps only the merged activity timeline. */
+    async hydrateRunActivity(requestId: string) {
+      if (!this.sessionId || !requestId || this.runActivities[requestId]) return;
+      try {
+        const events = await api.json<StoredEvent[]>(`/chat/sessions/${encodeURIComponent(this.sessionId)}/runs/${encodeURIComponent(requestId)}/events`);
+        const replayed = replayStoredEvents(events);
+        this.runActivities = { ...this.runActivities, [requestId]: replayed.activitySteps };
+      } catch { /* old runs without stored events simply show no timeline */ }
+    },
+    async hydrateHistoryActivities() {
+      const targets = this.history.filter(m => m.role === 'ASSISTANT' && m.requestId).slice(-10);
+      for (const message of targets) {
+        if (message.requestId && !this.runActivities[message.requestId]) await this.hydrateRunActivity(message.requestId);
+      }
+    },
     async loadSessions() {
       this.listError = '';
       try { this.sessions = await api.json<Session[]>('/chat/sessions'); this.loaded = true; }
@@ -27,7 +46,7 @@ export const useConversationStore = defineStore('conversation', {
       await this.cancel();
       if (ticket !== selection) return;
       this.sessionId = id; this.history = []; this.state = initialState(); this.query = ''; this.historyError = ''; this.loading = true;
-      try { const detail = await api.json<{ messages: Message[] }>(`/chat/sessions/${encodeURIComponent(id)}`); if (ticket === selection) this.history = detail.messages; }
+      try { const detail = await api.json<{ messages: Message[] }>(`/chat/sessions/${encodeURIComponent(id)}`); if (ticket === selection) { this.history = detail.messages; void this.hydrateHistoryActivities(); } }
       catch (e) { if (ticket === selection) this.historyError = errorMessage(e, '会话加载失败，请重试'); }
       finally { if (ticket === selection) this.loading = false; }
     },
@@ -53,15 +72,21 @@ export const useConversationStore = defineStore('conversation', {
           this.running = false; disposeStream = null;
           void this.finishTurn(run);
         }
-      }, { sessionId: this.sessionId || undefined, clientMessageId: crypto.randomUUID() });
+      }, { sessionId: this.sessionId || undefined, clientMessageId: crypto.randomUUID(),
+        knowledgeBaseIds: this.selectedKnowledgeBaseIds, pageIds: this.selectedPageIds });
     },
     async finishTurn(run: number) {
       const id = this.sessionId;
+      // Keep the live timeline attached to the finished run before reload.
+      if (this.requestId && this.state.activitySteps.length) {
+        this.runActivities = { ...this.runActivities, [this.requestId]: this.state.activitySteps };
+      }
       if (id) {
         try {
           const detail = await api.json<{ messages: Message[] }>(`/chat/sessions/${encodeURIComponent(id)}`);
           if (run === generation && this.sessionId === id && !this.running) {
             this.history = detail.messages;
+            void this.hydrateHistoryActivities();
             if (this.history.at(-1)?.role === 'ASSISTANT' && this.history.at(-1)?.content === this.state.answer) this.state.answer = '';
           }
         } catch { /* Keep the streamed result if history cannot be refreshed. */ }

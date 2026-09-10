@@ -1,6 +1,8 @@
 package com.kwiki.testutil;
 
 import com.kwiki.wiki.persistence.AppUserRepository;
+import com.kwiki.wiki.persistence.ArchiveBatchItemRepository;
+import com.kwiki.wiki.persistence.ArchiveBatchRepository;
 import com.kwiki.wiki.persistence.AttachmentRepository;
 import com.kwiki.wiki.persistence.KnowledgeBaseMemberRepository;
 import com.kwiki.wiki.persistence.KnowledgeBaseRepository;
@@ -50,4 +52,10 @@ public class WikiMockBeans {
 
     @MockBean
     public AppUserRepository users;
+
+    @MockBean
+    public ArchiveBatchRepository archiveBatches;
+
+    @MockBean
+    public ArchiveBatchItemRepository archiveBatchItems;
 }

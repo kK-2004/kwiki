@@ -7,17 +7,58 @@ import com.kwiki.rag.retrieval.ScopeFilter;
 import java.util.List;
 
 /**
- * Builds the single authorization filter shared by every recall branch, applied
- * BEFORE TopK selection. Superusers get a permissive filter; empty scopes get
- * match-none so no candidate can ever occupy a rank.
+ * Builds the single authorization + lifecycle filter shared by every recall
+ * branch, applied BEFORE TopK selection. Superusers get a permissive filter
+ * that still excludes archived resources; empty scopes get match-none so no
+ * candidate can ever occupy a rank. Archived pages/knowledge bases are
+ * excluded even for members whose membership rows still exist.
  */
-/** Translates the domain ScopeFilter into the shared Elasticsearch filter. */
 public final class EsScopeFilterBuilder {
 
     private EsScopeFilterBuilder() {
     }
 
     public static Query build(ScopeFilter scope) {
+        return build(scope, null);
+    }
+
+    /**
+     * @param exclusions archived resource ids to exclude from every branch;
+     *                   null means "no lifecycle information available" and
+     *                   must only be used by callers that already enforce the
+     *                   lifecycle through the authoritative database loader.
+     */
+    public static Query build(ScopeFilter scope,
+                              com.kwiki.rag.retrieval.RetrievalLifecycleService.Exclusions exclusions) {
+        Query base = baseScope(scope);
+        if (exclusions == null || exclusions.isEmpty()) {
+            return base;
+        }
+        List<FieldValue> archivedKbs = exclusions.archivedKbIds().stream().sorted()
+                .map(kbId -> new FieldValue.Builder().longValue(kbId).build()).toList();
+        List<FieldValue> archivedPages = exclusions.archivedPageIds().stream().sorted()
+                .map(pageId -> new FieldValue.Builder().longValue(pageId).build()).toList();
+        return Query.of(query -> query.bool(bool -> bool
+                .filter(base)
+                .mustNot(mustNot -> mustNot.bool(nested -> {
+                    if (!archivedKbs.isEmpty()) {
+                        nested.should(should -> should.terms(terms -> terms
+                                .field("kbId")
+                                .terms(values -> values.value(archivedKbs))));
+                    }
+                    if (!archivedPages.isEmpty()) {
+                        nested.should(should -> should.bool(pageBool -> pageBool
+                                .filter(filter -> filter.term(term -> term
+                                        .field("resourceType").value("PAGE")))
+                                .filter(filter -> filter.terms(terms -> terms
+                                        .field("resourceId")
+                                        .terms(values -> values.value(archivedPages))))));
+                    }
+                    return nested.minimumShouldMatch("1");
+                }))));
+    }
+
+    private static Query baseScope(ScopeFilter scope) {
         if (scope.superuser()) {
             return Query.of(query -> query.matchAll(matchAll -> matchAll));
         }

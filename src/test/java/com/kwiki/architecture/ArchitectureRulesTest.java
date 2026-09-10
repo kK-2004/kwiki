@@ -138,6 +138,8 @@ class ArchitectureRulesTest {
                         .and()
                         .resideOutsideOfPackage("com.kwiki.wiki.api..")
                         .and()
+                        .resideOutsideOfPackage("com.kwiki.wiki.archive..")
+                        .and()
                         .resideOutsideOfPackage("com.kwiki.security..")
                         .and()
                         .resideOutsideOfPackage("com.kwiki.rag.answer..")

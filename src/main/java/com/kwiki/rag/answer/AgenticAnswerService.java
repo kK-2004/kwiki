@@ -17,15 +17,19 @@ import java.util.concurrent.atomic.AtomicLong;
 public class AgenticAnswerService {
     private final AgenticWorkflowPort workflow;
     private final ChatSessionService sessions;
+    private final ChatRunEventStore runEvents;
 
     public AgenticAnswerService(AgenticWorkflowPort workflow) {
-        this(workflow, null);
+        this(workflow, null, null);
     }
 
     @Autowired
-    public AgenticAnswerService(AgenticWorkflowPort workflow, ObjectProvider<ChatSessionService> sessions) {
+    public AgenticAnswerService(AgenticWorkflowPort workflow,
+                                ObjectProvider<ChatSessionService> sessions,
+                                ObjectProvider<ChatRunEventStore> runEvents) {
         this.workflow = workflow;
         this.sessions = sessions == null ? null : sessions.getIfAvailable();
+        this.runEvents = runEvents == null ? null : runEvents.getIfAvailable();
     }
 
     public Flux<ChatStreamEvent> answer(CurrentUser user, String query) {
@@ -36,6 +40,13 @@ public class AgenticAnswerService {
     public Flux<ChatStreamEvent> answer(CurrentUser user, String query,
                                         String sessionId, String clientMessageId,
                                         String agentId) {
+        return answer(user, query, sessionId, clientMessageId, agentId, java.util.Set.of(), java.util.Set.of());
+    }
+
+    public Flux<ChatStreamEvent> answer(CurrentUser user, String query,
+                                        String sessionId, String clientMessageId,
+                                        String agentId, java.util.Set<Long> kbIds,
+                                        java.util.Set<Long> pageIds) {
         ChatSessionService.RunHandle run = null;
         if (sessions != null) {
             try {
@@ -62,16 +73,24 @@ public class AgenticAnswerService {
         java.util.List<com.kwiki.rag.rewrite.ChatTurn> history = durableRun == null || durableRun.existing()
                 ? java.util.List.of() : sessions.historyBefore(durableRun.runId());
         java.util.concurrent.atomic.AtomicBoolean successful = new java.util.concurrent.atomic.AtomicBoolean(true);
-        Flux<ChatStreamEvent> workflowEvents = (durableRun == null ? workflow.answer(user, query, history) : workflow.answerInSession(user, query, history))
+        Flux<ChatStreamEvent> workflowEvents = (durableRun == null ? workflow.answer(user, query, history) : workflow.answerInSession(user, query, history, kbIds, pageIds))
                 .doOnNext(event -> {
                     if ("error".equals(event.type())) successful.set(false);
                     if ("token".equals(event.type())) answer.append(String.valueOf(event.payloadMap().getOrDefault("text", "")));
                 })
                 .doOnComplete(() -> { if (durableRun != null) sessions.finish(user, durableRun, query, answer.toString(), successful.get(), successful.get() ? null : "answer_failed"); })
                 .doOnError(error -> { if (durableRun != null) sessions.finish(user, durableRun, query, answer.toString(), false, error.getClass().getSimpleName()); });
+        Long sessionRowId = durableRun == null ? null : durableRun.sessionId();
         return Flux.concat(
                 Flux.just(ChatStreamEvent.of("session", sequence.incrementAndGet(), requestId, session)),
                 workflowEvents.map(event -> ChatStreamEvent.of(
-                        event.type(), sequence.incrementAndGet(), requestId, event.payloadMap())));
+                        event.type(), sequence.incrementAndGet(), requestId, event.payloadMap()))
+                        // Persist the re-sequenced wire events for replay; a
+                        // store failure never breaks the live stream.
+                        .doOnNext(event -> {
+                            if (runEvents != null) {
+                                runEvents.append(requestId, sessionRowId, event);
+                            }
+                        }));
     }
 }

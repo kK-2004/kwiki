@@ -22,9 +22,27 @@ import java.util.List;
 @PreAuthorize("isAuthenticated()")
 public class ChatSessionController {
     private final ChatSessionService sessions;
+    private final ChatRunEventStore runEvents;
 
-    public ChatSessionController(ChatSessionService sessions) { this.sessions = sessions; }
+    public ChatSessionController(ChatSessionService sessions, ChatRunEventStore runEvents) {
+        this.sessions = sessions;
+        this.runEvents = runEvents;
+    }
     public record RenameRequest(@NotBlank String title) {}
+
+    /**
+     * Stored wire events of one run in seq order, for replaying the activity
+     * timeline when a conversation is reopened. Runs from before this table
+     * existed simply return an empty list.
+     */
+    @GetMapping("/{sessionId}/runs/{requestId}/events")
+    TransDTO<List<ChatRunEventStore.StoredEvent>> runEvents(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable String sessionId,
+            @PathVariable String requestId) {
+        sessions.detail(user, sessionId); // ownership check
+        return TransDTO.success(runEvents.replay(requestId));
+    }
 
     @GetMapping
     TransDTO<List<ChatSessionService.SessionView>> list(@AuthenticationPrincipal CurrentUser user) {

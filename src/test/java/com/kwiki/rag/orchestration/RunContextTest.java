@@ -45,8 +45,9 @@ class RunContextTest {
             clock.now = clock.now.plusSeconds(10);
             assertThatThrownBy(run::remaining).hasMessage("timeout");
         }
-        assertThat(run.remaining()).isEqualTo(Duration.ofSeconds(170));
-        clock.now = clock.now.plusSeconds(170);
+        // defaults carry a 300s global deadline now
+        assertThat(run.remaining()).isEqualTo(Duration.ofSeconds(290));
+        clock.now = clock.now.plusSeconds(290);
         assertThatThrownBy(run::check).hasMessage("timeout");
     }
 
@@ -55,11 +56,11 @@ class RunContextTest {
         var version = new AtomicLong(1);
         var first = run(new MutableClock(), version);
         var second = run(new MutableClock(), version);
-        for (int i = 0; i < 16; i++) first.modelCall();
+        for (int i = 0; i < 32; i++) first.modelCall();
         assertThat(first.canModel()).isFalse();
         assertThat(second.canModel()).isTrue();
         assertThatThrownBy(first::modelCall).hasMessage("model-budget-exhausted");
-        for (int i = 0; i < 9; i++) first.toolCall();
+        for (int i = 0; i < 12; i++) first.toolCall();
         assertThatThrownBy(first::toolCall).hasMessage("tool-budget-exhausted");
         version.incrementAndGet();
         assertThatThrownBy(second::authorize).hasMessage("authorization-changed");

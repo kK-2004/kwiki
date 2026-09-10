@@ -35,6 +35,8 @@ public class WikiPageRevision {
     private Long createdBy;
     @Column(columnDefinition = "DATETIME(6)")
     private Instant createdAt;
+    @Column(columnDefinition = "DATETIME(6)")
+    private Instant publishedAt;
 
     protected WikiPageRevision() {
     }
@@ -84,5 +86,11 @@ public class WikiPageRevision {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getPublishedAt() { return publishedAt; }
+
+    public void markPublished() {
+        if (publishedAt == null) publishedAt = Instant.now();
     }
 }

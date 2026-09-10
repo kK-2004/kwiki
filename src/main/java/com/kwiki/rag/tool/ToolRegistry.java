@@ -73,7 +73,7 @@ public final class ToolRegistry {
                             + " or DSL parameters.",
                         resource("es-search-v1"),
                         resource("tool-result-v1"));
-        for (String name : List.of("es-search-v1", "tool-result-v1", "quality-v1"))
+        for (String name : List.of("es-search-v1", "tool-result-v1", "quality-v1", "quality-v2"))
             compiled.put(name, schemas.getSchema(parse(resource(name))));
     }
 

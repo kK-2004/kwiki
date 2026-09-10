@@ -20,9 +20,12 @@ import java.util.Map;
 public class VectorRecallAdapter implements ChildRecallPort {
 
     private final ElasticsearchClient client;
+    private final com.kwiki.rag.retrieval.RetrievalLifecycleService lifecycle;
 
-    public VectorRecallAdapter(ObjectProvider<ElasticsearchClient> client) {
+    public VectorRecallAdapter(ObjectProvider<ElasticsearchClient> client,
+                               com.kwiki.rag.retrieval.RetrievalLifecycleService lifecycle) {
         this.client = client.getIfAvailable();
+        this.lifecycle = lifecycle;
     }
 
     @Override
@@ -44,7 +47,8 @@ public class VectorRecallAdapter implements ChildRecallPort {
                                     .queryVector(vector)
                                     .numCandidates(topK * 10)
                                     .k(topK)
-                                    .filter(EsScopeFilterBuilder.build(scopeFilter))),
+                                    .filter(EsScopeFilterBuilder.build(
+                                            scopeFilter, lifecycle.exclusions()))),
                     Map.class)
                     .hits()
                     .hits();

@@ -38,14 +38,21 @@ public class CommonMarkMarkdownPort implements MarkdownPort {
             .build();
 
     private final PolicyFactory sanitizer = new HtmlPolicyBuilder()
-            .allowUrlProtocols("http", "https", "mailto", "kwiki-page")
+            .allowUrlProtocols("http", "https", "mailto", "kwiki-page", "attachment")
             .allowElements("p", "div", "span", "br", "hr",
                     "h1", "h2", "h3", "h4", "h5", "h6",
                     "ul", "ol", "li", "blockquote",
                     "table", "thead", "tbody", "tr", "th", "td",
-                    "pre", "code", "em", "strong", "del", "a", "img")
-            .allowAttributes("href").onElements("a")
-            .allowAttributes("src", "alt", "title").onElements("img")
+                    "pre", "code", "em", "strong", "del", "a",
+                    "img", "audio", "video")
+            .allowAttributes("href", "class", "data-kwiki-attachment", "data-file-name",
+                    "data-byte-size").onElements("a")
+            // Restricted media attributes only: layout (data-align) and size
+            // (width px / data-width-percent); events, style and iframes never pass.
+            .allowAttributes("src", "alt", "title", "width", "data-align",
+                    "data-width-percent").onElements("img")
+            .allowAttributes("src", "controls", "preload", "width", "data-align",
+                    "data-width-percent").onElements("audio", "video")
             .allowAttributes("class").onElements("code", "td", "th", "span")
             .allowAttributes("align").onElements("td", "th")
             .requireRelNofollowOnLinks()

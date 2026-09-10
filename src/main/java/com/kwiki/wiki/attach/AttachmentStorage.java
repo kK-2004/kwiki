@@ -31,4 +31,12 @@ public interface AttachmentStorage {
      * truncated or oversized responses.
      */
     byte[] readContent(long contentCenterFileId);
+
+    /**
+     * Durable CDN URL addressed by content-center file id, meant for references that
+     * outlive a session (exports). Unlike {@link #downloadLink} there is no presign
+     * TTL: the deployment's CDN policy decides permanence; failures surface as
+     * sanitized {@link AttachmentStorageException}s like every other operation.
+     */
+    String cdnLink(long contentCenterFileId);
 }

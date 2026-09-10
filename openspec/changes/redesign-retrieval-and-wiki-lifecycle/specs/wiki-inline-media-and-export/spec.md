@@ -3,6 +3,10 @@
 ### Requirement: Images and playable media render during editing
 系统 SHALL 支持标准 Markdown 图片与受限 img/audio/video 媒体标记，在编辑文中、阅读、修订预览和导出中一致呈现。编辑时 MUST 同时允许周围文本输入与媒体实际预览，不能仅通过退出编辑进入独立预览来满足需求。
 
+#### Scenario: Existing multiline source enters edit mode
+- **WHEN** 已保存正文片段包含多行文字并首次进入源码编辑
+- **THEN** 文本输入区域立即按全部内容高度展开，不需要输入回车或触发一次编辑后才能看到后续行
+
 #### Scenario: Standard image markdown is entered
 - **WHEN** 用户输入 `![架构图](https://example.com/image.png)`
 - **THEN** 文中显示图片和替代文字语义，不渲染成带感叹号的普通链接
@@ -83,6 +87,21 @@
 - **WHEN** 验收内容中心图片、音频、视频预览
 - **THEN** 验证 Content-Type、短链有效期和音视频 Range/拖动能力；能力缺失时记录具体不支持项，不能伪报通过
 
+### Requirement: Media loading and failure states are actionable
+编辑器源码块和预览 SHALL 在媒体地址解析或浏览器加载完成前显示带加载指示的卡片，不得先显示破损图片图标。外部图片加载失败或超时 MUST 显示明确错误状态，并提供删除该媒体源码节点的操作。
+
+#### Scenario: External image expires
+- **WHEN** 用户插入已过期或不可达的 CDN 图片链接
+- **THEN** 图片位置先显示加载卡片，失败或超过 10 秒后显示错误提示，点击删除即可移除该图片标记
+
+#### Scenario: Managed image is resolving
+- **WHEN** 用户插入本地图片或阅读已发布图片，授权短链尚未返回
+- **THEN** 对应位置显示加载占位卡片和动画，短链返回后替换为图片且不出现破图闪烁
+
+#### Scenario: Image bytes are loading after URL resolution
+- **WHEN** 媒体地址已经解析，但图片仍在下载或解码
+- **THEN** 原位置继续保留稳定加载卡且图片不参与布局、不渐进露出；完整解码后一次性用图片替换占位，避免内容先塌缩再回跳
+
 ### Requirement: Code and ordered-list commands operate on selection
 编辑器 SHALL 提供可用的代码块和序号按钮，代码块支持选区包裹/光标插入及语言，序号支持连续编号、换行续号与撤销；已有标题/加粗 SHALL 使用同一编辑命令契约。
 
@@ -95,7 +114,7 @@
 - **THEN** 选中行形成连续有序列表，操作可撤销，未选中文本保持不变
 
 ### Requirement: Markdown and HTML export preserve content and media
-系统 SHALL 提供 Markdown/HTML 一键导出，编辑态导出当前草稿快照、阅读态导出当前查看修订；不隐式发布。有上传媒体时 MUST 生成包含所选格式文件和去重 assets 的 ZIP 并使用相对引用，无本地媒体直接导出 `.md`/`.html`，外链保持原样。
+系统 SHALL 提供 Markdown/HTML 一键导出，编辑态导出当前草稿快照、阅读态导出当前查看修订；不隐式发布。导出 MUST 始终产出单个 `.md`/`.html` 文件（不打包 ZIP）：上传媒体的 `attachment://` 引用 MUST 在保留 `![alt](…)`/`<img>`/`<a>` 完整结构的前提下重写为内容中心 SDK 签发的 CDN 直链（永久性由部署的 CDN 策略决定），无法签发时 MUST 回退应用内容端点（`GET /api/v1/knowledge-bases/{kbId}/attachments/{uuid}/content`，带鉴权）；外链保持原样且服务端不下载。
 
 #### Scenario: User exports an unsaved draft
 - **WHEN** 用户在编辑器选择 Markdown 或 HTML 导出
@@ -103,8 +122,8 @@
 
 #### Scenario: Uploaded media is exported
 - **WHEN** 正文引用内容中心附件
-- **THEN** 后端授权后通过 SDK 有界读取并打包实际媒体，相对路径可用，不嵌入过期签名 URL；UI 明确含媒体时打包
+- **THEN** 引用被重写为内容中心 CDN 直链且 Markdown 结构完整，不嵌入过期签名 URL，不打包 ZIP；CDN 链接无法签发时回退应用内容端点，外部查看器在具备访问凭据时可加载媒体
 
-#### Scenario: Required export media cannot be fetched
-- **WHEN** 权限变更、附件读取失败或总大小/时限超限
-- **THEN** 导出明确失败且可重试，不交付标称完整却缺资源的文件，不下载任意外链，也不暴露路径/密钥
+#### Scenario: Exported media link is not accessible
+- **WHEN** 附件被归档、跨知识库或访问者无权限
+- **THEN** 导出本身仍成功（重写只依赖稳定附件标识），内容端点在访问时按权限失败；服务端不下载任意外链，也不暴露存储路径/密钥

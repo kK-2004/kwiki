@@ -9,7 +9,9 @@ import com.kwiki.wiki.access.ResourceAction;
 import com.kwiki.wiki.access.ResourceAuthorizationService;
 import com.kwiki.wiki.access.WikiAction;
 import com.kwiki.wiki.domain.WikiPage;
+import com.kwiki.wiki.domain.WikiPageDraft;
 import com.kwiki.wiki.domain.WikiPageRevision;
+import com.kwiki.wiki.persistence.WikiPageDraftRepository;
 import com.kwiki.wiki.persistence.WikiPageRepository;
 import com.kwiki.wiki.persistence.WikiPageRevisionRepository;
 import com.kwiki.wiki.render.MarkdownPort;
@@ -19,10 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
- * Draft/publish lifecycle over immutable revisions. Saving a draft never changes
- * what readers see; publishing atomically moves the published pointer and records
- * an indexing job; restoring an old revision creates a new revision instead of
- * mutating history.
+ * Draft/publish lifecycle with a mutable working copy outside immutable revisions.
+ * Saving never changes what readers see or creates a version; publishing creates
+ * one numbered revision and records its indexing job. Restoring an old revision
+ * creates a new current revision instead of mutating history.
  */
 @Service
 public class PageRevisionService {
@@ -34,6 +36,9 @@ public class PageRevisionService {
     private final IndexingJobEnqueuer indexingJobs;
     private final PageLinkService pageLinks;
     private final ResourceAuthorizationService resources;
+    private final com.kwiki.wiki.archive.ResourceArchiveService archiveService;
+    private final PageMediaReferenceService mediaReferences;
+    private final WikiPageDraftRepository drafts;
 
     public PageRevisionService(WikiPageRepository pages,
                                WikiPageRevisionRepository revisions,
@@ -41,7 +46,7 @@ public class PageRevisionService {
                                MarkdownPort markdown,
                                IndexingJobEnqueuer indexingJobs,
                                PageLinkService pageLinks) {
-        this(pages, revisions, authorization, markdown, indexingJobs, pageLinks, null);
+        this(pages, revisions, authorization, markdown, indexingJobs, pageLinks, null, null, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -51,7 +56,10 @@ public class PageRevisionService {
                                MarkdownPort markdown,
                                IndexingJobEnqueuer indexingJobs,
                                PageLinkService pageLinks,
-                               ResourceAuthorizationService resources) {
+                               ResourceAuthorizationService resources,
+                               com.kwiki.wiki.archive.ResourceArchiveService archiveService,
+                               PageMediaReferenceService mediaReferences,
+                               WikiPageDraftRepository drafts) {
         this.pages = pages;
         this.revisions = revisions;
         this.authorization = authorization;
@@ -59,44 +67,52 @@ public class PageRevisionService {
         this.indexingJobs = indexingJobs;
         this.pageLinks = pageLinks;
         this.resources = resources;
+        this.archiveService = archiveService;
+        this.mediaReferences = mediaReferences;
+        this.drafts = drafts;
     }
 
     @Transactional
-    public WikiPageRevision saveDraft(CurrentUser user, long kbId, long pageId, String markdownText,
-                                      String changeNote, Integer expectedLockVersion) {
+    public WikiPageDraft saveDraft(CurrentUser user, long kbId, long pageId, String markdownText,
+                                   String changeNote, Integer expectedLockVersion) {
         requirePage(user, kbId, pageId, ResourceAction.EDIT, WikiAction.EDIT_PAGE);
         WikiPage page = requireActivePage(kbId, pageId);
         if (expectedLockVersion != null && page.getLockVersion() != expectedLockVersion) {
             throw new ConflictException("page was modified concurrently");
         }
-        WikiPageRevision revision = revisions.save(new WikiPageRevision(
-                pageId, nextRevisionNo(pageId), markdownText,
-                markdown.plainText(markdownText), changeNote, user.id()));
-        if (revision.getId() == null) {
-            // repository mocks in tests do not generate ids; production JPA does
-            revision = revisions.save(revision);
-        }
-        page.setCurrentDraftRevisionId(revision.getId());
-        pages.save(page);
-        return revision;
+        WikiPageDraft draft = drafts.findById(pageId)
+                .orElseGet(() -> new WikiPageDraft(pageId, markdownText,
+                        markdown.plainText(markdownText), changeNote, user.id()));
+        draft.replace(markdownText, markdown.plainText(markdownText), changeNote, user.id());
+        return drafts.save(draft);
     }
 
     @Transactional
     public WikiPageRevision publish(CurrentUser user, long kbId, long pageId) {
         requirePage(user, kbId, pageId, ResourceAction.EDIT, WikiAction.EDIT_PAGE);
         WikiPage page = requireActivePage(kbId, pageId);
-        Long draftId = page.getCurrentDraftRevisionId();
-        if (draftId == null) {
-            throw new IllegalArgumentException("no draft revision to publish");
-        }
-        page.setCurrentPublishedRevisionId(draftId);
+        WikiPageDraft draft = drafts.findById(pageId)
+                .orElseThrow(() -> new IllegalArgumentException("no draft to publish"));
+        WikiPageRevision published = new WikiPageRevision(
+                pageId, nextRevisionNo(pageId), draft.getMarkdown(), draft.getPlainText(),
+                draft.getChangeNote(), user.id());
+        published.markPublished();
+        published = revisions.save(published);
+        page.setCurrentPublishedRevisionId(published.getId());
+        page.setCurrentDraftRevisionId(published.getId());
         pages.save(page);
         // same-transaction contract: job exists iff publish commits (task 4.2)
-        indexingJobs.enqueuePageUpsert(pageId, draftId);
-        WikiPageRevision published = revisions.findById(draftId)
-                .orElseThrow(() -> new NotFoundException("draft revision not found"));
+        indexingJobs.enqueuePageUpsert(pageId, published.getId());
         pageLinks.refreshLinks(pageId, kbId, published.getMarkdown());
+        persistMediaReferences(kbId, pageId, published.getId(), published.getMarkdown());
+        drafts.deleteById(pageId);
         return published;
+    }
+
+    private void persistMediaReferences(long kbId, long pageId, long revisionId, String markdown) {
+        if (mediaReferences != null) {
+            mediaReferences.persistRevisionMedia(kbId, pageId, revisionId, markdown);
+        }
     }
 
     /** Readers always receive the current published revision, never drafts. */
@@ -116,40 +132,51 @@ public class PageRevisionService {
         return requireActivePage(kbId, pageId).getTitle();
     }
 
-    public WikiPageRevision draft(CurrentUser user, long kbId, long pageId) {
+    public WikiPageDraft draft(CurrentUser user, long kbId, long pageId) {
         requirePage(user, kbId, pageId, ResourceAction.EDIT, WikiAction.EDIT_PAGE);
-        WikiPage page = requireActivePage(kbId, pageId);
-        Long draftId = page.getCurrentDraftRevisionId();
-        if (draftId == null) {
-            throw new NotFoundException("page has no draft revision");
-        }
-        return revisions.findById(draftId)
-                .orElseThrow(() -> new NotFoundException("draft revision not found"));
+        requireActivePage(kbId, pageId);
+        return drafts.findById(pageId)
+                .orElseThrow(() -> new NotFoundException("page has no draft"));
     }
 
     public List<WikiPageRevision> revisionHistory(CurrentUser user, long kbId, long pageId) {
         requirePage(user, kbId, pageId, ResourceAction.READ, WikiAction.VIEW_REVISION_HISTORY);
         requireActivePage(kbId, pageId);
-        return revisions.findByPageIdOrderByRevisionNoDesc(pageId);
+        return revisions.findByPageIdAndPublishedAtIsNotNullOrderByRevisionNoDesc(pageId);
     }
 
-    /** Restoration copies older content into a NEW revision; history stays immutable. */
+    /** Restoration copies older content into a new current published revision. */
     @Transactional
     public WikiPageRevision restore(CurrentUser user, long kbId, long pageId, int revisionNo) {
         requirePage(user, kbId, pageId, ResourceAction.EDIT, WikiAction.RESTORE_REVISION);
         WikiPageRevision old = revisions.findByPageIdAndRevisionNo(pageId, revisionNo)
                 .orElseThrow(() -> new NotFoundException("revision not found"));
-        WikiPageRevision restored = revisions.save(new WikiPageRevision(
+        WikiPageRevision restored = new WikiPageRevision(
                 pageId, nextRevisionNo(pageId), old.getMarkdown(),
-                old.getPlainText(), "restored from revision " + revisionNo, user.id()));
+                old.getPlainText(), "restored from revision " + revisionNo, user.id());
+        restored.markPublished();
+        restored = revisions.save(restored);
         WikiPage page = requireActivePage(kbId, pageId);
+        page.setCurrentPublishedRevisionId(restored.getId());
         page.setCurrentDraftRevisionId(restored.getId());
         pages.save(page);
+        indexingJobs.enqueuePageUpsert(pageId, restored.getId());
+        pageLinks.refreshLinks(pageId, kbId, restored.getMarkdown());
+        persistMediaReferences(kbId, pageId, restored.getId(), restored.getMarkdown());
+        if (drafts != null) drafts.deleteById(pageId);
         return restored;
     }
 
-    @Transactional
+    /**
+     * Delegates to the unified recycle-bin service (own transaction boundary +
+     * post-commit ES isolation); kept for the existing controller surface.
+     */
     public void archive(CurrentUser user, long kbId, long pageId) {
+        if (archiveService != null) {
+            archiveService.archivePage(user, kbId, pageId);
+            return;
+        }
+        // Test/fallback path without the recycle-bin wiring.
         requirePage(user, kbId, pageId, ResourceAction.MANAGE, WikiAction.ARCHIVE_PAGE);
         WikiPage page = requireActivePage(kbId, pageId);
         page.archive();

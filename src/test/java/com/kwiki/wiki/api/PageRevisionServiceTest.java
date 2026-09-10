@@ -5,7 +5,9 @@ import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.KnowledgeBaseAuthorizationService;
 import com.kwiki.wiki.access.MembershipLookup;
 import com.kwiki.wiki.domain.WikiPage;
+import com.kwiki.wiki.domain.WikiPageDraft;
 import com.kwiki.wiki.domain.WikiPageRevision;
+import com.kwiki.wiki.persistence.WikiPageDraftRepository;
 import com.kwiki.wiki.persistence.WikiPageRepository;
 import com.kwiki.wiki.persistence.WikiPageRevisionRepository;
 import com.kwiki.wiki.render.CommonMarkMarkdownPort;
@@ -40,6 +42,9 @@ class PageRevisionServiceTest {
     WikiPageRevisionRepository revisions;
 
     @Mock
+    WikiPageDraftRepository drafts;
+
+    @Mock
     IndexingJobEnqueuer indexingJobs;
 
     @Mock
@@ -54,7 +59,8 @@ class PageRevisionServiceTest {
     @BeforeEach
     void setUp() {
         service = new PageRevisionService(pages, revisions, authorization(),
-                new CommonMarkMarkdownPort(), indexingJobs, pageLinks);
+                new CommonMarkMarkdownPort(), indexingJobs, pageLinks,
+                null, null, null, drafts);
         page = activePage(7L, KB);
         lenient().when(pages.findByIdAndStatus(7L, WikiPage.STATUS_ACTIVE))
                 .thenReturn(Optional.of(page));
@@ -67,6 +73,7 @@ class PageRevisionServiceTest {
             }
             return revision;
         });
+        lenient().when(drafts.save(any(WikiPageDraft.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
     private static KnowledgeBaseAuthorizationService authorization() {
@@ -106,9 +113,10 @@ class PageRevisionServiceTest {
 
         service.saveDraft(ADMIN, KB, 7L, "# Draft\nnew stuff", "wip", null);
 
-        assertThat(page.getCurrentDraftRevisionId()).isNotNull();
+        verify(drafts).save(any(WikiPageDraft.class));
         assertThat(page.getCurrentPublishedRevisionId()).as("readers must keep seeing revision 3")
                 .isEqualTo(50L);
+        verify(revisions, never()).save(any(WikiPageRevision.class));
         verify(indexingJobs, never()).enqueuePageUpsert(any(Long.class), any(Long.class));
     }
 
@@ -117,14 +125,14 @@ class PageRevisionServiceTest {
         lenient().when(revisions.findFirstByPageIdOrderByRevisionNoDesc(7L))
                 .thenReturn(Optional.empty());
 
-        WikiPageRevision draft = service.saveDraft(ADMIN, KB, 7L, "# New draft", "ready", null);
-        when(revisions.findById(draft.getId())).thenReturn(Optional.of(draft));
+        WikiPageDraft draft = service.saveDraft(ADMIN, KB, 7L, "# New draft", "ready", null);
+        when(drafts.findById(7L)).thenReturn(Optional.of(draft));
 
         WikiPageRevision published = service.publish(ADMIN, KB, 7L);
 
-        assertThat(page.getCurrentPublishedRevisionId()).isEqualTo(draft.getId());
+        assertThat(page.getCurrentPublishedRevisionId()).isEqualTo(published.getId());
         assertThat(published.getMarkdown()).isEqualTo("# New draft");
-        verify(indexingJobs).enqueuePageUpsert(7L, draft.getId());
+        verify(indexingJobs).enqueuePageUpsert(7L, published.getId());
     }
 
     @Test
@@ -149,6 +157,7 @@ class PageRevisionServiceTest {
         assertThat(restored.getMarkdown()).isEqualTo("# Old content");
         assertThat(restored.getChangeNote()).contains("restored from revision 2");
         assertThat(page.getCurrentDraftRevisionId()).isEqualTo(restored.getId());
+        assertThat(page.getCurrentPublishedRevisionId()).isEqualTo(restored.getId());
         assertThat(older.getRevisionNo()).as("history entry untouched").isEqualTo(2);
     }
 
@@ -164,7 +173,7 @@ class PageRevisionServiceTest {
         lenient().when(revisions.findFirstByPageIdOrderByRevisionNoDesc(7L))
                 .thenReturn(Optional.empty());
 
-        WikiPageRevision draft = service.saveDraft(ADMIN, KB, 7L,
+        WikiPageDraft draft = service.saveDraft(ADMIN, KB, 7L,
                 "# Heading\n\n**bold** and `code`", null, null);
 
         assertThat(draft.getPlainText())

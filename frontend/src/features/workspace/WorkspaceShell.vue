@@ -22,7 +22,7 @@ import { useConversationStore } from './conversationStore';
 import ConversationLauncher from './ConversationLauncher.vue';
 const route = useRoute(); const router = useRouter(); const auth = useAuthStore(); const wiki = useWikiStore(); const conversation = useConversationStore();
 const collapsed = ref(false); const mobileOpen = ref(false);
-const navigation = [ { to: '/conversations', label: '聊天记录', icon: 'i-lucide-messages-square' }, { to: '/knowledge-bases', label: '知识库', icon: 'i-lucide-library' }, { to: '/shared', label: '共享空间', icon: 'i-lucide-share-2' }, { to: '/search', label: '搜索', icon: 'i-lucide-search' }, { to: '/notifications', label: '消息中心', icon: 'i-lucide-bell' } ];
+const navigation = [ { to: '/conversations', label: '聊天记录', icon: 'i-lucide-messages-square' }, { to: '/knowledge-bases', label: '知识库', icon: 'i-lucide-library' }, { to: '/trash', label: '回收站', icon: 'i-lucide-archive' }, { to: '/notifications', label: '消息中心', icon: 'i-lucide-bell' } ];
 async function newChat() { await conversation.newConversation(); await router.push('/conversations'); }
 onMounted(() => { void wiki.loadRecentVisits(); void wiki.loadNotificationCount(); });
 watch(() => route.fullPath, () => { mobileOpen.value = false; void wiki.loadRecentVisits(); });

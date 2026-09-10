@@ -30,16 +30,13 @@
       </button>
     </form>
 
-    <ol v-if="stream.progressItems.length || stream.progress.length" data-testid="agentic-progress" aria-live="polite">
-      <li v-for="item in stream.progressItems" :key="item.key" :class="`status-${item.status ?? 'running'}`">
-        <span class="progress-main"><strong>{{ stepLabel(item.type) }}</strong><span>{{ item.status ?? 'running' }}</span></span>
-        <span>{{ item.summary }}</span>
-        <small v-if="item.score !== undefined">{{ item.scoreKind ?? 'score' }} {{ item.score.toFixed(4) }}</small>
-        <small v-else-if="item.confidence !== undefined">置信度 {{ item.confidence.toFixed(2) }}</small>
-        <small v-if="item.passed === false">QA 未通过：{{ item.reason ?? '未提供原因' }}<template v-if="item.retryRound !== undefined">（重试 {{ item.retryRound }}）</template></small>
-      </li>
-      <li v-if="!stream.progressItems.length" v-for="(step, index) in stream.progress" :key="`legacy-${index}`">{{ stream.progressDetails[index] || stepLabel(step) }}</li>
-    </ol>
+    <RetrievalActivity
+      v-if="stream.activitySteps.length"
+      :steps="stream.activitySteps"
+      :running="!stream.terminated"
+      :failed="!!stream.error"
+      data-testid="agentic-progress"
+    />
 
     <p v-if="stream.answer" data-testid="agentic-answer">{{ stream.answer }}</p>
     <details v-if="stream.reasoning.length" class="reasoning">
@@ -76,6 +73,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { initialState, openStream, reduce, type CitationEntry, type StreamState } from '../sse';
+import RetrievalActivity from './RetrievalActivity.vue';
 
 const open = ref(false);
 const question = ref('');
@@ -91,19 +89,6 @@ let dispose: (() => void) | null = null;
 const terminatedNoEvidence = computed(
   () => stream.value.terminated && !stream.value.answer && !stream.value.error && !stream.value.message,
 );
-
-const stepLabels: Record<string, string> = {
-  route: '意图识别',
-  rewrite: '查询改写',
-  retrieve: '知识检索',
-  tool: '执行检索工具',
-  quality: '检查证据质量',
-  retry: '补充检索',
-};
-
-function stepLabel(step: string): string {
-  return stepLabels[step] ?? step;
-}
 
 function ask() {
   if (!question.value.trim()) {

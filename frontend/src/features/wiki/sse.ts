@@ -5,7 +5,7 @@
  */
 import { getAuthGeneration, getAuthToken, setAuthToken } from './api';
 
-export type SseEventType = 'session' | 'route' | 'rewrite' | 'retrieve' | 'tool' | 'quality' | 'retry' | 'reasoning-summary' | 'token' | 'citations' | 'done' | 'error';
+export type SseEventType = 'session' | 'activity' | 'route' | 'rewrite' | 'retrieve' | 'tool' | 'quality' | 'retry' | 'reasoning-summary' | 'token' | 'citations' | 'done' | 'error';
 
 export interface SseFrame {
   type: SseEventType;
@@ -48,6 +48,7 @@ export interface StreamState {
   progress: string[];
   progressDetails: string[];
   progressItems: ProgressItem[];
+  activitySteps: ActivityStep[];
   reasoning: string[];
   answer: string;
   citations: CitationEntry[];
@@ -73,8 +74,77 @@ export interface ProgressItem {
   retryRound?: number;
 }
 
+/** One versioned activity step; started/completed merge by stable stepId. */
+export interface ActivityStep {
+  stepId: string;
+  parentStepId?: string;
+  queryRound: number;
+  attemptStage?: string;
+  phase: string;
+  status: 'STARTED' | 'COMPLETED' | 'SKIPPED' | 'FAILED';
+  startedAt: number;
+  durationMs?: number;
+  summary?: string;
+  metrics?: Record<string, unknown>;
+  reasonCode?: string;
+}
+
+const ACTIVITY_STATUS_PRECEDENCE: Record<ActivityStep['status'], number> = {
+  STARTED: 0,
+  COMPLETED: 1,
+  SKIPPED: 1,
+  FAILED: 2,
+};
+
+/**
+ * Merges an activity frame into the step list: idempotent by stepId, exact-seq
+ * duplicates change nothing, and a terminal status never regresses to running.
+ * Unknown fields are ignored, missing metrics stay missing.
+ */
+export function mergeActivityStep(steps: ActivityStep[], step: ActivityStep): ActivityStep[] {
+  const index = steps.findIndex((entry) => entry.stepId === step.stepId);
+  if (index < 0) return [...steps, step];
+  const existing = steps[index];
+  if (ACTIVITY_STATUS_PRECEDENCE[step.status] < ACTIVITY_STATUS_PRECEDENCE[existing.status]) {
+    return steps; // delayed started after a terminal status: ignore
+  }
+  const merged: ActivityStep = {
+    ...existing,
+    status: step.status,
+    durationMs: step.durationMs ?? existing.durationMs,
+    summary: step.summary ?? existing.summary,
+    metrics: { ...(existing.metrics ?? {}), ...(step.metrics ?? {}) },
+    reasonCode: step.reasonCode ?? existing.reasonCode,
+  };
+  const next = [...steps];
+  next[index] = merged;
+  return next;
+}
+
+export function activityStepOf(payload: Record<string, unknown>): ActivityStep | null {
+  const stepId = payload.stepId;
+  if (typeof stepId !== 'string' || !stepId) return null;
+  const status = String(payload.status ?? 'STARTED') as ActivityStep['status'];
+  if (!(status in ACTIVITY_STATUS_PRECEDENCE)) return null;
+  const metrics = (payload.metrics && typeof payload.metrics === 'object'
+    ? payload.metrics : {}) as Record<string, unknown>;
+  return {
+    stepId,
+    parentStepId: typeof payload.parentStepId === 'string' ? payload.parentStepId : undefined,
+    queryRound: Number(payload.queryRound ?? 1) || 1,
+    attemptStage: typeof payload.attemptStage === 'string' ? payload.attemptStage : undefined,
+    phase: String(payload.phase ?? ''),
+    status,
+    startedAt: Number(payload.startedAt ?? 0) || 0,
+    durationMs: typeof payload.durationMs === 'number' ? payload.durationMs : undefined,
+    summary: typeof payload.summary === 'string' ? payload.summary : undefined,
+    metrics,
+    reasonCode: typeof payload.reasonCode === 'string' ? payload.reasonCode : undefined,
+  };
+}
+
 export function initialState(): StreamState {
-  return { sessionId: null, lastSequence: 0, progress: [], progressDetails: [], progressItems: [], reasoning: [], answer: '', citations: [], error: null, terminated: false };
+  return { sessionId: null, lastSequence: 0, progress: [], progressDetails: [], progressItems: [], activitySteps: [], reasoning: [], answer: '', citations: [], error: null, terminated: false };
 }
 
 export function reduce(state: StreamState, frame: SseFrame): StreamState {
@@ -88,6 +158,12 @@ export function reduce(state: StreamState, frame: SseFrame): StreamState {
   switch (frame.type) {
     case 'session':
       return { ...advanced, sessionId: String(frame.payload.sessionId ?? '') || null };
+    case 'activity':
+      {
+        const step = activityStepOf(frame.payload);
+        if (!step) return advanced;
+        return { ...advanced, activitySteps: mergeActivityStep(advanced.activitySteps, step) };
+      }
     case 'route':
     case 'rewrite':
     case 'retrieve':
@@ -142,7 +218,7 @@ export function reduce(state: StreamState, frame: SseFrame): StreamState {
 export function openStream(
   query: string,
   onFrame: (frame: SseFrame) => void,
-  options: { sessionId?: string; clientMessageId?: string; agentId?: string } = {},
+  options: { sessionId?: string; clientMessageId?: string; agentId?: string; knowledgeBaseIds?: number[]; pageIds?: number[] } = {},
 ): () => void {
   const controller = new AbortController();
   const requestGeneration = getAuthGeneration();
@@ -235,6 +311,26 @@ function chatError(code: string): string {
     'timeout': '回答生成超时，请缩短问题后重试',
     'internal-error': '回答生成失败，请稍后重试',
     'answer-validation-failed': '本次回答未通过来源校验，请重新提问',
+    'qa-unavailable': '质量评审服务暂时不可用，请稍后重试',
+    'rewrite-unavailable': '问题改写服务暂时不可用，请稍后重试',
+    'answer-provider-failed': '回答模型暂时不可用，请稍后重试',
+    'answer-too-long': '候选回答超出长度限制，请换个问法重试',
   };
   return labels[code] || code;
+}
+
+/**
+ * Replays persisted run events (activity/tokens/citations/done) into a fresh
+ * state — used when a finished conversation is reopened. Old runs without
+ * stored events simply produce an empty activity timeline.
+ */
+export function replayStoredEvents(events: { seq: number; event_type: string; payload_json: string }[]): StreamState {
+  let state = initialState();
+  for (const event of events) {
+    const frame = parseWireFrame(event.event_type, event.payload_json);
+    if (!frame) continue;
+    const ordered: SseFrame = { ...frame, sequence: event.seq };
+    state = reduce(state, ordered);
+  }
+  return state;
 }

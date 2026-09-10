@@ -119,20 +119,45 @@ class AttachmentServiceTest {
         return new StoredAttachment(fileId, size, DOCX);
     }
 
+    private static final byte[] PNG_HEADER = {
+            (byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D};
+
+    private InputStream pngContent() {
+        return new ByteArrayInputStream(PNG_HEADER);
+    }
+
     @Test
-    void validUploadPersistsFileIdMarksStoredAndEnqueuesIndexing() {
-        Attachment stored = service.upload(EDITOR, KB, "spec.docx", DOCX, 100, content(100));
+    void validImageUploadPersistsFileIdMarksStoredAndEnqueuesIndexing() {
+        Attachment stored = service.upload(EDITOR, KB, "arch.png", "image/png",
+                PNG_HEADER.length, pngContent());
 
         ArgumentCaptor<AttachmentUpload> upload = ArgumentCaptor.forClass(AttachmentUpload.class);
         verify(storage).store(upload.capture());
-        assertThat(upload.getValue().fileName()).isEqualTo("spec.docx");
-        assertThat(upload.getValue().contentType()).isEqualTo(DOCX);
-        assertThat(upload.getValue().byteSize()).isEqualTo(100L);
+        assertThat(upload.getValue().fileName()).isEqualTo("arch.png");
+        assertThat(upload.getValue().contentType()).isEqualTo("image/png");
+        assertThat(upload.getValue().byteSize()).isEqualTo((long) PNG_HEADER.length);
 
         assertThat(stored.getStatus()).isEqualTo(Attachment.STATUS_STORED);
         assertThat(stored.getContentCenterFileId()).isEqualTo(42L);
-        // indexing strictly after validated success
+        // image indexing strictly after validated success
         verify(indexingJobs).enqueueAttachmentUpsert(stored.getId());
+    }
+
+    @Test
+    void nonImageUploadStaysDisplayOnlyWithoutIndexing() {
+        Attachment stored = service.upload(EDITOR, KB, "spec.docx", DOCX, 100, content(100));
+
+        assertThat(stored.getStatus()).isEqualTo(Attachment.STATUS_STORED);
+        verify(indexingJobs, never()).enqueueAttachmentUpsert(anyLong());
+    }
+
+    @Test
+    void mediaUploadWithMismatchedMagicBytesIsRejected() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.upload(EDITOR, KB, "fake.png", "image/png", 100, content(100)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("媒体类型不符");
+        verify(storage, never()).store(any());
     }
 
     @Test
@@ -324,5 +349,31 @@ class AttachmentServiceTest {
         // The port has no delete operation; nothing beyond archive/de-index may be attempted.
         verify(storage, never()).store(any());
         verify(storage, never()).downloadLink(anyLong(), anyString(), any());
+    }
+
+    @Test
+    void readContentReturnsStoredBytesForKbMembers() {
+        Attachment stored = new Attachment("att-content", KB, EDITOR.id(), "arch.png", "image/png", 12);
+        stored.markStored(777L);
+        when(attachments.findByUuid("att-content")).thenReturn(Optional.of(stored));
+        when(storage.readContent(777L)).thenReturn(PNG_HEADER);
+
+        AttachmentService.AttachmentContent content = service.readContent(EDITOR, KB, "att-content");
+
+        assertThat(content.bytes()).isEqualTo(PNG_HEADER);
+        assertThat(content.fileName()).isEqualTo("arch.png");
+        assertThat(content.contentType()).isEqualTo("image/png");
+    }
+
+    @Test
+    void readContentFailsClosedWithoutFileId() {
+        Attachment stored = new Attachment("att-noid-content", KB, EDITOR.id(), "x.png", "image/png", 10);
+        stored.markStored(1L);
+        org.springframework.test.util.ReflectionTestUtils.setField(stored, "contentCenterFileId", null);
+        when(attachments.findByUuid("att-noid-content")).thenReturn(Optional.of(stored));
+
+        assertThatThrownBy(() -> service.readContent(EDITOR, KB, "att-noid-content"))
+                .isInstanceOf(NotFoundException.class);
+        verify(storage, never()).readContent(anyLong());
     }
 }

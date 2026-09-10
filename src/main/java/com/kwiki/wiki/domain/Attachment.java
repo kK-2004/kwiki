@@ -110,6 +110,10 @@ public class Attachment {
         return status;
     }
 
+    public boolean isStored() {
+        return STATUS_STORED.equals(status);
+    }
+
     /**
      * Marks the attachment STORED. Only a validated positive content-center file id
      * can complete this transition; a PENDING row without one is never downloadable
@@ -125,6 +129,11 @@ public class Attachment {
 
     public void archive() {
         this.status = STATUS_ARCHIVED;
+    }
+
+    /** Recycle-bin restore: back to STORED with the validated file id intact. */
+    public void restore() {
+        this.status = STATUS_STORED;
     }
 
     public void markWikiImportSource() {

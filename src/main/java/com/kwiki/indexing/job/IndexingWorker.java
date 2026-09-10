@@ -6,7 +6,9 @@ import com.kwiki.indexing.chunk.ChildChunk;
 import com.kwiki.indexing.chunk.ChildChunker;
 import com.kwiki.indexing.chunk.ParentChunk;
 import com.kwiki.indexing.chunk.ParentChunker;
+import com.kwiki.indexing.parse.AttachmentIndexEligibility;
 import com.kwiki.indexing.parse.DocumentParseService;
+import com.kwiki.indexing.parse.StructBlock;
 import com.kwiki.indexing.parse.StructuredDocument;
 import com.kwiki.indexing.parse.UnsupportedInputException;
 import com.kwiki.indexing.pipeline.ChunkEmbeddingPort;
@@ -14,6 +16,7 @@ import com.kwiki.indexing.pipeline.ChunkIndexPort;
 import com.kwiki.indexing.pipeline.IndexedVersion;
 import com.kwiki.wiki.attach.AttachmentStorage;
 import com.kwiki.wiki.attach.AttachmentStorageException;
+import com.kwiki.wiki.attach.MediaContentSniffer;
 import com.kwiki.wiki.domain.Attachment;
 import com.kwiki.wiki.domain.WikiPage;
 import com.kwiki.wiki.domain.WikiPageRevision;
@@ -29,6 +32,7 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -51,7 +55,9 @@ public class IndexingWorker {
     private final ChildChunker childChunker;
     private final ChunkEmbeddingPort embeddings;
     private final ChunkIndexPort index;
+    private final org.springframework.beans.factory.ObjectProvider<com.kwiki.indexing.search.ChunkIndexRepository> chunkIndexRepository;
     private final WikiPageRepository pages;
+    private final com.kwiki.wiki.persistence.KnowledgeBaseRepository knowledgeBases;
     private final WikiPageRevisionRepository revisions;
     private final AttachmentRepository attachments;
     private final AttachmentStorage storage;
@@ -70,7 +76,9 @@ public class IndexingWorker {
                           ChildChunker childChunker,
                           ChunkEmbeddingPort embeddings,
                           ChunkIndexPort index,
+                          org.springframework.beans.factory.ObjectProvider<com.kwiki.indexing.search.ChunkIndexRepository> chunkIndexRepository,
                           WikiPageRepository pages,
+                          com.kwiki.wiki.persistence.KnowledgeBaseRepository knowledgeBases,
                           WikiPageRevisionRepository revisions,
                           AttachmentRepository attachments,
                           AttachmentStorage storage,
@@ -86,7 +94,9 @@ public class IndexingWorker {
         this.childChunker = childChunker;
         this.embeddings = embeddings;
         this.index = index;
+        this.chunkIndexRepository = chunkIndexRepository;
         this.pages = pages;
+        this.knowledgeBases = knowledgeBases;
         this.revisions = revisions;
         this.attachments = attachments;
         this.storage = storage;
@@ -157,16 +167,115 @@ public class IndexingWorker {
         long resourceId = ((Number) row.get("resource_id")).longValue();
         Object revisionValue = row.get("revision_id");
         Long revisionId = revisionValue == null ? null : ((Number) revisionValue).longValue();
+        Long expectedVersion = row.get("expected_lifecycle_version") == null
+                ? null
+                : ((Number) row.get("expected_lifecycle_version")).longValue();
 
         if ("DELETE".equals(jobType)) {
-            index.deleteResourceChunks(resourceType, resourceId);
+            executeFencedDelete(resourceType, resourceId, expectedVersion);
             return;
         }
-        if ("PAGE".equals(resourceType)) {
-            indexVersion(pageVersion(resourceId, revisionId));
-        } else {
-            indexVersion(attachmentVersion(resourceId));
+        if ("KNOWLEDGE_BASE".equals(resourceType)) {
+            return; // upserts only exist for PAGE and ATTACHMENT
         }
+        if ("PAGE".equals(resourceType)) {
+            executeFencedPageUpsert(resourceId, revisionId, expectedVersion);
+        } else {
+            executeAttachmentUpsert(resourceId);
+        }
+    }
+
+    /**
+     * Lifecycle fencing for deletes: a job whose expected version no longer
+     * matches (the resource was restored, bumping the version) is skipped so a
+     * delayed delete can never remove a restored index. Unversioned deletes
+     * (legacy non-image cleanup) always run — they target chunks, not state.
+     */
+    private void executeFencedDelete(String resourceType, long resourceId, Long expectedVersion) {
+        switch (resourceType) {
+            case "KNOWLEDGE_BASE" -> {
+                com.kwiki.wiki.domain.KnowledgeBase kb = knowledgeBases.findById(resourceId)
+                        .orElse(null);
+                if (kb == null) {
+                    index.deleteResourceChunks("KNOWLEDGE_BASE", resourceId);
+                    return;
+                }
+                if (expectedVersion != null && kb.getLifecycleVersion() != expectedVersion) {
+                    return; // restored after enqueue: keep the new index
+                }
+                var checked = chunkIndexChecked();
+                if (checked != null) {
+                    checked.deleteKnowledgeBaseChunksChecked(resourceId);
+                } else {
+                    index.deleteResourceChunks(resourceType, resourceId);
+                }
+            }
+            case "PAGE" -> {
+                WikiPage page = pages.findById(resourceId).orElse(null);
+                if (page == null) {
+                    index.deleteResourceChunks(resourceType, resourceId);
+                    return;
+                }
+                if (expectedVersion != null && page.getLifecycleVersion() != expectedVersion) {
+                    return; // restored after enqueue: keep the new index
+                }
+                index.deleteResourceChunks(resourceType, resourceId);
+            }
+            default -> {
+                // ATTACHMENT: versioned deletes came from an archive batch; skip
+                // when the attachment was restored to STORED in the meantime.
+                if ("ATTACHMENT".equals(resourceType) && expectedVersion != null) {
+                    Attachment attachment = attachments.findById(resourceId).orElse(null);
+                    if (attachment != null && attachment.isStored()) {
+                        return;
+                    }
+                }
+                index.deleteResourceChunks(resourceType, resourceId);
+            }
+        }
+    }
+
+    private void executeFencedPageUpsert(long pageId, Long revisionId, Long expectedVersion) {
+        WikiPage page = pages.findById(pageId).orElse(null);
+        if (page == null || page.isArchived()) {
+            return; // archived pages never (re)enter the index
+        }
+        if (expectedVersion != null && page.getLifecycleVersion() != expectedVersion) {
+            return; // lifecycle moved on since enqueue: stale upsert
+        }
+        indexVersion(pageVersion(pageId, revisionId));
+        // Post-write recheck: an archive may have committed while we wrote.
+        WikiPage after = pages.findById(pageId).orElse(null);
+        if (after == null || after.isArchived()
+                || after.getLifecycleVersion() != page.getLifecycleVersion()) {
+            index.deleteResourceChunks("PAGE", pageId);
+        }
+    }
+
+    /**
+     * Attachment upserts are restricted to validated images. Non-image
+     * attachments are display-only: any legacy chunks are cleared and the job
+     * completes without upserting anything.
+     */
+    private void executeAttachmentUpsert(long attachmentId) {
+        Attachment attachment = attachments.findById(attachmentId)
+                .orElseThrow(() -> new IllegalStateException("attachment missing for indexing job"));
+        if (!attachment.isStored()) {
+            return; // archived attachment must not revive
+        }
+        if (!AttachmentIndexEligibility.isIndexableImage(attachment.getContentType())) {
+            index.deleteResourceChunks("ATTACHMENT", attachmentId);
+            return;
+        }
+        indexVersion(attachmentVersion(attachmentId));
+        Attachment after = attachments.findById(attachmentId).orElse(null);
+        if (after == null || !after.isStored()) {
+            index.deleteResourceChunks("ATTACHMENT", attachmentId);
+        }
+    }
+
+    private com.kwiki.indexing.search.ChunkIndexRepository chunkIndexChecked() {
+        return chunkIndexRepository == null ? null : chunkIndexRepository.getIfAvailable();
     }
 
     private IndexedVersion pageVersion(long pageId, Long revisionId) {
@@ -189,10 +298,41 @@ public class IndexingWorker {
             throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
                     "attachment has no content-center file id for indexing");
         }
-        byte[] bytes = storage.readContent(fileId);
-        StructuredDocument document = parser.parse(attachment.getFileName(),
-                attachment.getContentType(), new ByteArrayInputStream(bytes));
+        StructuredDocument document;
+        if (AttachmentIndexEligibility.isIndexableImage(attachment.getContentType())) {
+            // Image indexing is metadata-based (name/kind/origin). The image
+            // bytes are not transcribed: no OCR, no transcription, no invented
+            // content. A failed content read surfaces as an explicit failure.
+            byte[] bytes = storage.readContent(fileId);
+            document = imageDescriptorDocument(attachment, bytes);
+        } else {
+            byte[] bytes = storage.readContent(fileId);
+            document = parser.parse(attachment.getFileName(),
+                    attachment.getContentType(), new ByteArrayInputStream(bytes));
+        }
         return buildVersion("ATTACHMENT", attachmentId, null, attachment.getKbId(), document);
+    }
+
+    /**
+     * Searchable descriptor for an image attachment. Parsing failures (bytes
+     * that do not match the declared image type) are explicit; empty chunks
+     * must never masquerade as successful parsing.
+     */
+    private StructuredDocument imageDescriptorDocument(Attachment attachment, byte[] bytes) {
+        String declared = attachment.getContentType() == null
+                ? "" : attachment.getContentType().toLowerCase(Locale.ROOT);
+        if (!MediaContentSniffer.sniffImageType(bytes)
+                .map(sniffed -> sniffed.equals(declared)
+                        || ("image/jpg".equals(sniffed) && "image/jpeg".equals(declared)))
+                .orElse(false)) {
+            throw new UnsupportedInputException(
+                    "image content does not match the declared type; not indexed");
+        }
+        String fileName = attachment.getFileName() == null ? "" : attachment.getFileName();
+        String text = "图片附件 " + fileName + "（" + declared + "，"
+                + bytes.length + " 字节）";
+        return new StructuredDocument(
+                List.of(new StructBlock(0, text, 0, text.length())), text);
     }
 
     private IndexedVersion buildVersion(String resourceType, long resourceId, Long revisionId,

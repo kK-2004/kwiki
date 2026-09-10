@@ -77,7 +77,8 @@ public class IndexingJobStore {
             return Optional.empty();
         }
         return jdbc.queryForList(
-                "SELECT id, job_type, resource_type, resource_id, revision_id, state, attempts, "
+                "SELECT id, job_type, resource_type, resource_id, revision_id, "
+                        + "expected_lifecycle_version, state, attempts, "
                         + "max_attempts, next_attempt_at, last_error_class, last_error_summary, "
                         + "created_at, updated_at FROM indexing_job WHERE id = ?", jobId)
                 .stream().findFirst();

@@ -24,9 +24,12 @@ import java.util.Map;
 public class Bm25RecallAdapter implements ChildRecallPort {
 
     private final ElasticsearchClient client;
+    private final com.kwiki.rag.retrieval.RetrievalLifecycleService lifecycle;
 
-    public Bm25RecallAdapter(ObjectProvider<ElasticsearchClient> client) {
+    public Bm25RecallAdapter(ObjectProvider<ElasticsearchClient> client,
+                             com.kwiki.rag.retrieval.RetrievalLifecycleService lifecycle) {
         this.client = client.getIfAvailable();
+        this.lifecycle = lifecycle;
     }
 
     @Override
@@ -42,7 +45,8 @@ public class Bm25RecallAdapter implements ChildRecallPort {
                             .query(query -> query.bool(bool -> bool
                                     .filter(filter -> filter.term(
                                             term -> term.field("chunkLevel").value("CHILD")))
-                                    .filter(EsScopeFilterBuilder.build(scopeFilter))
+                                    .filter(EsScopeFilterBuilder.build(
+                                            scopeFilter, lifecycle.exclusions()))
                                     .must(must -> must.match(
                                             match -> match.field("content")
                                                     .query(effectiveQuery))))),

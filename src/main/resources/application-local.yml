@@ -60,14 +60,14 @@ kwiki:
   elasticsearch:
     api-key: ${KWIKI_ELASTICSEARCH_API_KEY:}
   answer-llm:
-    base-url: ${KWIKI_ANSWER_LLM_BASE_URL:https://newapi.ksite.xin}
+    base-url: ${KWIKI_ANSWER_LLM_BASE_URL:https://llm-svsyrrepiflr3w72.cn-beijing.maas.aliyuncs.com/compatible-mode/v1}
     api-key: ${KWIKI_ANSWER_LLM_API_KEY}
-    model: ${KWIKI_ANSWER_LLM_MODEL:glm-5.3-flash}
+    model: ${KWIKI_ANSWER_LLM_MODEL:deepseek-v4-pro-0813}
     request-timeout: ${KWIKI_ANSWER_LLM_TIMEOUT:120s}
   qwen-embedding:
-    base-url: ${KWIKI_QWEN_EMBEDDING_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    base-url: ${KWIKI_QWEN_EMBEDDING_BASE_URL:https://llm-svsyrrepiflr3w72.cn-beijing.maas.aliyuncs.com/compatible-mode/v1}
     api-key: ${KWIKI_QWEN_EMBEDDING_API_KEY}
-    model: text-embedding-v4
+    model: ${KWIKI_ANSWER_LLM_MODEL:qwen3.7-text-embedding}
     dimensions: ${KWIKI_QWEN_EMBEDDING_DIMENSIONS:1024}
     request-timeout: ${KWIKI_QWEN_EMBEDDING_TIMEOUT:30s}
 

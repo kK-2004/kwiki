@@ -122,6 +122,8 @@ class ChunkIndexRepositoryTest {
         List<String> fields = captured.get().query().bool().filter().stream()
                 .map(filter -> filter.term().field())
                 .toList();
+        assertThat(captured.get().allowNoIndices()).isTrue();
+        assertThat(captured.get().ignoreUnavailable()).isTrue();
         assertThat(fields).containsExactlyInAnyOrder("resourceType", "resourceId");
         boolean idFilterIsSeven = captured.get().query().bool().filter().stream()
                 .anyMatch(filter -> "resourceId".equals(filter.term().field())

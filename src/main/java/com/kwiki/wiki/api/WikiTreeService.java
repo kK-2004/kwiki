@@ -30,19 +30,22 @@ public class WikiTreeService {
     private final WikiPageRepository pages;
     private final KnowledgeBaseAuthorizationService authorization;
     private final ResourceAuthorizationService resources;
+    private final com.kwiki.wiki.archive.ResourceArchiveService archiveService;
 
     public WikiTreeService(WikiPageRepository pages,
                            KnowledgeBaseAuthorizationService authorization) {
-        this(pages, authorization, null);
+        this(pages, authorization, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public WikiTreeService(WikiPageRepository pages,
                            KnowledgeBaseAuthorizationService authorization,
-                           ResourceAuthorizationService resources) {
+                           ResourceAuthorizationService resources,
+                           com.kwiki.wiki.archive.ResourceArchiveService archiveService) {
         this.pages = pages;
         this.authorization = authorization;
         this.resources = resources;
+        this.archiveService = archiveService;
     }
 
     @Transactional
@@ -84,8 +87,12 @@ public class WikiTreeService {
         return pages.save(page);
     }
 
-    @Transactional
+    /** Delegates to the unified recycle-bin archive service (subtree batch). */
     public void archive(CurrentUser user, long kbId, long pageId) {
+        if (archiveService != null) {
+            archiveService.archivePage(user, kbId, pageId);
+            return;
+        }
         authorization.require(user, kbId, WikiAction.ARCHIVE_PAGE);
         WikiPage page = requireActivePageIn(kbId, pageId);
         page.archive();

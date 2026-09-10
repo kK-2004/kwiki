@@ -2,470 +2,341 @@ package com.kwiki.rag.orchestration;
 
 import static org.assertj.core.api.Assertions.*;
 
-import com.kwiki.infrastructure.orchestration.LangGraphAgenticWorkflow;
-import com.kwiki.rag.answer.*;
-import com.kwiki.rag.quality.*;
-import com.kwiki.rag.retrieval.*;
-import com.kwiki.rag.rewrite.*;
-import com.kwiki.rag.routing.*;
-import com.kwiki.rag.tool.*;
+import com.kwiki.rag.answer.ChatStreamEvent;
+import com.kwiki.rag.answer.CandidateAnswer;
+import com.kwiki.rag.quality.QualityV2Input;
+import com.kwiki.rag.retrieval.ChunkHit;
+import com.kwiki.rag.retrieval.ParentEvidenceChunk;
+import com.kwiki.rag.routing.KeywordRuleSet;
+import com.kwiki.rag.routing.RuleFirstRouter;
+import com.kwiki.rag.answer.ChatPersistenceService;
 import com.kwiki.security.CurrentUser;
+import com.kwiki.testutil.AgenticTestSupport;
+import com.kwiki.testutil.AgenticTestSupport.Harness;
 import com.kwiki.testutil.StandardTestProperties;
-import com.kwiki.wiki.access.*;
+import com.kwiki.wiki.access.AuthorizationScopeResolver;
+import com.kwiki.wiki.access.ScopeVersionService;
 
 import org.junit.jupiter.api.*;
 
-import reactor.core.publisher.Flux;
-
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
+/**
+ * QA-gated state machine behavior with scripted leaf adapters: stage order,
+ * per-stage regeneration + review, budget ceilings, exact refusal text and
+ * infrastructure terminals. Unreviewed candidates must never reach the wire.
+ */
 class AgenticWorkflowTest {
-    final List<LangGraphAgenticWorkflow> workflows = new ArrayList<>();
-    final AtomicInteger plannerCalls = new AtomicInteger(),
-            qaCalls = new AtomicInteger(),
-            answerCalls = new AtomicInteger();
-    RetrievalPlannerPort planner =
-            (q, queries, gaps, history, error) ->
-                    List.of(
-                            new ToolCall(
-                                    "call-" + plannerCalls.incrementAndGet(),
-                                    "es_search",
-                                    ToolRegistry.json(
-                                            new SearchArguments(
-                                                    queries, RetrievalStrategy.BM25, 20)),
-                                    "turn-" + plannerCalls.get()));
-    QualityAnalyzerPort qa = (q, queries, e) -> approved(e);
-    java.util.function.Function<String, List<ChunkHit>> corpus =
-            q -> List.of(new ChunkHit("C" + q, "P" + q, 1, "PAGE", 1, 1L, "heading", 0, 4, "body"));
-    AnswerLlmPort answer =
-            p -> {
-                answerCalls.incrementAndGet();
-                return Flux.just("answer [P0]");
-            };
-    AgenticLimits limits = AgenticLimits.defaults();
+
+    final CurrentUser user = new CurrentUser(1L, "admin", true);
+    final io.micrometer.core.instrument.simple.SimpleMeterRegistry metrics =
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+    final ScopeVersionService versions = new ScopeVersionService(StandardTestProperties.nullProvider());
+    Harness harness;
 
     @AfterEach
     void close() {
-        workflows.forEach(LangGraphAgenticWorkflow::close);
+        // harness uses only scripted adapters; nothing to shut down
     }
 
-    QualityDecision approved(List<ParentEvidence> e) {
-        return new QualityDecision(
-                QualityDecision.Action.GENERATE,
-                true,
-                e.stream().map(ParentEvidence::parentChunkKey).toList(),
-                List.of(),
-                "sufficient",
-                List.of(),
-                QualityDecision.ReturnKind.NONE);
+    Harness harness() {
+        var router = new RuleFirstRouter(KeywordRuleSet.defaults(),
+                StandardTestProperties.nullProvider(), false, metrics);
+        var scopes = new AuthorizationScopeResolver(
+                org.mockito.Mockito.mock(com.kwiki.wiki.persistence.KnowledgeBaseMemberRepository.class),
+                versions,
+                new com.kwiki.infrastructure.redis.ScopeCache(
+                        StandardTestProperties.nullProvider(), Duration.ofSeconds(1)));
+        harness = AgenticTestSupport.harness(
+                router, scopes, versions,
+                new ChatPersistenceService(StandardTestProperties.nullProvider()), metrics);
+        return harness;
     }
 
-    LangGraphAgenticWorkflow workflow() throws Exception {
-        var metrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
-        var versions = new ScopeVersionService(StandardTestProperties.nullProvider());
-        var budgets = new RetrievalBudgets(50, 40, 8, 3, 24000, Duration.ofSeconds(1));
-        var registry = new ToolRegistry();
-        var retrieval =
-                new HybridRetrievalOrchestrator(
-                        texts -> List.of(new float[] {1}),
-                        new ConcurrentRecallService(
-                                (q, v, f, k) -> corpus.apply(q), (q, v, f, k) -> corpus.apply(q)),
-                        new ParentEvidenceResolver(
-                                Optional.of(
-                                        (keys, filter) ->
-                                                keys.stream()
-                                                        .map(
-                                                                k ->
-                                                                        new ParentEvidenceChunk(
-                                                                                k, 1, "PAGE", 1, 1L,
-                                                                                "heading", "body",
-                                                                                0, List.of()))
-                                                        .toList())),
-                        versions,
-                        budgets);
-        var w =
-                new LangGraphAgenticWorkflow(
-                        new RuleFirstRouter(
-                                KeywordRuleSet.defaults(),
-                                StandardTestProperties.nullProvider(),
-                                false,
-                                metrics),
-                        new QueryRewriteOrchestrator(
-                                new RewriteDecisionService(),
-                                new ConversationalRewriter(Optional.empty()),
-                                new ExpansionRewriter(Optional.empty()),
-                                new DecompositionRewriter(Optional.empty()),
-                                metrics),
-                        retrieval,
-                        new EvidenceAssembler(budgets),
-                        p -> answer.streamAnswer(p),
-                        (q, queries, e) -> {
-                            qaCalls.incrementAndGet();
-                            return qa.analyze(q, queries, e);
-                        },
-                        (q, queries, gaps, history, error) ->
-                                planner.plan(q, queries, gaps, history, error),
-                        registry,
-                        new ManualToolDispatcher(registry, retrieval),
-                        new AuthorizationScopeResolver(
-                                org.mockito.Mockito.mock(
-                                        com.kwiki.wiki.persistence.KnowledgeBaseMemberRepository
-                                                .class),
-                                versions,
-                                new com.kwiki.infrastructure.redis.ScopeCache(
-                                        StandardTestProperties.nullProvider(),
-                                        Duration.ofSeconds(1))),
-                        versions,
-                        new ChatPersistenceService(StandardTestProperties.nullProvider()),
-                        metrics,
-                        limits,
-                        Optional.empty(),
-                        Optional.empty());
-        workflows.add(w);
-        return w;
-    }
-
-    List<ChatStreamEvent> run(String query) throws Exception {
-        return workflow()
-                .answer(new CurrentUser(1L, "admin", true), query)
+    List<ChatStreamEvent> run(Harness harness, String query) {
+        return harness.workflow.answer(user, query)
                 .collectList()
-                .block(Duration.ofSeconds(5));
+                .block(Duration.ofSeconds(10));
+    }
+    static ChunkHit hit(String key, String parent, String content) {
+        return new ChunkHit(key, parent, 1, "PAGE", 1, 1L, "heading", 0, content.length(), content);
+    }
+
+    void stubCorpus(Harness harness, List<ChunkHit> children) {
+        harness.bm25.hits = children;
+        harness.vector.hits = children;
+    }
+
+    void stubParent(Harness harness, String parentKey, String content) {
+        harness.parents.byKey.put(parentKey, new ParentEvidenceChunk(
+                parentKey, 1, "PAGE", 1, 1L, "heading", content, 0,
+                List.copyOf(harness.bm25.hits)));
+    }
+
+    // ------------------------------------------------------------------
+    // stage order and immediate stop
+    // ------------------------------------------------------------------
+
+    @Test
+    void childCandidatePassingGatePublishesWithoutParentFetchOrRewrite() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "候选依据 [P0]")));
+        harness.answer.scripted.add("基于证据的回答 [P0]");
+        harness.quality.passes = input -> true;
+
+        var events = run(harness, "什么是部署方式");
+
+        assertThat(harness.parents.requestedKeys).isEmpty(); // first QA gate: no parent body read
+        assertThat(harness.rewriter.inputs).isEmpty();
+        assertThat(harness.answer.prompts).hasSize(1);
+        assertThat(harness.quality.inputs).hasSize(1);
+        assertThat(events.stream().filter(event -> event.type().equals("token"))
+                .map(event -> String.valueOf(event.payloadMap().get("text")))
+                .collect(Collectors.joining()))
+                .isEqualTo("基于证据的回答 [P0]");
+        var done = events.getLast();
+        assertThat(done.type()).isEqualTo("done");
+        assertThat(done.payloadMap()).containsEntry("outcome", "completed");
+        assertThat(events.stream().filter(event -> event.type().equals("citations"))).hasSize(1);
     }
 
     @Test
-    void qaGapDrivesASecondActualRetrieval() throws Exception {
-        qa =
-                (q, queries, e) ->
-                        qaCalls.get() == 1
-                                ? new QualityDecision(
-                                        QualityDecision.Action.RETRY,
-                                        false,
-                                        List.of(),
-                                        List.of("second aspect"),
-                                        "missing-aspect",
-                                        List.of("second query"),
-                                        QualityDecision.ReturnKind.NONE)
-                                : approved(e);
-        var events = run("什么是部署方式");
-        assertThat(events.stream().filter(e -> e.type().equals("retrieve"))).hasSize(2);
-        assertThat(events.stream().filter(e -> e.type().equals("quality"))).hasSize(2);
-        assertThat(events.stream().map(ChatStreamEvent::type)).contains("retry");
-        assertThat(answerCalls.get()).isEqualTo(1);
-        assertThat(events.getLast().type()).isEqualTo("done");
+    void rejectedChildRecoversThroughParentStageWithoutExpansionOrRewrite() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "片段正文 [P0]")));
+        stubParent(harness, "P1", "完整父段落正文 [P0]");
+        // child candidates fail, parent candidates pass
+        harness.quality.passes =
+                input -> input.candidate().evidenceLevel() == CandidateAnswer.EvidenceLevel.PARENT;
+        harness.answer.scripted.add("子候选 [P0]");
+        harness.answer.scripted.add("父候选完整回答 [P0]");
+
+        var events = run(harness, "什么是部署方式");
+
+        assertThat(harness.parents.requestedKeys).hasSize(1);
+        assertThat(harness.rewriter.inputs).isEmpty();
+        // expanded stage never ran: all recall TopKs are the base 20
+        assertThat(harness.bm25.topKs).containsOnly(20);
+        assertThat(events.getLast().payloadMap()).containsEntry("outcome", "completed");
+        assertThat(events.stream().filter(event -> event.type().equals("token"))
+                .map(event -> String.valueOf(event.payloadMap().get("text")))
+                .collect(Collectors.joining()))
+                .isEqualTo("父候选完整回答 [P0]");
     }
 
     @Test
-    void repeatedPlanStopsWithoutGeneration() throws Exception {
-        qa =
-                (q, queries, e) ->
-                        new QualityDecision(
-                                QualityDecision.Action.RETRY,
-                                false,
-                                List.of(),
-                                List.of("gap"),
-                                "missing-aspect",
-                                List.of(),
-                                QualityDecision.ReturnKind.NONE);
-        var events = run("什么是部署方式");
-        assertThat(answerCalls.get()).isZero();
-        assertThat(qaCalls.get()).isEqualTo(1);
-        assertThat(events.getLast().payloadMap()).containsEntry("noEvidence", true);
+    void expansionWidensBothBranchesAndFinalTopK() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
+        // only the expanded child stage passes
+        harness.quality.passes = input -> input.candidate().attemptStage()
+                == AttemptStage.EXPANDED_CHILD;
+        harness.answer.scripted.add("基础子候选");
+        harness.answer.scripted.add("基础父候选");
+        harness.answer.scripted.add("扩大检索候选 [P0]");
+
+        var events = run(harness, "什么是部署方式");
+
+        // parent stages fetch parents, not children: base(20) → expanded(50)
+        assertThat(harness.bm25.topKs).containsExactly(20, 50);
+        assertThat(events.getLast().payloadMap()).containsEntry("outcome", "completed");
+        assertThat(events.getLast().payloadMap()).containsEntry("attemptStage", "EXPANDED_CHILD");
     }
 
     @Test
-    void invalidQaCannotReleaseGeneration() throws Exception {
-        qa =
-                (q, queries, e) ->
-                        new QualityDecision(
-                                QualityDecision.Action.GENERATE,
-                                true,
-                                List.of("invented"),
-                                List.of(),
-                                "sufficient",
-                                List.of(),
-                                QualityDecision.ReturnKind.NONE);
-        run("什么是部署方式");
-        assertThat(answerCalls.get()).isZero();
+    void zeroHitsSkipGenerationAndAdvanceToExpansion() {
+        var harness = harness();
+        stubCorpus(harness, List.of()); // both branches succeed with zero hits
+        harness.quality.passes = input -> true;
+
+        run(harness, "什么是部署方式");
+
+        assertThat(harness.answer.prompts).isEmpty(); // never spin the model on nothing
+        // zero-hit rounds expand, then rewrite (twice): 3 rounds × base+expanded
+        assertThat(harness.bm25.topKs).containsExactly(20, 50, 20, 50, 20, 50);
+    }
+
+    // ------------------------------------------------------------------
+    // bounded rounds and exact refusal
+    // ------------------------------------------------------------------
+
+    @Test
+    void exhaustedRoundsOutputExactRefusalWithEmptyCitations() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
+        stubParent(harness, "P1", "父正文 [P0]");
+        harness.quality.passes = input -> false; // every candidate fails
+        harness.answer.scripted.add("1");
+        harness.answer.scripted.add("2");
+        harness.answer.scripted.add("3");
+        harness.answer.scripted.add("4");
+        harness.answer.scripted.add("5");
+        harness.answer.scripted.add("6");
+
+        var events = run(harness, "什么是部署方式");
+
+        assertThat(harness.rewriter.inputs).hasSize(2); // exactly two rewrite calls
+        assertThat(harness.bm25.topKs).hasSize(6);      // 3 rounds × base+expanded retrieval... bounded
+        var done = events.getLast();
+        assertThat(done.type()).isEqualTo("done");
+        assertThat(done.payloadMap()).containsEntry("outcome", "insufficient");
+        assertThat(done.payloadMap()).containsEntry("noEvidence", true);
+        assertThat(events.stream().filter(event -> event.type().equals("token"))
+                .map(event -> String.valueOf(event.payloadMap().get("text")))
+                .collect(Collectors.joining()))
+                .isEqualTo(AgenticErrorCodes.INSUFFICIENT_MESSAGE);
+        var citations = events.stream()
+                .filter(event -> event.type().equals("citations")).findFirst().orElseThrow();
+        assertThat(citations.payloadMap().get("citations"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.LIST)
+                .isEmpty();
     }
 
     @Test
-    void emptyFirstRoundCanRecoverWithChangedQuery() throws Exception {
-        corpus =
-                q ->
-                        q.equals("second query")
-                                ? List.of(
-                                        new ChunkHit(
-                                                "C2", "P2", 1, "PAGE", 1, 1L, "h", 0, 4, "body"))
-                                : List.of();
-        var original = planner;
-        planner =
-                (q, queries, gaps, history, error) ->
-                        original.plan(
-                                q,
-                                history.isEmpty() ? queries : List.of("second query"),
-                                gaps,
-                                history,
-                                error);
-        var events = run("什么是部署方式");
-        assertThat(answerCalls.get()).isEqualTo(1);
-        assertThat(events.getLast().type()).isEqualTo("done");
-    }
+    void invalidRewriteConsumesBudgetAndRefusesWhenExhausted() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
+        stubParent(harness, "P1", "父正文");
+        harness.quality.passes = input -> false;
+        // both rewrite calls return invalid echoes
+        harness.rewriter.scripted.add(Optional.empty());
+        harness.rewriter.scripted.add(Optional.empty());
 
-    @Test
-    void invalidToolBatchRepairsOnceThenUsesValidatedFallback() throws Exception {
-        planner =
-                (q, queries, gaps, history, error) -> {
-                    plannerCalls.incrementAndGet();
-                    return List.of(new ToolCall("bad", "es_search", "{\"scope\":{}}", "turn"));
-                };
-        var events = run("什么是部署方式");
-        assertThat(plannerCalls.get()).isEqualTo(2);
-        assertThat(answerCalls.get()).isEqualTo(1);
-        assertThat(
-                        events.stream()
-                                .filter(e -> e.type().equals("tool"))
-                                .findFirst()
-                                .orElseThrow()
-                                .payloadMap()
-                                .get("callId"))
-                .hasToString("fallback-0");
-    }
+        var events = run(harness, "什么是部署方式");
 
-    @Test
-    void safeDirectResponseDoesNotCallModelsOrTools() throws Exception {
-        run("你好");
-        assertThat(plannerCalls.get() + qaCalls.get() + answerCalls.get()).isZero();
-    }
-
-    @Test
-    void unknownCitationTerminatesWithError() throws Exception {
-        answer = p -> Flux.just("answer [P999]");
-        var events = run("什么是部署方式");
-        assertThat(events.getLast().payloadMap())
-                .containsEntry("error", "answer-validation-failed");
-        assertThat(events.stream().map(ChatStreamEvent::type)).doesNotContain("citations", "done");
-    }
-
-    @Test
-    void globalDeadlineStopsPendingQa() throws Exception {
-        limits = new AgenticLimits(3, 16, 9, 3, 64, Duration.ofMillis(150), 256, 16);
-        qa =
-                (q, queries, e) -> {
-                    try {
-                        Thread.sleep(5000);
-                    } catch (InterruptedException x) {
-                        Thread.currentThread().interrupt();
-                    }
-                    return approved(e);
-                };
-        var events = run("什么是部署方式");
-        assertThat(events.getLast().payloadMap()).containsEntry("error", "timeout");
-        assertThat(answerCalls.get()).isZero();
-        assertThat(events.stream().filter(e -> List.of("error", "done").contains(e.type())))
-                .hasSize(1);
-    }
-
-    @Test
-    void cancellationDuringPlannerStopsWorkerBeforeQa() throws Exception {
-        var entered = new CountDownLatch(1);
-        var stopped = new CountDownLatch(1);
-        planner =
-                (q, queries, gaps, history, error) -> {
-                    entered.countDown();
-                    try {
-                        Thread.sleep(5000);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    } finally {
-                        stopped.countDown();
-                    }
-                    return List.of();
-                };
-        var subscription =
-                workflow().answer(new CurrentUser(1L, "admin", true), "什么是部署方式").subscribe();
-        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
-        subscription.dispose();
-        assertThat(stopped.await(2, TimeUnit.SECONDS)).isTrue();
-        assertThat(qaCalls).hasValue(0);
-        assertThat(answerCalls).hasValue(0);
-    }
-
-    @Test
-    void thirdInsufficientRoundNeverGenerates() throws Exception {
-        qa =
-                (q, queries, e) ->
-                        new QualityDecision(
-                                QualityDecision.Action.RETRY,
-                                false,
-                                List.of(),
-                                List.of("gap"),
-                                "missing",
-                                List.of("query-" + qaCalls.get()),
-                                QualityDecision.ReturnKind.NONE);
-        var events = run("什么是部署方式");
-        assertThat(qaCalls).hasValue(3);
-        assertThat(answerCalls).hasValue(0);
+        assertThat(harness.rewriter.inputs).hasSize(2);
+        // invalid rewrites never re-run identical retrieval: only round 1 stages ran
+        assertThat(harness.bm25.queries.stream().distinct().count()).isEqualTo(1);
         assertThat(events.getLast().payloadMap()).containsEntry("outcome", "insufficient");
     }
 
     @Test
-    void boundedBufferOverflowCancelsGenerationAndHasOneTerminal() throws Exception {
-        limits = new AgenticLimits(3, 16, 9, 3, 64, Duration.ofSeconds(5), 16, 16);
-        var stopped = new CountDownLatch(1);
-        answer = p -> Flux.range(0, 1000).map(i -> "text").doFinally(signal -> stopped.countDown());
-        var events = new CopyOnWriteArrayList<ChatStreamEvent>();
-        var finished = new CountDownLatch(1);
-        var subscriber =
-                new reactor.core.publisher.BaseSubscriber<ChatStreamEvent>() {
-                    protected void hookOnSubscribe(org.reactivestreams.Subscription s) {
-                        request(1);
-                    }
+    void rewriteInputCarriesCompleteFeedbackContext() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
+        stubParent(harness, "P1", "父正文");
+        harness.quality.passes = input -> false;
+        harness.rewriter.scripted.add(Optional.of("第一次改写的问题"));
+        harness.rewriter.scripted.add(Optional.of("第二次改写的问题"));
 
-                    protected void hookOnNext(ChatStreamEvent event) {
-                        events.add(event);
-                    }
+        run(harness, "什么是部署方式");
 
-                    protected void hookOnComplete() {
-                        finished.countDown();
-                    }
-                };
-        workflow().answer(new CurrentUser(1L, "admin", true), "什么是部署方式").subscribe(subscriber);
-        assertThat(stopped.await(2, TimeUnit.SECONDS)).isTrue();
-        subscriber.request(Long.MAX_VALUE);
-        assertThat(finished.await(2, TimeUnit.SECONDS)).isTrue();
-        assertThat(events.getLast().payloadMap()).containsEntry("error", "backpressure-overflow");
-        assertThat(events.stream().filter(e -> Set.of("done", "error").contains(e.type())))
-                .hasSize(1);
+        var second = harness.rewriter.inputs.getLast();
+        assertThat(second.originalQuery()).isEqualTo("什么是部署方式");
+        assertThat(second.lastQuery()).isEqualTo("第一次改写的问题");
+        assertThat(second.previousRewrites()).containsExactly("第一次改写的问题");
+        assertThat(second.topKBefore()).isEqualTo(harness.budgets.base().finalTopK());
+        assertThat(second.topKAfter()).isEqualTo(harness.budgets.expanded().finalTopK());
+        assertThat(second.expansionAttempted()).isTrue();
+        assertThat(second.stageFailures()).isNotEmpty();
+    }
+
+    // ------------------------------------------------------------------
+    // infrastructure terminals and candidate isolation
+    // ------------------------------------------------------------------
+
+    @Test
+    void qaSchemaFailureIsAnInfrastructureTerminalNotARefusal() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
+        harness.quality.unavailable = true;
+
+        var events = run(harness, "什么是部署方式");
+
+        assertThat(events.getLast().type()).isEqualTo("error");
+        assertThat(events.getLast().payloadMap()).containsEntry("error", "qa-unavailable");
+        assertThat(events.stream().filter(event -> event.type().equals("token"))).isEmpty();
     }
 
     @Test
-    void cancellationDuringRecallAndQaPreventsGeneration() throws Exception {
-        for (String stage : List.of("recall", "qa")) {
-            var entered = new CountDownLatch(1);
-            var stopped = new CountDownLatch(1);
-            Runnable blocking =
-                    () -> {
-                        entered.countDown();
-                        try {
-                            Thread.sleep(5000);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        } finally {
-                            stopped.countDown();
-                        }
-                        throw new RunFailure("cancelled");
-                    };
-            corpus =
-                    q -> {
-                        if (stage.equals("recall")) blocking.run();
-                        return List.of(
-                                new ChunkHit("C", "P", 1, "PAGE", 1, 1L, "heading", 0, 4, "body"));
-                    };
-            qa =
-                    (q, queries, e) -> {
-                        blocking.run();
-                        return approved(e);
-                    };
-            var subscription =
-                    workflow().answer(new CurrentUser(1L, "admin", true), "什么是部署方式").subscribe();
-            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
-            subscription.dispose();
-            assertThat(stopped.await(2, TimeUnit.SECONDS)).isTrue();
-            assertThat(answerCalls).hasValue(0);
-        }
+    void unreviewedCandidateNeverStreamsToTheClient() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
+        stubParent(harness, "P1", "父正文 [P0]");
+        harness.quality.passes = input ->
+                input.candidate().evidenceLevel() == CandidateAnswer.EvidenceLevel.PARENT;
+        harness.answer.scripted.add("未通过的子候选，绝不能出现在流里");
+        harness.answer.scripted.add("通过的父候选 [P0]");
+
+        var events = run(harness, "什么是部署方式");
+
+        var streamed = events.stream().filter(event -> event.type().equals("token"))
+                .map(event -> String.valueOf(event.payloadMap().get("text")))
+                .collect(Collectors.joining());
+        assertThat(streamed).contains("通过的父候选");
+        assertThat(streamed).doesNotContain("绝不能出现在流里");
     }
 
     @Test
-    void compareLegacySinglePassPolicyOnLabelledFixtures() throws Exception {
-        var cases =
-                ToolRegistry.JSON.readTree(
-                        getClass().getResourceAsStream("/agentic/evaluation-cases.json"));
-        var report = new ArrayList<Map<String, Object>>();
-        for (var item : cases) {
-            plannerCalls.set(0);
-            qaCalls.set(0);
-            answerCalls.set(0);
-            String kind = item.get("kind").asText();
-            corpus =
-                    q ->
-                            kind.equals("empty")
-                                    ? List.of()
-                                    : List.of(
-                                            new ChunkHit(
-                                                    "C" + q, "P" + q, 1, "PAGE", 1, 1L, "h", 0, 4,
-                                                    "body"));
-            qa =
-                    (q, queries, e) -> {
-                        if (kind.equals("conflict") || kind.equals("injection"))
-                            return QualityDecision.insufficient(
-                                    kind.equals("conflict")
-                                            ? "conflicting-evidence"
-                                            : "untrusted-instruction");
-                        if (kind.equals("retry") && qaCalls.get() == 1)
-                            return new QualityDecision(
-                                    QualityDecision.Action.RETRY,
-                                    false,
-                                    List.of(),
-                                    List.of("permissions"),
-                                    "missing-aspect",
-                                    List.of("permissions details"),
-                                    QualityDecision.ReturnKind.NONE);
-                        return approved(e);
-                    };
-            String query = item.get("query").asText();
-            long before = System.nanoTime();
-            // Reference of the pre-change single-pass evidence-presence policy, not a live legacy
-            // model run.
-            String legacy = corpus.apply(query).isEmpty() ? "insufficient" : "completed";
-            long legacyNanos = System.nanoTime() - before;
-            before = System.nanoTime();
-            var events = run(query);
-            long newNanos = System.nanoTime() - before;
-            String result =
-                    events.getLast().payloadMap().getOrDefault("outcome", "completed").toString();
-            assertThat(events.getLast().type()).as(item.get("id").asText()).isEqualTo("done");
-            assertThat(result).isEqualTo(item.get("expected").asText());
-            int citations =
-                    events.stream()
-                            .filter(e -> e.type().equals("citations"))
-                            .mapToInt(e -> ((List<?>) e.payloadMap().get("citations")).size())
-                            .sum();
-            report.add(
-                    Map.of(
-                            "case",
-                            item.get("id").asText(),
-                            "legacyPolicy",
-                            legacy,
-                            "newOutcome",
-                            result,
-                            "expected",
-                            item.get("expected").asText(),
-                            "retrievalRounds",
-                            events.stream().filter(e -> e.type().equals("retrieve")).count(),
-                            "citations",
-                            citations,
-                            "legacyPolicyNanos",
-                            legacyNanos,
-                            "newWorkflowNanos",
-                            newNanos));
-        }
-        java.nio.file.Files.writeString(
-                java.nio.file.Path.of("target/agentic-evaluation.json"),
-                ToolRegistry.json(
-                        Map.of(
-                                "mode",
-                                "scripted QA and retrieval; policy comparison only, not model"
-                                        + " quality or production latency",
-                                "cases",
-                                report)));
+    void candidateCitationsValidateAgainstEvidence() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "片段内容 [P0]")));
+        harness.answer.scripted.add("引用了证据 [P0]");
+        harness.quality.passes = input -> true;
+
+        var events = run(harness, "什么是部署方式");
+
+        var citations = events.stream()
+                .filter(event -> event.type().equals("citations")).findFirst().orElseThrow();
+        var list = (List<?>) citations.payloadMap().get("citations");
+        assertThat(list).hasSize(1);
+        assertThat(((Map<?, ?>) list.get(0)).get("childChunkKey")).isEqualTo("C1");
+        assertThat(events.getLast().payloadMap().get("citationCount")).isEqualTo(1);
     }
 
     @Test
-    void coldPublisherDoesNoPlanning() throws Exception {
-        workflow().answer(new CurrentUser(1L, "admin", true), "question");
-        assertThat(plannerCalls.get()).isZero();
+    void worstQualityPathFitsBudgetCounters() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
+        stubParent(harness, "P1", "父正文");
+        harness.quality.passes = input -> false;
+
+        run(harness, "什么是部署方式");
+
+        // 3 rounds × (base child + base parent + expanded child) generations; the
+        // expanded-parent stage skips on this corpus because the parent body is
+        // already in the round's context (identical parent keys).
+        assertThat(harness.answer.prompts).hasSize(9);
+        assertThat(harness.quality.inputs).hasSize(9);
+        assertThat(harness.bm25.topKs).hasSize(6);
+        assertThat(harness.parents.requestedKeys).hasSize(6);
+    }
+
+    @Test
+    void activityEventsTraceEveryExecutedStage() {
+        var harness = harness();
+        stubCorpus(harness, List.of(hit("C1", "P1", "片段 [P0]")));
+        harness.answer.scripted.add("通过评审的回答 [P0]");
+        harness.quality.passes = input -> true;
+
+        var events = run(harness, "什么是部署方式");
+
+        var activities = events.stream()
+                .filter(event -> event.type().equals("activity"))
+                .map(ChatStreamEvent::payloadMap)
+                .toList();
+        assertThat(activities).isNotEmpty();
+        var phases = activities.stream().map(payload -> String.valueOf(payload.get("phase")));
+        assertThat(phases).contains("ROUTE", "RETRIEVAL", "GENERATION", "QUALITY");
+        // stepId is stable across started/completed of the same step
+        var startedIds = activities.stream()
+                .filter(payload -> "STARTED".equals(payload.get("status")))
+                .map(payload -> String.valueOf(payload.get("stepId"))).toList();
+        var completedIds = activities.stream()
+                .filter(payload -> "COMPLETED".equals(payload.get("status")))
+                .map(payload -> String.valueOf(payload.get("stepId"))).toList();
+        assertThat(completedIds).containsAll(startedIds);
+        // retrieval completion carries real metrics, never invented
+        var retrieval = activities.stream()
+                .filter(payload -> "RETRIEVAL".equals(payload.get("phase"))
+                        && "COMPLETED".equals(payload.get("status")))
+                .findFirst().orElseThrow();
+        var metricsMap = (Map<?, ?>) retrieval.get("metrics");
+        var metricKeys = metricsMap.keySet().stream().map(String::valueOf).toList();
+        assertThat(metricKeys).contains("branchTopK", "finalTopK", "retainedChildCount");
+        assertThat(metricsMap.get("retainedChildCount")).isEqualTo(1);
     }
 }

@@ -57,11 +57,20 @@ public class ChatSessionService {
     public SessionDetail detail(CurrentUser user, String sessionUuid) {
         requireDb();
         Long id = sessionId(user, sessionUuid);
-        var messages = jdbc.query("SELECT id, role, content, created_at FROM (SELECT id, role, content, created_at FROM chat_message "
-                        + "WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT 200) recent ORDER BY created_at, id",
-                (rs, row) -> new MessageView(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getTimestamp(4).toInstant()), id);
+        var messages = jdbc.query("SELECT id, role, content, created_at, run_id FROM (SELECT m.id, m.role, m.content, m.created_at, m.run_id FROM chat_message m "
+                        + "WHERE m.session_id = ? ORDER BY m.created_at DESC, m.id DESC LIMIT 200) recent ORDER BY created_at, id",
+                (rs, row) -> new MessageView(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getTimestamp(4).toInstant(), runRequestId(rs.getLong(5))), id);
         String title = jdbc.queryForObject("SELECT title FROM chat_session WHERE id = ?", String.class, id);
         return new SessionDetail(sessionUuid, title, messages);
+    }
+
+    private String runRequestId(long runId) {
+        if (runId == 0) return null;
+        try {
+            return jdbc.queryForObject("SELECT request_id FROM chat_run WHERE id = ?", String.class, runId);
+        } catch (EmptyResultDataAccessException ex) {
+            return null;
+        }
     }
 
     @Transactional
@@ -181,7 +190,8 @@ public class ChatSessionService {
 
     public record SessionView(String id, String title, Instant createdAt, Instant updatedAt) {}
     public record SessionPage(List<SessionView> items, String nextCursor) {}
-    public record MessageView(long id, String role, String content, Instant createdAt) {}
+    /** requestId links an assistant message to its stored run events (activity replay). */
+    public record MessageView(long id, String role, String content, Instant createdAt, String requestId) {}
     public record SessionDetail(String id, String title, List<MessageView> messages) {}
     public record RunHandle(String sessionUuid, String clientMessageId, String requestId, long sessionId, long runId, boolean existing) {}
     public static final class RunConflictException extends RuntimeException {

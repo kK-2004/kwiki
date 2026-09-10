@@ -9,11 +9,19 @@
       <section v-if="tab === 'collaboration'"><h2>邀请与审核</h2><p class="panel-description">通过邀请链接与同事共享知识，并管理加入申请。</p><CollaborationPanel :key="kbId" resource-type="KB" :resource-id="Number(kbId)" embedded /></section>
       <section v-if="tab === 'advanced'"><h2>高级设置</h2><p class="panel-description">涉及知识库所有权与可用状态的操作。</p><div v-if="base.canTransfer" class="advanced-box"><h3>转交知识库</h3><p>选择现有成员作为新创建者，对方确认后生效。</p><form class="transfer-form" @submit.prevent="transfer"><select v-model="recipient" class="ui-input" aria-label="新创建者" required><option value="" disabled>选择知识库成员</option><option v-for="member in members.filter(m => m.role !== 'OWNER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select><button class="ui-button" :disabled="saving || !recipient">生成确认链接</button></form><label v-if="transferLink">转交确认链接<input class="ui-input" readonly :value="transferLink" /><button class="ui-button" @click="copyTransfer">{{ copied ? '已复制' : '复制链接' }}</button></label></div><div v-if="base.canEditSettings" class="advanced-box danger-box"><h3>归档知识库</h3><p>归档后，知识库不再显示在列表中，也无法继续访问其中的内容。</p><button class="ui-button danger" @click="archiveOpen = true">归档知识库</button></div><p v-if="!base.canEditSettings" class="panel-description">只有创建者可以执行这些操作。</p></section>
     </section></div></template><p v-else class="ui-error">你没有管理此知识库的权限。</p>
-    <div v-if="removeTarget || archiveOpen" class="confirm-overlay"><section class="confirm-dialog" role="dialog" aria-modal="true" aria-label="确认操作"><h2>{{ archiveOpen ? '归档知识库？' : '移除成员？' }}</h2><p>{{ archiveOpen ? `“${base?.name}”将不再出现在知识库列表中。` : `移除后，${removeTarget?.displayName || removeTarget?.username} 将失去通过该成员身份获得的访问权限。` }}</p><p v-if="actionError" class="ui-error">{{ actionError }}</p><footer><button class="ui-button" :disabled="saving" @click="removeTarget = null; archiveOpen = false">取消</button><button class="ui-button danger" :disabled="saving" @click="confirmAction">确认{{ archiveOpen ? '归档' : '移除' }}</button></footer></section></div>
+    <div v-if="removeTarget" class="confirm-overlay"><section class="confirm-dialog" role="dialog" aria-modal="true" aria-label="确认移除成员"><h2>移除成员？</h2><p>移除后，{{ removeTarget?.displayName || removeTarget?.username }} 将失去通过该成员身份获得的访问权限。</p><p v-if="actionError" class="ui-error">{{ actionError }}</p><footer><button class="ui-button" :disabled="saving" @click="removeTarget = null">取消</button><button class="ui-button danger" :disabled="saving" @click="confirmAction">确认移除</button></footer></section></div>
+    <ArchiveConfirmDialog
+      :open="archiveOpen"
+      scope-label="知识库"
+      :title="base?.name ?? ''"
+      :pending="saving"
+      @cancel="archiveOpen = false"
+      @confirm="confirmArchive"
+    />
   </main>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'; import { RouterLink, useRouter } from 'vue-router'; import { api, errorMessage } from '../wiki/api'; import { useWikiStore } from '../wiki/store'; import { useAuthStore } from '../auth/store'; import CollaborationPanel from './CollaborationPanel.vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue'; import { RouterLink, useRouter } from 'vue-router'; import { api, errorMessage } from '../wiki/api'; import { useWikiStore } from '../wiki/store'; import { useAuthStore } from '../auth/store'; import CollaborationPanel from './CollaborationPanel.vue'; import ArchiveConfirmDialog from '../wiki/components/ArchiveConfirmDialog.vue';
 const props = defineProps<{ kbId: string }>(); const router = useRouter(); const wiki = useWikiStore(); const auth = useAuthStore();
 type Role = 'OWNER' | 'ADMIN' | 'EDITOR' | 'VIEWER'; type Member = { userId: number; role: Role; username: string; displayName?: string }; type Candidate = Omit<Member, 'role'>;
 const base = ref<{ name: string; description?: string; canManage: boolean; canEditSettings: boolean; canTransfer: boolean }>();
@@ -33,7 +41,9 @@ function editable(member: Member) { return member.role !== 'OWNER' && (base.valu
 async function add() { if (!chosen.value) return; await perform(async () => { await api.put(`/knowledge-bases/${props.kbId}/members`, { userId:chosen.value!.userId, role:newRole.value }); chosen.value = null; await loadMembers(); }, '成员已添加'); }
 async function changeRole(member: Member, event: Event) { const select = event.target as HTMLSelectElement; const role = select.value; await perform(async () => { await api.put(`/knowledge-bases/${props.kbId}/members`, { userId:member.userId, role }); await loadMembers(); }, '成员角色已更新'); select.value = members.value.find(m => m.userId === member.userId)?.role || member.role; }
 const removeTarget = ref<Member | null>(null); const archiveOpen = ref(false);
-async function confirmAction() { await perform(async () => { if (archiveOpen.value) { await api.post(`/knowledge-bases/${props.kbId}/archive`); await wiki.loadKnowledgeBases(); await router.push('/knowledge-bases'); } else if (removeTarget.value) { await api.delete(`/knowledge-bases/${props.kbId}/members/${removeTarget.value.userId}`); removeTarget.value = null; await loadMembers(); } }, '操作已完成'); }
+async function confirmAction() { await perform(async () => { if (removeTarget.value) { await api.delete(`/knowledge-bases/${props.kbId}/members/${removeTarget.value.userId}`); removeTarget.value = null; await loadMembers(); } }, '操作已完成'); }
+/** Two-step archive: fires only from the final modal, debounced via saving flag. */
+async function confirmArchive() { await perform(async () => { await api.post(`/knowledge-bases/${props.kbId}/archive`); archiveOpen.value = false; await wiki.loadKnowledgeBases(); await router.push('/knowledge-bases'); }, '知识库已移入回收站'); }
 const recipient = ref<number | ''>(''); const transferLink = ref(''); const copied = ref(false);
 async function transfer() { await perform(async () => { const result = await api.post<{ token: string }>('/ownership-transfers', { resourceType:'KB', resourceId:Number(props.kbId), recipientId:recipient.value }); transferLink.value = `${location.origin}${location.pathname}#/transfer/${encodeURIComponent(result.token)}`; }, '转交链接已生成，交由受让人确认后生效'); }
 async function copyTransfer() { try { await navigator.clipboard.writeText(transferLink.value); copied.value = true; } catch { actionError.value = '无法自动复制，请选中链接复制'; } }

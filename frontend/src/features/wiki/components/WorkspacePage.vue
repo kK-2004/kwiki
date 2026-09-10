@@ -28,10 +28,19 @@
       <button type="button" class="icon" aria-label="查看页面洞察" @click="store.middleTab = 'summary'">
         <i class="i-lucide-lightbulb" aria-hidden="true"></i>
       </button>
-      <button v-if="store.page?.canManage" type="button" class="icon" aria-label="归档页面" @click="archivePage">
+      <button v-if="store.page?.canManage" type="button" class="icon" aria-label="归档页面" data-testid="action-archive" @click="archiveDialogOpen = true">
         <i class="i-lucide-archive" aria-hidden="true"></i>
       </button>
     </nav>
+
+    <ArchiveConfirmDialog
+      :open="archiveDialogOpen"
+      scope-label="页面"
+      :title="store.page?.title ?? ''"
+      :pending="archivePending"
+      @cancel="archiveDialogOpen = false"
+      @confirm="archivePage"
+    />
 
     <PageReader v-if="mode !== 'edit'" :kb-id="numericKbId ?? undefined" :page-id="numericPageId ?? undefined" :anchor-resolution="anchorResolution" @comment="beginSelectionComment" />
     <WikiInteractionPanel v-if="mode !== 'edit' && numericKbId && numericPageId" :kb-id="numericKbId" :page-id="numericPageId" :selection-text="selectionForComment" :anchor-id="selectionAnchorId" :focus-comment-id="commentId" />
@@ -64,6 +73,7 @@ import RevisionHistoryDrawer from './RevisionHistoryDrawer.vue';
 
 import WikiInteractionPanel from './WikiInteractionPanel.vue';
 import CollaborationPanel from '../../workspace/CollaborationPanel.vue';
+import ArchiveConfirmDialog from './ArchiveConfirmDialog.vue';
 import { useWikiStore } from '../store';
 import { api } from '../api';
 import type { CitationEntry } from '../sse';
@@ -144,14 +154,22 @@ async function beginSelectionComment(text: string) {
   requestAnimationFrame(() => document.querySelector('[data-testid="wiki-interactions"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 }
 
+const archiveDialogOpen = ref(false);
+const archivePending = ref(false);
+
+/** Fires only from the second modal confirm; debounce + idempotent server call. */
 async function archivePage() {
-  if (!numericKbId.value || !numericPageId.value) return;
+  if (!numericKbId.value || !numericPageId.value || archivePending.value) return;
+  archivePending.value = true;
   try {
     await api.post(`/knowledge-bases/${numericKbId.value}/pages/${numericPageId.value}/archive`, {});
+    archiveDialogOpen.value = false;
     await store.loadTree(numericKbId.value);
     await router.replace({ name: 'workspace', params: { kbId: numericKbId.value } });
   } catch {
-    // Keep the reader open when the server rejects the archive request.
+    // Keep the reader and dialog open when the server rejects the archive.
+  } finally {
+    archivePending.value = false;
   }
 }
 </script>

@@ -18,4 +18,9 @@ public interface AgenticWorkflowPort {
     default Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, java.util.List<ChatTurn> history) {
         return answer(user, query, history);
     }
+
+    default Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, java.util.List<ChatTurn> history,
+                                                   java.util.Set<Long> kbIds, java.util.Set<Long> pageIds) {
+        return answerInSession(user, query, history);
+    }
 }

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "relevance",
+    "coverage",
+    "faithfulness",
+    "passed",
+    "supportedEvidenceIds",
+    "unsupportedClaims",
+    "missingAspects",
+    "reasonCode",
+    "reasonSummary"
+  ],
+  "properties": {
+    "relevance": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "coverage": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "faithfulness": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "supportedEvidenceIds": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "unsupportedClaims": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "missingAspects": {
+      "type": "array",
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "reasonCode": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "reasonSummary": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 2000
+    }
+  }
+}

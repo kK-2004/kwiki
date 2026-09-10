@@ -73,8 +73,7 @@ public record ExternalServicesProperties(
             String baseUrl,
             @NotBlank String apiKey,
             @NotBlank
-            @Pattern(regexp = "text-embedding-v4", message = "kwiki only supports text-embedding-v4")
-            @DefaultValue("text-embedding-v4")
+            @NotBlank
             String model,
             @NotNull @Min(64) @Max(2048) @DefaultValue("1024") Integer dimensions,
             @NotNull @DefaultValue("30s") Duration requestTimeout) {

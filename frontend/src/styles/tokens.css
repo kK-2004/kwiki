@@ -40,6 +40,13 @@ body {
   background: var(--kwiki-bg);
 }
 
+.markdown img,.markdown video,.article img,.article video{max-width:100%!important;height:auto;object-fit:contain}
+.kwiki-attachment-card,a[data-kwiki-attachment="true"]{display:flex;align-items:center;gap:12px;width:min(520px,100%);box-sizing:border-box;margin:12px 0;padding:13px 15px;border:1px solid #dce7df;border-radius:10px;background:#f8fbf9;color:#3f5e49;text-decoration:none}
+.kwiki-attachment-card>span:first-child{display:grid;gap:3px;min-width:0}
+.kwiki-attachment-card strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kwiki-attachment-card small{color:#8b9990}
+.kwiki-attachment-download{margin-left:auto;color:#42875c}
+
 button {
   font: inherit;
   color: inherit;

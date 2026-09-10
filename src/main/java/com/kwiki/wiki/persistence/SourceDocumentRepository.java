@@ -8,4 +8,8 @@ import java.util.List;
 public interface SourceDocumentRepository extends JpaRepository<SourceDocument, Long> {
 
     List<SourceDocument> findByPageId(Long pageId);
+
+    List<SourceDocument> findByAttachmentId(Long attachmentId);
+
+    List<SourceDocument> findByPageIdIn(List<Long> pageIds);
 }

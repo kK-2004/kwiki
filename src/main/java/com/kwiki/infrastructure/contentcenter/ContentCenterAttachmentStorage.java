@@ -94,6 +94,26 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
     }
 
     @Override
+    public String cdnLink(long contentCenterFileId) {
+        if (contentCenterFileId <= 0) {
+            throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                    "attachment has no content-center file id");
+        }
+        try {
+            // No expiresIn: ask the deployment's CDN policy for its most durable form.
+            ContentCenterClient.CdnLink link = client.getCdnLink(
+                    ContentCenterClient.CdnLinkRequest.ofFileId(contentCenterFileId));
+            if (link == null || link.url() == null || link.url().isBlank()) {
+                throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                        "content-center cdn link was empty");
+            }
+            return link.url();
+        } catch (ContentCenterException e) {
+            throw translate("cdn link", e);
+        }
+    }
+
+    @Override
     public byte[] readContent(long contentCenterFileId) {
         if (contentCenterFileId <= 0) {
             throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,

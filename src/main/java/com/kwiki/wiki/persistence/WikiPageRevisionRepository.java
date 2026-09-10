@@ -12,5 +12,7 @@ public interface WikiPageRevisionRepository extends JpaRepository<WikiPageRevisi
 
     List<WikiPageRevision> findByPageIdOrderByRevisionNoDesc(Long pageId);
 
+    List<WikiPageRevision> findByPageIdAndPublishedAtIsNotNullOrderByRevisionNoDesc(Long pageId);
+
     Optional<WikiPageRevision> findFirstByPageIdOrderByRevisionNoDesc(Long pageId);
 }

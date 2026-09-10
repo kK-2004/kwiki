@@ -13,12 +13,26 @@
           <span class="updated"><i class="i-lucide-clock" aria-hidden="true"></i>更新于 {{ page.createdAt }}</span>
         </p>
       </div>
+      <div v-if="props.kbId && props.pageId" class="export-menu">
+        <button type="button" class="export-toggle" :aria-expanded="exportOpen" aria-label="导出当前修订" data-testid="reader-export" @click="exportOpen = !exportOpen">导出 <i class="i-lucide-chevron-down" aria-hidden="true"></i></button>
+        <div v-if="exportOpen" class="export-panel">
+          <button type="button" :disabled="exporting" @click="exportRevision('md')">Markdown</button>
+          <button type="button" :disabled="exporting" @click="exportRevision('html')">HTML</button>
+        </div>
+      </div>
     </div>
     <div v-if="anchorResolution" class="anchor-notice" :class="{ warning: !anchorResolution.currentRevision }" role="status">
       <strong>{{ anchorResolution.status === 'RELOCATED' ? '已定位划词' : '划词位置提示' }}</strong>
       <span>{{ anchorResolution.message }}</span>
     </div>
-    <div class="markdown article" data-testid="page-content" @mouseup="captureSelection" v-html="sanitizedHtml"></div>
+    <MediaMountRegion
+      class="markdown article"
+      data-testid="page-content"
+      :html="resolvedHtml"
+      :resolver="mediaResolver"
+      :kb-id="props.kbId"
+      @mouseup="captureSelection"
+    />
     <p v-if="selectionNotice" class="selection-notice" role="status">{{ selectionNotice }}</p>
     <div v-if="selectionText" class="selection-toolbar" :style="selectionToolbarStyle">
       <button type="button" @click="questionOpen = true">问 AI</button>
@@ -43,7 +57,9 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useWikiStore, normalizedError } from '../store';
 import { getAuthToken, setAuthToken } from '../api';
 import type { TreeNodeDto } from '../api';
-
+import MediaMountRegion from './MediaMountRegion.vue';
+import { createMediaPreviewResolver } from './mediaResolver';
+import type { MediaSourceResolver } from '@kk-2004/ui-components/components/KMediaViewer';
 const props = defineProps<{
   breadcrumb?: string;
   title?: string;
@@ -61,6 +77,86 @@ const errorText = computed(() => normalizedError(error.value));
 
 /** Server-rendered HTML is already sanitized by MarkdownPort. */
 const sanitizedHtml = computed(() => page.value?.html ?? '');
+
+/**
+ * Media in the rendered HTML is displayed by the shared viewer via
+ * MediaMountRegion (markers → one live instance per media). attachment://
+ * references are resolved client-side to fresh authorized links; unresolved
+ * ones keep the stable reference instead of a broken source URL. Signed URLs
+ * never enter stored content.
+ */
+const mediaResolver = ref<MediaSourceResolver>(() => null);
+watch(
+  () => props.kbId,
+  kbId => { mediaResolver.value = createMediaPreviewResolver(kbId); },
+  { immediate: true },
+);
+const attachmentHrefUrls = ref<Record<string, string>>({});
+const resolvedHtml = computed(() =>
+  sanitizedHtml.value.replace(/href="(attachment:\/\/[^"]+)"/g, (match, ref: string) => {
+    const url = attachmentHrefUrls.value[ref];
+    return url && url !== 'unavailable' ? `href="${url}"` : match;
+  }));
+
+watch(sanitizedHtml, (html) => {
+  const refs = [...html.matchAll(/href="(attachment:\/\/[^"]+)"/g)].map(match => match[1]);
+  for (const ref of refs) {
+    if (attachmentHrefUrls.value[ref] !== undefined || !props.kbId) continue;
+    attachmentHrefUrls.value = { ...attachmentHrefUrls.value, [ref]: '' };
+    const uuid = ref.slice('attachment://'.length);
+    void fetch(`/api/v1/knowledge-bases/${props.kbId}/attachments/${encodeURIComponent(uuid)}/download-url`, {
+      headers: getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {},
+    })
+      .then(response => (response.ok ? response.json() : null))
+      .then((body: { data?: { url?: string } } | null) => {
+        attachmentHrefUrls.value = {
+          ...attachmentHrefUrls.value,
+          [ref]: body?.data?.url || 'unavailable',
+        };
+      })
+      .catch(() => {
+        attachmentHrefUrls.value = { ...attachmentHrefUrls.value, [ref]: 'unavailable' };
+      });
+  }
+}, { immediate: true });
+
+/** Reader export of the currently viewed revision (never publishes). */
+const exportOpen = ref(false);
+const exporting = ref(false);
+async function exportRevision(format: 'md' | 'html') {
+  if (!props.kbId || !props.pageId || !page.value || exporting.value) return;
+  exportOpen.value = false;
+  exporting.value = true;
+  try {
+    const response = await fetch(
+      `/api/v1/knowledge-bases/${props.kbId}/pages/${props.pageId}/export`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
+        },
+        body: JSON.stringify({ format, revisionNo: page.value.revisionNo }),
+      },
+    );
+    if (!response.ok) return;
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+    let name = `${displayTitle.value || 'export'}.${format}`;
+    if (match) {
+      try { name = decodeURIComponent(match[1]); } catch { /* keep fallback */ }
+    }
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = name;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    exporting.value = false;
+  }
+}
 
 /** Title and path fall back to the tree entry of the selected page. */
 function findPath(nodes: TreeNodeDto[], id: number, trail: TreeNodeDto[]): TreeNodeDto[] | null {
@@ -183,6 +279,46 @@ onBeforeUnmount(() => questionController.value?.abort());
   align-items: flex-start;
   gap: 20px;
 }
+.export-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+.export-toggle {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid #dfe3e2;
+  border-radius: 6px;
+  background: var(--kwiki-panel, #fff);
+  font: inherit;
+  font-size: 12px;
+  color: #555c5c;
+  cursor: pointer;
+}
+.export-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  background: #fff;
+  border: 1px solid #e0e8e2;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(27, 52, 40, 0.12);
+  display: grid;
+  min-width: 200px;
+}
+.export-panel button {
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 12px;
+  color: #4a5454;
+  cursor: pointer;
+}
+.export-panel button:hover {
+  background: #f0f7f2;
+}
 .title-copy {
   min-width: 0;
   flex: 1;
@@ -301,6 +437,11 @@ onBeforeUnmount(() => questionController.value?.abort());
   background: none;
   padding: 0;
 }
+.markdown :deep(.kwiki-media-mount .k-media-viewer--image[data-status='resolving']),
+.markdown :deep(.kwiki-media-mount .k-media-viewer--image[data-status='loading']) {
+  height: 160px !important;
+  aspect-ratio: auto !important;
+}
 .provenance {
   margin-top: 32px;
   padding-top: 17px;
@@ -335,6 +476,10 @@ onBeforeUnmount(() => questionController.value?.abort());
   }
   .provenance {
     grid-template-columns: 1fr;
+  }
+  .markdown :deep(.kwiki-media-mount .k-media-viewer--image[data-status='resolving']),
+  .markdown :deep(.kwiki-media-mount .k-media-viewer--image[data-status='loading']) {
+    height: 120px !important;
   }
 }
 </style>

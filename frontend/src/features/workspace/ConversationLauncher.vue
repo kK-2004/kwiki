@@ -1,6 +1,6 @@
 <template>
   <template v-if="route.name !== 'conversations'">
-    <section v-if="store.floatingOpen" class="chat-float" role="dialog" aria-label="问问 kwiki" @keydown.esc="store.minimize"><header><div><span class="float-mark"><i class="i-lucide-sparkles" /></span><strong>问问 kwiki</strong><small>{{ store.running ? '回答生成中' : '你的知识助手' }}</small></div><button class="ui-icon" aria-label="最小化聊天" @click="store.minimize"><i class="i-lucide-minus" /></button><button class="ui-icon" aria-label="展开完整聊天" @click="expand"><i class="i-lucide-maximize-2" /></button><button class="ui-icon" aria-label="关闭聊天浮窗" @click="store.floatingOpen = false"><i class="i-lucide-x" /></button></header><ConversationMessages compact /></section>
+    <section v-if="store.floatingOpen" class="chat-float" role="dialog" aria-label="问问 kwiki" @keydown.esc="store.minimize"><header><div><span class="float-mark"><i class="i-lucide-sparkles" /></span><strong>问问 kwiki</strong><small>{{ store.running ? '回答生成中' : '你的知识助手' }}</small></div><button class="ui-icon" aria-label="最小化聊天" @click="store.minimize"><i class="i-lucide-minus" /></button><button class="ui-icon" aria-label="展开完整聊天" @click="expand"><i class="i-lucide-maximize-2" /></button></header><ConversationMessages compact /></section>
     <button v-else type="button" class="launcher" aria-label="问问 kwiki" @click="open"><i class="i-lucide-sparkles" /><span>{{ store.running ? '正在回答…' : '问问 kwiki' }}</span><i class="i-lucide-chevron-up" /></button>
   </template>
 </template>

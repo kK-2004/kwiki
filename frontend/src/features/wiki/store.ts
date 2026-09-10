@@ -64,11 +64,14 @@ export const useWikiStore = defineStore('wiki', {
         if (pageController === controller) this.pageLoading = false;
       }
     },
-    async saveDraft(kbId: number, pageId: number, markdown: string) {
-      await api.put(`/knowledge-bases/${kbId}/pages/${pageId}/draft`, { markdown });
+    async loadDraft(kbId: number, pageId: number) {
+      return api.json<{ markdown: string; changeNote?: string; updatedAt?: string }>(`/knowledge-bases/${kbId}/pages/${pageId}/draft`);
     },
-    async publishPage(kbId: number, pageId: number) {
-      await api.post(`/knowledge-bases/${kbId}/pages/${pageId}/publish`, {});
+    async saveDraft(kbId: number, pageId: number, markdown: string, changeNote = '') {
+      return api.put(`/knowledge-bases/${kbId}/pages/${pageId}/draft`, { markdown, changeNote });
+    },
+    async publishPage(kbId: number, pageId: number, changeNote = '') {
+      await api.post(`/knowledge-bases/${kbId}/pages/${pageId}/publish`, { changeNote });
     },
     async loadNotificationCount() {
       try { this.notificationUnread = await api.json<number>('/notifications/unread-count'); }

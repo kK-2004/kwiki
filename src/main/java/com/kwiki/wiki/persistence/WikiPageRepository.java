@@ -15,6 +15,9 @@ public interface WikiPageRepository extends JpaRepository<WikiPage, Long> {
 
     Optional<WikiPage> findByUuid(String uuid);
 
+    /** All nodes regardless of lifecycle; used for subtree snapshots and restore. */
+    List<WikiPage> findByKbId(Long kbId);
+
     Optional<WikiPage> findByIdAndStatus(Long id, String status);
 
     List<WikiPage> findByKbIdAndStatusOrderByParentIdAscSiblingOrderAsc(Long kbId, String status);

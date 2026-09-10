@@ -61,6 +61,9 @@ class IndexingWorkerTest {
     WikiPageRepository pages;
 
     @Mock
+    com.kwiki.wiki.persistence.KnowledgeBaseRepository knowledgeBases;
+
+    @Mock
     WikiPageRevisionRepository revisions;
 
     @Mock
@@ -78,8 +81,8 @@ class IndexingWorkerTest {
         worker = new IndexingWorker(claimer, store, DocumentParseService.forTests(),
                 new com.kwiki.indexing.chunk.ParentChunker(),
                 new com.kwiki.indexing.chunk.ChildChunker(),
-                embeddings, index, pages, revisions, attachments, storage,
-                properties(), new SimpleMeterRegistry(), 8, 30, 3600);
+                embeddings, index, null, pages, knowledgeBases, revisions, attachments,
+                storage, properties(), new SimpleMeterRegistry(), 8, 30, 3600);
     }
 
     private static ExternalServicesProperties properties() {
@@ -190,13 +193,11 @@ class IndexingWorkerTest {
     }
 
     @Test
-    void unsupportedAttachmentFailsTerminallyWithoutIndexWrites() {
-        Attachment attachment = new Attachment("att-uuid", KB, 1L, "virus.exe",
-                "application/x-msdownload", 10);
+    void nonImageAttachmentUpsertClearsLegacyChunksInsteadOfIndexing() {
+        Attachment attachment = new Attachment("att-uuid", KB, 1L, "spec.docx", DOCX, 10);
         org.springframework.test.util.ReflectionTestUtils.setField(attachment, "id", 21L);
         attachment.markStored(31L);
         when(attachments.findById(21L)).thenReturn(Optional.of(attachment));
-        when(storage.readContent(31L)).thenReturn(new byte[]{'M', 'Z'});
         when(jdbc.queryForList(anyString(), anyLong()))
                 .thenReturn(List.of(jobRow(1, "UPSERT", "ATTACHMENT", 21L, null)));
 
@@ -204,13 +205,14 @@ class IndexingWorkerTest {
 
         verify(index, never()).upsertChunks(any());
         verify(embeddings, never()).embed(any());
-        // maxAttempts=0 forces terminal FAILED in the same statement
-        verify(jdbc).update(contains("'FAILED'"), eq(0), anyString(), anyString(),
-                eq(0), anyLong(), anyLong(), eq(1L));
+        verify(storage, never()).readContent(anyLong());
+        // legacy chunks are removed; the attachment itself stays display-only
+        verify(index).deleteResourceChunks("ATTACHMENT", 21L);
+        verify(jdbc).update(contains("state = 'COMPLETED'"), eq(1L));
     }
 
     @Test
-    void missingContentCenterFileIdFailsClosedTerminallyWithoutReads() {
+    void pendingAttachmentWithoutFileIdIsSkippedWithoutReads() {
         Attachment pending = new Attachment("att-pending", KB, 1L, "spec.docx", DOCX, 10);
         org.springframework.test.util.ReflectionTestUtils.setField(pending, "id", 22L);
         when(attachments.findById(22L)).thenReturn(Optional.of(pending));
@@ -221,14 +223,12 @@ class IndexingWorkerTest {
 
         verify(storage, never()).readContent(anyLong());
         verify(index, never()).upsertChunks(any());
-        verify(embeddings, never()).embed(any());
-        verify(jdbc).update(contains("'FAILED'"), eq(0), anyString(), anyString(),
-                eq(0), anyLong(), anyLong(), eq(1L));
+        verify(jdbc).update(contains("state = 'COMPLETED'"), eq(1L));
     }
 
     @Test
-    void transientStorageFailureSchedulesRetryWithoutCompleting() {
-        Attachment attachment = new Attachment("att-uuid", KB, 1L, "spec.docx", DOCX, 10);
+    void transientImageStorageFailureSchedulesRetryWithoutCompleting() {
+        Attachment attachment = new Attachment("att-img", KB, 1L, "arch.png", "image/png", 10);
         org.springframework.test.util.ReflectionTestUtils.setField(attachment, "id", 23L);
         attachment.markStored(33L);
         when(attachments.findById(23L)).thenReturn(Optional.of(attachment));
@@ -246,8 +246,8 @@ class IndexingWorkerTest {
     }
 
     @Test
-    void permanentStorageFailureFailsTerminallyWithoutRetries() {
-        Attachment attachment = new Attachment("att-uuid", KB, 1L, "huge.docx", DOCX, 10);
+    void permanentImageStorageFailureFailsTerminallyWithoutRetries() {
+        Attachment attachment = new Attachment("att-img", KB, 1L, "huge.png", "image/png", 10);
         org.springframework.test.util.ReflectionTestUtils.setField(attachment, "id", 24L);
         attachment.markStored(34L);
         when(attachments.findById(24L)).thenReturn(Optional.of(attachment));

@@ -51,12 +51,58 @@ public class AuthorizationScopeResolver {
         return scopeCache.getOrLoad(user.id(), this::loadFromDatabase);
     }
 
+    /** Narrows the caller's authorized scope to an optional user selection. */
+    public AuthorizationScope resolve(CurrentUser user, Set<Long> requestedKbIds, Set<Long> requestedPageIds) {
+        AuthorizationScope base = resolve(user);
+        boolean constrained = (requestedKbIds != null && !requestedKbIds.isEmpty())
+                || (requestedPageIds != null && !requestedPageIds.isEmpty());
+        if (!constrained) return base;
+        Set<Long> kbIds = new java.util.HashSet<>(requestedKbIds == null ? Set.of() : requestedKbIds);
+        Set<Long> pageIds = new java.util.HashSet<>(requestedPageIds == null ? Set.of() : requestedPageIds);
+        if (!base.superuser()) {
+            kbIds.retainAll(base.accessibleKbIds());
+            pageIds.retainAll(base.accessiblePageIds());
+        }
+        if (jdbc != null && !kbIds.isEmpty()) {
+            String placeholders = String.join(",", java.util.Collections.nCopies(kbIds.size(), "?"));
+            Set<Long> pagesInSelectedKbs = new java.util.HashSet<>(jdbc.query(
+                    "SELECT id FROM wiki_page WHERE status = 'ACTIVE' AND kb_id IN (" + placeholders + ")",
+                    (rs, row) -> rs.getLong(1), kbIds.toArray()));
+            if (!base.superuser()) pagesInSelectedKbs.retainAll(base.accessiblePageIds());
+            pageIds.addAll(pagesInSelectedKbs);
+        }
+        if (jdbc != null && !pageIds.isEmpty()) {
+            String placeholders = String.join(",", java.util.Collections.nCopies(pageIds.size(), "?"));
+            List<Long> activePages = jdbc.query("SELECT id FROM wiki_page WHERE status = 'ACTIVE' AND id IN (" + placeholders + ")",
+                    (rs, row) -> rs.getLong(1), pageIds.toArray());
+            pageIds.retainAll(activePages);
+        }
+        Map<Long, Long> versions = new HashMap<>();
+        kbIds.forEach(id -> versions.put(id, scopeVersions.current(id)));
+        return new AuthorizationScope(user.id(), false, kbIds, versions, pageIds);
+    }
+
     private AuthorizationScope loadFromDatabase(long userId) {
         List<KnowledgeBaseMember> memberships = members.findByUserId(userId);
-        Map<Long, Long> versions = new HashMap<>();
         Set<Long> kbIds = memberships.stream()
                 .map(KnowledgeBaseMember::getKbId)
                 .collect(Collectors.toSet());
+        // Archived knowledge bases never widen the retrieval scope: membership
+        // rows survive archiving, the authoritative status does not.
+        if (jdbc != null && !kbIds.isEmpty()) {
+            String placeholders = String.join(",", java.util.Collections.nCopies(kbIds.size(), "?"));
+            Object[] args = new Object[kbIds.size()];
+            int index = 0;
+            for (Long kbId : kbIds) {
+                args[index++] = kbId;
+            }
+            List<Long> active = jdbc.query(
+                    "SELECT id FROM knowledge_base WHERE status = 'ACTIVE' AND id IN ("
+                            + placeholders + ")",
+                    (rs, row) -> rs.getLong(1), args);
+            kbIds = new java.util.HashSet<>(active);
+        }
+        Map<Long, Long> versions = new HashMap<>();
         for (Long kbId : kbIds) {
             versions.put(kbId, scopeVersions.current(kbId));
         }

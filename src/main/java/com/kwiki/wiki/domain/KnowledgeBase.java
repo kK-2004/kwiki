@@ -31,6 +31,7 @@ public class KnowledgeBase {
     private String name;
     private String description;
     private String status = STATUS_ACTIVE;
+    private long lifecycleVersion = 1L;
     private Long createdBy;
     private Long ownerId;
 
@@ -93,8 +94,21 @@ public class KnowledgeBase {
         this.status = STATUS_ARCHIVED;
     }
 
+    public void restore() {
+        this.status = STATUS_ACTIVE;
+    }
+
     public boolean isArchived() {
         return STATUS_ARCHIVED.equals(status);
+    }
+
+    public long getLifecycleVersion() {
+        return lifecycleVersion;
+    }
+
+    /** Every lifecycle transition (archive/restore) advances the fencing version. */
+    public void bumpLifecycleVersion() {
+        this.lifecycleVersion++;
     }
 
     public Long getCreatedBy() {

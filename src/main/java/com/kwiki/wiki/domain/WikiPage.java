@@ -42,6 +42,7 @@ public class WikiPage {
     private String nodeType = TYPE_PAGE;
     private int siblingOrder;
     private String status = STATUS_ACTIVE;
+    private long lifecycleVersion = 1L;
     private Long currentDraftRevisionId;
     private Long currentPublishedRevisionId;
     private Long createdBy;
@@ -130,8 +131,21 @@ public class WikiPage {
         this.status = STATUS_ARCHIVED;
     }
 
+    public void restore() {
+        this.status = STATUS_ACTIVE;
+    }
+
     public boolean isArchived() {
         return STATUS_ARCHIVED.equals(status);
+    }
+
+    public long getLifecycleVersion() {
+        return lifecycleVersion;
+    }
+
+    /** Every lifecycle transition (archive/restore) advances the fencing version. */
+    public void bumpLifecycleVersion() {
+        this.lifecycleVersion++;
     }
 
     public Long getCurrentDraftRevisionId() {

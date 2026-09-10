@@ -17,20 +17,29 @@
         <strong>r{{ revision.revisionNo }} · {{ index === 0 ? '当前版本' : '已发布' }}</strong>
         <div class="rev-meta">{{ revision.createdAt }}</div>
         <p>{{ revision.changeNote ?? '无说明' }}</p>
-        <button type="button" class="btn" @click="emit('restore', revision.revisionNo)">
-          {{ index === 0 ? '与上一版比较' : '恢复为新版本' }}
-        </button>
+        <button type="button" class="btn" @click="selected = revision">查看版本</button>
       </li>
     </ol>
     <p v-if="revisions.length === 0" class="empty" data-testid="revision-empty">暂无历史版本</p>
+    <div v-if="selected" class="revision-overlay" @click.self="selected = null">
+      <section class="revision-dialog" role="dialog" aria-modal="true" :aria-label="`版本 r${selected.revisionNo}`">
+        <header><div><h3>r{{ selected.revisionNo }}</h3><p>{{ selected.changeNote || '无说明' }}</p></div><button type="button" class="icon" aria-label="关闭版本内容" @click="selected = null"><i class="i-lucide-x" /></button></header>
+        <div class="revision-content markdown" v-html="renderMarkdown(selected.markdown || '')"></div>
+        <footer><button type="button" class="btn" @click="selected = null">关闭</button><button v-if="selected.revisionNo !== revisions[0]?.revisionNo" type="button" class="btn primary" @click="restoreSelected">恢复到当前版本</button></footer>
+      </section>
+    </div>
   </aside>
 </template>
 
 <script setup lang="ts">
-defineProps<{
-  revisions: Array<{ revisionNo: number; changeNote?: string; createdAt: string }>;
+import { ref } from 'vue';
+import { renderMarkdown } from './render';
+const props = defineProps<{
+  revisions: Array<{ revisionNo: number; changeNote?: string; createdAt: string; markdown?: string }>;
 }>();
 const emit = defineEmits<{ restore: [revisionNo: number]; close: [] }>();
+const selected = ref<(typeof props.revisions)[number] | null>(null);
+function restoreSelected() { if (!selected.value) return; emit('restore', selected.value.revisionNo); selected.value = null; }
 </script>
 
 <style scoped>
@@ -126,4 +135,12 @@ const emit = defineEmits<{ restore: [revisionNo: number]; close: [] }>();
 .empty {
   color: var(--kwiki-muted);
 }
+.revision-overlay { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; background: #19332255; }
+.revision-dialog { width: min(860px, 100%); max-height: min(760px, 90vh); display: flex; flex-direction: column; overflow: hidden; border-radius: 16px; background: #fff; box-shadow: 0 24px 80px #1a332633; }
+.revision-dialog header,.revision-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--kwiki-line); }
+.revision-dialog header h3,.revision-dialog header p { margin: 0; }
+.revision-dialog header p { margin-top: 5px; color: var(--kwiki-muted); font-size: 12px; }
+.revision-content { flex: 1; min-height: 240px; overflow: auto; padding: 24px; }
+.revision-dialog footer { justify-content: flex-end; border-top: 1px solid var(--kwiki-line); border-bottom: 0; }
+.btn.primary { border-color: var(--kwiki-green); background: var(--kwiki-green); color: #fff; }
 </style>

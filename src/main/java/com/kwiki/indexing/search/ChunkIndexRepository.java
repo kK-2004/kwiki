@@ -72,6 +72,8 @@ public class ChunkIndexRepository implements ChunkIndexPort {
         try {
             client.deleteByQuery(request -> request
                     .index(ElasticsearchIndexManager.ALIAS)
+                    .allowNoIndices(true)
+                    .ignoreUnavailable(true)
                     .refresh(true)
                     .query(query -> query.bool(bool -> bool
                             .filter(filter -> filter.term(
@@ -82,6 +84,72 @@ public class ChunkIndexRepository implements ChunkIndexPort {
                                                     .longValue(resourceId).build()))))));
         } catch (Exception e) {
             throw new IllegalStateException("chunk deletion failed", e);
+        }
+    }
+
+    /** Result of a checked deletion: enough evidence to claim SYNCED or PENDING. */
+    public record DeleteOutcome(long deleted, boolean timedOut, int failures) {
+        public boolean clean() {
+            return !timedOut && failures == 0;
+        }
+    }
+
+    /**
+     * Deletion with an inspectable outcome for the recycle-bin flow: the
+     * response's timedOut flag, bulk failure list, and deleted count are all
+     * checked; a clean result is only reported after the refresh has made the
+     * deletion visible to search.
+     */
+    public DeleteOutcome deleteResourceChunksChecked(String resourceType, long resourceId) {
+        if (client == null) {
+            // No ES wiring (offline/tests): nothing to clean, treat as synced.
+            return new DeleteOutcome(0, false, 0);
+        }
+        try {
+            var response = client.deleteByQuery(request -> request
+                    .index(ElasticsearchIndexManager.ALIAS)
+                    .allowNoIndices(true)
+                    .ignoreUnavailable(true)
+                    .refresh(true)
+                    .query(query -> query.bool(bool -> bool
+                            .filter(filter -> filter.term(
+                                    term -> term.field("resourceType").value(resourceType)))
+                            .filter(filter -> filter.term(
+                                    term -> term.field("resourceId")
+                                            .value(new FieldValue.Builder()
+                                                    .longValue(resourceId).build()))))));
+            return new DeleteOutcome(
+                    response.deleted(),
+                    Boolean.TRUE.equals(response.timedOut()),
+                    response.failures() == null ? 0 : response.failures().size());
+        } catch (Exception e) {
+            throw new IllegalStateException("chunk deletion failed", e);
+        }
+    }
+
+    /**
+     * Knowledge-base-wide deletion covering every parent/child chunk of every
+     * resource (pages, attachments, source documents) inside the base.
+     */
+    public DeleteOutcome deleteKnowledgeBaseChunksChecked(long kbId) {
+        if (client == null) {
+            return new DeleteOutcome(0, false, 0);
+        }
+        try {
+            var response = client.deleteByQuery(request -> request
+                    .index(ElasticsearchIndexManager.ALIAS)
+                    .allowNoIndices(true)
+                    .ignoreUnavailable(true)
+                    .refresh(true)
+                    .query(query -> query.term(
+                            term -> term.field("kbId")
+                                    .value(new FieldValue.Builder().longValue(kbId).build()))));
+            return new DeleteOutcome(
+                    response.deleted(),
+                    Boolean.TRUE.equals(response.timedOut()),
+                    response.failures() == null ? 0 : response.failures().size());
+        } catch (Exception e) {
+            throw new IllegalStateException("knowledge-base chunk deletion failed", e);
         }
     }
 

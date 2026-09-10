@@ -13,6 +13,9 @@
 - 附件仅图片进入文档索引；音频、视频、PDF、Office 等其他附件只在页面展示，不创建附件检索 chunks。同步拦截旧任务并清除非图片附件的历史索引。
 - 工具栏新增图片、音频、视频下拉菜单、代码块、有序列表和 Markdown/HTML 导出。
 - 增加覆盖 query、路由、双路检索、融合、生成、QA、补救与终态的关联 DEBUG 日志。
+- 编辑器收敛为「源码 / 预览」双模式；源码内直接显示媒体上传与预览卡片，并增加普通附件卡片、语言代码块高亮、可恢复草稿和带 AI 建议的发布说明。
+- 版本历史改为先查看旧版本，再显式恢复到当前草稿；查看和比较不创建修订。
+- 删除无业务闭环的共享空间和全局搜索入口；聊天增加知识库/Wiki 多选检索范围，并将选择作为服务端授权范围的收窄条件。
 
 ## Capabilities
 
@@ -23,6 +26,9 @@
 - `wiki-recycle-bin`: 二次确认、7 天可恢复逻辑删除、即时检索隔离和每日清理。
 - `wiki-inline-media-and-export`: 媒体上传/链接、文中编辑预览、布局尺寸、代码块/序号与导出。
 - `rag-debug-tracing`: 贯通整个问答生命周期的结构化 DEBUG 诊断。
+- `wiki-draft-revision-workflow`: 草稿续编、发布说明、只读历史查看和显式恢复。
+- `scoped-chat-selection`: 知识库/Wiki 多选器及检索范围收窄。
+- `workspace-navigation-simplification`: 删除共享空间、搜索页面及聊天浮窗冗余关闭动作。
 
 ### Modified Capabilities
 

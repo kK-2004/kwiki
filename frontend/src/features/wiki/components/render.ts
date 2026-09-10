@@ -1,6 +1,66 @@
-/** Small, escaped Markdown renderer shared by previews and streamed answers. */
-export function renderMarkdown(markdown: string): string {
-  const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+/**
+ * Small, escaped Markdown renderer shared by previews and streamed answers.
+ * Supports standard images, restricted <img>/<audio>/<video> media tags with
+ * whitelisted attributes, and attachment:// references. Everything is escaped
+ * first; only whitelisted media markup is ever emitted. Callers that mount
+ * the shared media viewer pass `mediaPlaceholder` so media segments come back
+ * as tokens the caller splits into Vue-managed component slots.
+ */
+import { isSafeMediaSrc, scanMediaBlocks, type MediaAttrs } from './mediaBlocks';
+import hljs from 'highlight.js/lib/common';
+import 'highlight.js/styles/github.css';
+
+export type MediaUrlResolver = (attrs: MediaAttrs) => string | null;
+
+export interface RenderMarkdownOptions {
+  resolveMedia?: MediaUrlResolver;
+  mediaPlaceholder?: (attrs: MediaAttrs, index: number) => string;
+}
+
+export type MarkdownPart =
+  | { type: 'html'; html: string }
+  | { type: 'media'; media: MediaAttrs };
+
+const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+function mediaStyles(attrs: MediaAttrs): { style: string; widthAttr: string } {
+  const style: string[] = [];
+  let widthAttr = '';
+  if (attrs.align === 'center') style.push('display:block;margin-left:auto;margin-right:auto;text-align:center');
+  else if (attrs.align === 'right') style.push('display:block;margin-left:auto');
+  else if (attrs.align === 'left') style.push('display:block;margin-right:auto');
+  if (attrs.widthPercent) widthAttr = `width="${attrs.widthPercent}%"`;
+  else if (attrs.widthPx) widthAttr = `width="${attrs.widthPx}"`;
+  return { style: style.join(';'), widthAttr };
+}
+
+function renderMedia(attrs: MediaAttrs, options: RenderMarkdownOptions, index: number): string {
+  if (!isSafeMediaSrc(attrs.src)) return escape(attrs.src);
+  if (options.mediaPlaceholder) return options.mediaPlaceholder(attrs, index);
+  const resolved = options.resolveMedia ? options.resolveMedia(attrs) : null;
+  const url = resolved || attrs.src;
+  const { style, widthAttr } = mediaStyles(attrs);
+  const styleAttr = style ? ` style="${style}"` : '';
+  const alt = attrs.alt ? ` alt="${escape(attrs.alt)}"` : '';
+  if (attrs.kind === 'ATTACHMENT') {
+    const name = escape(attrs.fileName || '附件');
+    const bytes = attrs.byteSize || 0;
+    const size = bytes <= 0 ? '大小未知' : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+    return `<a class="kwiki-attachment-card" href="${escape(url)}" target="_blank" rel="noopener"><span><strong>${name}</strong><small>${size}</small></span><span class="kwiki-attachment-download">下载</span></a>`;
+  }
+  switch (attrs.kind) {
+    case 'IMAGE':
+      return `<img src="${escape(url)}"${alt}${widthAttr ? ' ' + widthAttr : ''}${styleAttr} loading="lazy" />`;
+    case 'AUDIO':
+      return `<audio src="${escape(url)}" controls preload="metadata"${styleAttr}></audio>`;
+    case 'VIDEO':
+      return `<video src="${escape(url)}" controls preload="metadata"${widthAttr ? ' ' + widthAttr : ''}${styleAttr}></video>`;
+    default:
+      return '';
+  }
+}
+
+export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions): string {
   const inline = (text: string): string => {
     const codes: string[] = [];
     let value = escape(text).replace(/`([^`]+)`/g, (_, code: string) => { codes.push(`<code>${code}</code>`); return `\u0000${codes.length - 1}\u0000`; });
@@ -8,16 +68,71 @@ export function renderMarkdown(markdown: string): string {
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
     return value.replace(/\u0000(\d+)\u0000/g, (_, index: string) => codes[Number(index)] || '');
   };
+
+  // Media segments render as real nodes; the remaining text renders inline.
+  const segments = scanMediaBlocks(markdown);
+  const renderTextBlock = (block: string): string => renderText(block, inline);
+  if (segments.length && segments.some(segment => segment.type === 'media')) {
+    const parts: string[] = [];
+    let mediaIndex = 0;
+    for (const segment of segments) {
+      if (segment.type === 'media') parts.push(renderMedia(segment.media, options ?? {}, mediaIndex++));
+      else parts.push(renderTextBlock(segment.text));
+    }
+    return parts.join('\n');
+  }
+  return renderTextBlock(markdown);
+}
+
+const PLACEHOLDER_TOKEN = '\u0000kwiki-media\u0000';
+
+/**
+ * Renders markdown into alternating html/media parts. Media parts are
+ * returned separately so the caller renders them as real Vue components
+ * (stable across re-renders) instead of a second v-html player.
+ */
+export function renderMarkdownParts(markdown: string): MarkdownPart[] {
+  const mediaByToken = new Map<string, MediaAttrs>();
+  const html = renderMarkdown(markdown, {
+    mediaPlaceholder: (attrs, index) => {
+      const token = `${PLACEHOLDER_TOKEN}${index}\u0000`;
+      mediaByToken.set(token, attrs);
+      return token;
+    },
+  });
+  const parts: MarkdownPart[] = [];
+  const pattern = new RegExp(`(\u0000kwiki-media\u0000\\d+\u0000)`, 'g');
+  for (const piece of html.split(pattern)) {
+    if (!piece) continue;
+    const media = mediaByToken.get(piece);
+    if (media) parts.push({ type: 'media', media });
+    else parts.push({ type: 'html', html: piece });
+  }
+  return parts;
+}
+
+function renderText(markdown: string, inline: (text: string) => string): string {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
   const out: string[] = [];
   for (let i = 0; i < lines.length;) {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
     if (/^\s*```/.test(line)) {
+      const language = /^\s*```([\w+-]+)?/.exec(line)?.[1]?.toLowerCase() || '';
       const code: string[] = []; i++;
       while (i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i++]);
       if (i < lines.length) i++;
-      out.push(`<pre><code>${escape(code.join('\n'))}</code></pre>`); continue;
+      const source = code.join('\n');
+      let highlighted = escape(source);
+      let className = '';
+      if (language && hljs.getLanguage(language)) {
+        highlighted = hljs.highlight(source, { language, ignoreIllegals: true }).value;
+        className = ` class="hljs language-${escape(language)}"`;
+      } else if (source.trim()) {
+        highlighted = hljs.highlightAuto(source).value;
+        className = ' class="hljs"';
+      }
+      out.push(`<div class="code-block"><button type="button" class="code-copy" data-copy-code aria-label="复制代码"><i class="i-lucide-copy" aria-hidden="true"></i><span>复制</span></button><pre><code${className}>${highlighted}</code></pre></div>`); continue;
     }
     const heading = /^(#{1,6})\s+(.+)$/.exec(line);
     if (heading) { out.push(`<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>`); i++; continue; }

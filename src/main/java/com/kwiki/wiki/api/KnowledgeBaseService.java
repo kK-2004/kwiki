@@ -33,17 +33,29 @@ public class KnowledgeBaseService {
     private final KnowledgeBaseAuthorizationService authorization;
     private final ScopeVersionService scopeVersions;
     private final ScopeCache scopeCache;
+    private final com.kwiki.wiki.archive.ResourceArchiveService archiveService;
 
     public KnowledgeBaseService(KnowledgeBaseRepository knowledgeBases,
                                 KnowledgeBaseMemberRepository members,
                                 KnowledgeBaseAuthorizationService authorization,
                                 ScopeVersionService scopeVersions,
                                 ScopeCache scopeCache) {
+        this(knowledgeBases, members, authorization, scopeVersions, scopeCache, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public KnowledgeBaseService(KnowledgeBaseRepository knowledgeBases,
+                                KnowledgeBaseMemberRepository members,
+                                KnowledgeBaseAuthorizationService authorization,
+                                ScopeVersionService scopeVersions,
+                                ScopeCache scopeCache,
+                                com.kwiki.wiki.archive.ResourceArchiveService archiveService) {
         this.knowledgeBases = knowledgeBases;
         this.members = members;
         this.authorization = authorization;
         this.scopeVersions = scopeVersions;
         this.scopeCache = scopeCache;
+        this.archiveService = archiveService;
     }
 
     @Transactional
@@ -94,8 +106,16 @@ public class KnowledgeBaseService {
         return knowledgeBases.save(kb);
     }
 
-    @Transactional
+    /**
+     * Delegates to the unified recycle-bin service: batch over all valid
+     * pages/attachments/sources, 7-day retention, immediate index isolation.
+     */
     public void archive(CurrentUser user, long kbId) {
+        if (archiveService != null) {
+            archiveService.archiveKnowledgeBase(user, kbId);
+            return;
+        }
+        // Test/fallback path without the recycle-bin wiring.
         authorization.require(user, kbId, WikiAction.ARCHIVE_KNOWLEDGE_BASE);
         KnowledgeBase kb = requireAccessible(user, kbId);
         kb.archive();

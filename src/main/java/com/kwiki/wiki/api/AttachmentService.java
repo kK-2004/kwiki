@@ -11,6 +11,7 @@ import com.kwiki.wiki.access.ResourceAuthorizationService;
 import com.kwiki.wiki.attach.AttachmentFileNames;
 import com.kwiki.wiki.attach.AttachmentStorage;
 import com.kwiki.wiki.attach.AttachmentUpload;
+import com.kwiki.wiki.attach.MediaContentSniffer;
 import com.kwiki.wiki.attach.StoredAttachment;
 import com.kwiki.wiki.domain.Attachment;
 import com.kwiki.wiki.persistence.AttachmentRepository;
@@ -41,7 +42,14 @@ public class AttachmentService {
     private static final Set<String> DEFAULT_ALLOWED_TYPES = Set.of(
             "text/markdown", "text/plain", "text/html",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/pdf");
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/msword", "application/vnd.ms-excel", "application/vnd.ms-powerpoint",
+            "application/pdf", "application/zip", "application/x-zip-compressed",
+            // display/preview media (only images enter the document index)
+            "image/png", "image/jpeg", "image/gif", "image/webp",
+            "audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg",
+            "video/mp4", "video/webm");
 
     private final AttachmentRepository attachments;
     private final AttachmentStorage storage;
@@ -92,6 +100,11 @@ public class AttachmentService {
      * Not transactional on purpose: the PENDING row commits before the remote upload
      * so a failed upload leaves a reconciliation trail (PENDING, null file id), and
      * the STORED transition commits only after validated success.
+     *
+     * <p>Media uploads validate the actual content against the declared MIME
+     * (magic bytes) before anything is stored, and cross-check the
+     * content-center-reported type afterwards. Only validated image attachments
+     * enter the document index; every other attachment stays display-only.</p>
      */
     public Attachment upload(CurrentUser user, long kbId, String rawFileName, String contentType,
                              long byteSize, InputStream content) {
@@ -105,6 +118,11 @@ public class AttachmentService {
         if (!allowedContentTypes.contains(normalizedType)) {
             throw new IllegalArgumentException("attachment content type is not allowed");
         }
+        byte[] bytes = readAll(content);
+        if (com.kwiki.indexing.parse.AttachmentIndexEligibility.isMedia(normalizedType)
+                && !MediaContentSniffer.matchesDeclaredType(bytes, normalizedType)) {
+            throw new IllegalArgumentException("文件内容与声明的媒体类型不符");
+        }
 
         Attachment attachment = attachments.save(new Attachment(
                 UUID.randomUUID().toString(), kbId, user.id(), safeName,
@@ -113,7 +131,7 @@ public class AttachmentService {
         StoredAttachment stored;
         try {
             stored = storage.store(new AttachmentUpload(
-                    safeName, normalizedType, content, byteSize));
+                    safeName, normalizedType, new java.io.ByteArrayInputStream(bytes), byteSize));
         } catch (Exception e) {
             // PENDING row with no file id remains committed for reconciliation;
             // the signed URL and token stay inside the adapter.
@@ -122,17 +140,53 @@ public class AttachmentService {
         if (stored.verifiedByteSize() != attachment.getByteSize()) {
             throw new IllegalStateException("attachment storage returned inconsistent size");
         }
+        if (stored.verifiedContentType() != null
+                && !stored.verifiedContentType().isBlank()
+                && !stored.verifiedContentType().equalsIgnoreCase(normalizedType)
+                && !("image/jpg".equalsIgnoreCase(stored.verifiedContentType())
+                        && "image/jpeg".equals(normalizedType))) {
+            throw new IllegalStateException("attachment storage returned inconsistent content type");
+        }
         attachment.markStored(stored.contentCenterFileId());
         attachments.save(attachment);
-        indexingJobs.enqueueAttachmentUpsert(attachment.getId());
+        // Image-only index eligibility: everything else is display-only.
+        if (com.kwiki.indexing.parse.AttachmentIndexEligibility.isIndexableImage(normalizedType)) {
+            indexingJobs.enqueueAttachmentUpsert(attachment.getId());
+        }
         return attachment;
     }
 
+    private static byte[] readAll(InputStream content) {
+        try (content) {
+            return content.readAllBytes();
+        } catch (Exception e) {
+            throw new IllegalArgumentException("attachment content could not be read");
+        }
+    }
+
     /**
-     * Short-lived content-center URL only for STORED attachments that carry a file
-     * id, in the caller's knowledge base.
+     * Short-lived content-center URL only for STORED attachments that carry a
+     * file id, in the caller's knowledge base.
      */
     public String downloadUrl(CurrentUser user, long kbId, String attachmentUuid) {
+        Attachment attachment = requireReadableAttachment(user, kbId, attachmentUuid);
+        return storage.downloadLink(attachment.getContentCenterFileId(),
+                attachment.getFileName(), presignTtl);
+    }
+
+    /** Inline bytes of a stored attachment; the durable counterpart of the
+     *  short-lived presigned links, used by exports and external viewers. */
+    public record AttachmentContent(byte[] bytes, String fileName, String contentType) {}
+
+    public AttachmentContent readContent(CurrentUser user, long kbId, String attachmentUuid) {
+        Attachment attachment = requireReadableAttachment(user, kbId, attachmentUuid);
+        return new AttachmentContent(storage.readContent(attachment.getContentCenterFileId()),
+                attachment.getFileName(), attachment.getContentType());
+    }
+
+    /** KB read + STORED + usable file id; import sources additionally need a
+     *  readable derived page. */
+    private Attachment requireReadableAttachment(CurrentUser user, long kbId, String attachmentUuid) {
         authorization.require(user, kbId, WikiAction.READ_PAGE);
         Attachment attachment = attachments.findByUuid(attachmentUuid)
                 .filter(candidate -> candidate.getKbId() == kbId)
@@ -147,7 +201,52 @@ public class AttachmentService {
             // Fail closed: a STORED row without a file id is unusable.
             throw new NotFoundException("attachment not found");
         }
-        return storage.downloadLink(fileId, attachment.getFileName(), presignTtl);
+        return attachment;
+    }
+
+    /**
+     * Authorized preview link for inline media (image/audio/video). Beyond the
+     * knowledge-base read check, a media attachment embedded in page content is
+     * granted only while at least one ACTIVE page revision readable to the
+     * caller still references it — archived pages stop being an authorization
+     * source. Links are always re-issued fresh from the stable attachment
+     * identity; signed URLs are never persisted.
+     */
+    public String mediaPreviewUrl(CurrentUser user, long kbId, String attachmentUuid) {
+        String url = downloadUrl(user, kbId, attachmentUuid);
+        Attachment attachment = attachments.findByUuid(attachmentUuid)
+                .filter(candidate -> candidate.getKbId() == kbId)
+                .orElseThrow(() -> new NotFoundException("attachment not found"));
+        boolean media = com.kwiki.indexing.parse.AttachmentIndexEligibility
+                .isMedia(attachment.getContentType());
+        if (media && jdbc != null && resources != null) {
+            Integer referenced = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM page_revision_media m JOIN wiki_page p ON p.id = m.page_id "
+                            + "WHERE m.attachment_id = ? AND p.status = 'ACTIVE'",
+                    Integer.class, attachment.getId());
+            if (referenced != null && referenced > 0) {
+                Integer readable = jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM page_revision_media m JOIN wiki_page p ON p.id = m.page_id "
+                                + "WHERE m.attachment_id = ? AND p.status = 'ACTIVE' AND p.kb_id = ?",
+                        Integer.class, attachment.getId(), kbId);
+                boolean anyReadable = false;
+                if (readable != null && readable > 0) {
+                    List<Long> pageIds = jdbc.query(
+                            "SELECT DISTINCT m.page_id FROM page_revision_media m "
+                                    + "JOIN wiki_page p ON p.id = m.page_id "
+                                    + "WHERE m.attachment_id = ? AND p.status = 'ACTIVE'",
+                            (rs, row) -> rs.getLong(1), attachment.getId());
+                    anyReadable = pageIds.stream()
+                            .anyMatch(pageId -> resources.can(user, pageId, ResourceAction.READ));
+                }
+                if (!anyReadable) {
+                    throw new NotFoundException("attachment not found");
+                }
+            }
+            // No page reference yet (fresh upload, not saved into a page): the
+            // knowledge-base read permission granted above remains sufficient.
+        }
+        return url;
     }
 
     private int jdbcVisibleImportPages(Long attachmentId, CurrentUser user) {

@@ -42,7 +42,8 @@ class JdbcIndexingJobEnqueuerTest {
         java.util.List<Object> values = java.util.Arrays.asList(args.getValue());
         assertThat(values.subList(0, 3)).containsExactly("UPSERT", "PAGE", 7L);
         assertThat(values.get(3)).isEqualTo(103L);
-        assertThat(values.get(4)).isEqualTo("PAGE:7:103:UPSERT");
+        assertThat(values.get(4)).isNull(); // expected lifecycle version (legacy path)
+        assertThat(values.get(5)).isEqualTo("PAGE:7:103:UPSERT");
     }
 
     @Test
@@ -51,7 +52,18 @@ class JdbcIndexingJobEnqueuerTest {
 
         ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).update(anyString(), args.capture());
-        assertThat(java.util.Arrays.asList(args.getValue()).get(4)).isEqualTo("PAGE:7:-:DELETE");
+        assertThat(java.util.Arrays.asList(args.getValue()).get(5)).isEqualTo("PAGE:7:-:DELETE");
+    }
+
+    @Test
+    void fencedEnqueueCarriesExpectedLifecycleVersion() {
+        enqueuer(true).enqueuePageDelete(7L, 3L);
+
+        ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(anyString(), args.capture());
+        java.util.List<Object> values = java.util.Arrays.asList(args.getValue());
+        assertThat(values.get(4)).isEqualTo(3L);
+        assertThat(values.get(5)).isEqualTo("PAGE:7:-:DELETE");
     }
 
     @Test

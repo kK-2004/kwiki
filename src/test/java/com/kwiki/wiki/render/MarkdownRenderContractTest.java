@@ -76,6 +76,24 @@ class MarkdownRenderContractTest {
     }
 
     @Test
+    void kwikiMediaAttributesSurviveSanitization() {
+        String html = markdown.renderToHtml(
+                "<img src=\"https://cdn.example.com/a.png\" alt=\"截图\" data-align=\"center\" "
+                        + "data-width-percent=\"25\" width=\"640\" style=\"position:fixed\" "
+                        + "onload=\"alert(1)\" />");
+
+        // layout/size attributes ride along for readers and standalone exports
+        assertThat(html).contains("src=\"https://cdn.example.com/a.png\"");
+        assertThat(html).contains("alt=\"截图\"");
+        assertThat(html).contains("data-align=\"center\"");
+        assertThat(html).contains("data-width-percent=\"25\"");
+        assertThat(html).contains("width=\"640\"");
+        // style and events never pass
+        assertThat(html).doesNotContain("style=");
+        assertThat(html).doesNotContain("onload");
+    }
+
+    @Test
     void unsupportedConstructsStaySourceSafe() {
         String html = markdown.renderToHtml(fixture("unsupported-constructs.md"));
         String source = fixture("unsupported-constructs.md");
