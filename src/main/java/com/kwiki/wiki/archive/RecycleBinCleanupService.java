@@ -16,7 +16,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -38,10 +41,13 @@ public class RecycleBinCleanupService {
     public record CleanupStats(int scannedBatches, int purgedItems, int skippedItems,
                                int failedItems, long durationMs) {}
 
+    /** 用户从回收站主动发起的永久删除结果。 */
+    public record PurgeResult(long batchId, int purgedItems) {}
+
     private final ArchiveBatchRepository batches;
     private final ArchiveBatchItemRepository batchItems;
     private final ChunkIndexRepository chunkIndex;
-    private final ResourceIndexMutex mutex;
+    private final com.kwiki.indexing.version.IndexWriteTargets writeTargets;
     private final TransactionRunner transactions;
     private final JdbcOperations jdbc;
     private final Clock clock;
@@ -51,18 +57,18 @@ public class RecycleBinCleanupService {
     public RecycleBinCleanupService(ArchiveBatchRepository batches,
                                     ArchiveBatchItemRepository batchItems,
                                     ObjectProvider<ChunkIndexRepository> chunkIndex,
-                                    ResourceIndexMutex mutex,
+                                    com.kwiki.indexing.version.IndexWriteTargets writeTargets,
                                     TransactionRunner transactions,
                                     ObjectProvider<JdbcOperations> jdbc,
                                     @Value("${kwiki.archive.cleanup-batch-size:200}") int batchSize) {
-        this(batches, batchItems, chunkIndex, mutex, transactions, jdbc, batchSize,
+        this(batches, batchItems, chunkIndex, writeTargets, transactions, jdbc, batchSize,
                 Clock.systemUTC());
     }
 
     public RecycleBinCleanupService(ArchiveBatchRepository batches,
                                     ArchiveBatchItemRepository batchItems,
                                     ObjectProvider<ChunkIndexRepository> chunkIndex,
-                                    ResourceIndexMutex mutex,
+                                    com.kwiki.indexing.version.IndexWriteTargets writeTargets,
                                     TransactionRunner transactions,
                                     ObjectProvider<JdbcOperations> jdbc,
                                     int batchSize,
@@ -70,7 +76,7 @@ public class RecycleBinCleanupService {
         this.batches = batches;
         this.batchItems = batchItems;
         this.chunkIndex = chunkIndex.getIfAvailable();
-        this.mutex = mutex;
+        this.writeTargets = writeTargets;
         this.transactions = transactions;
         this.jdbc = jdbc == null ? null : jdbc.getIfAvailable();
         this.batchSize = batchSize;
@@ -125,6 +131,54 @@ public class RecycleBinCleanupService {
         return new CleanupStats(scanned, purged, skipped, failed, durationMs);
     }
 
+    /**
+     * 立即永久删除一个仍在回收站中的批次，不受 7 天保留窗口限制。
+     *
+     * <p>调用方须先完成权限校验；这里再次锁定并校验批次状态，确保主动删除
+     * 与恢复操作不会并发地删除已恢复资源。所有条目在同一个事务中处理，任何
+     * 索引或数据库错误都会回滚本地删除，保留批次供用户重试。</p>
+     */
+    public PurgeResult purgeNow(long batchId) {
+        if (jdbc == null) {
+            throw new IllegalStateException("recycle-bin purge requires jdbc");
+        }
+        return transactions.inTransactionReturning(() -> {
+            if (batches.findById(batchId).isEmpty()) {
+                throw new com.kk2004.common.exception.NotFoundException(
+                        "archive batch not found");
+            }
+            lockBatch(batchId);
+            ArchiveBatch batch = batches.findById(batchId)
+                    .orElseThrow(() -> new com.kk2004.common.exception.NotFoundException(
+                            "archive batch not found"));
+            if (ArchiveBatch.STATE_PURGED.equals(batch.getState())) {
+                throw new ResourceArchiveService.ExpiredBatchException(
+                        "回收站批次已被清理，无法删除");
+            }
+            if (!ArchiveBatch.STATE_ARCHIVED.equals(batch.getState())) {
+                throw new ResourceArchiveService.BatchConflictException(
+                        "该批次已恢复，无法永久删除");
+            }
+            List<ArchiveBatchItem> items = purgeOrder(
+                    batchItems.findByBatchIdOrderByIdAsc(batchId));
+            int purged = 0;
+            Instant cutoff = clock.instant();
+            for (ArchiveBatchItem item : items) {
+                if (item.isPurged()) {
+                    continue;
+                }
+                purgeItemLocked(batch, item, cutoff, true);
+                purged++;
+            }
+            // 批次行在本事务开始时已加锁，因此恢复无法插入到删除窗口中。
+            jdbc.update("DELETE FROM archive_batch_item WHERE batch_id = ?", batchId);
+            jdbc.update("DELETE FROM archive_batch WHERE id = ?", batchId);
+            log.info("recycle-bin batch {} permanently purged by user (items={})",
+                    batchId, purged);
+            return new PurgeResult(batchId, purged);
+        });
+    }
+
     private enum ItemOutcome {
         PURGED, PARTIAL, SKIPPED, FAILED
     }
@@ -134,7 +188,8 @@ public class RecycleBinCleanupService {
      * 单个条目的失败会使该批次保留到下一次运行。
      */
     private ItemOutcome purgeBatch(ArchiveBatch batch, Instant cutoff) {
-        List<ArchiveBatchItem> items = batchItems.findByBatchIdOrderByIdAsc(batch.getId());
+        List<ArchiveBatchItem> items = purgeOrder(
+                batchItems.findByBatchIdOrderByIdAsc(batch.getId()));
         int failures = 0;
         for (ArchiveBatchItem item : items) {
             if (item.isPurged()) {
@@ -154,13 +209,9 @@ public class RecycleBinCleanupService {
         if (failures > 0) {
             return failures == items.size() ? ItemOutcome.FAILED : ItemOutcome.PARTIAL;
         }
-        transactions.inTransaction(() -> {
-            if (jdbc == null) {
-                return;
-            }
-            jdbc.update("DELETE FROM archive_batch_item WHERE batch_id = ?", batch.getId());
-            jdbc.update("DELETE FROM archive_batch WHERE id = ?", batch.getId());
-        });
+        if (!deleteBatchIfComplete(batch.getId(), cutoff, false)) {
+            return ItemOutcome.PARTIAL;
+        }
         log.info("recycle-bin cleanup batch {} fully purged (items={})", batch.getId(),
                 items.size());
         return ItemOutcome.PURGED;
@@ -175,41 +226,123 @@ public class RecycleBinCleanupService {
             if (jdbc == null) {
                 return false;
             }
-            jdbc.queryForObject("SELECT id FROM archive_batch WHERE id = ? FOR UPDATE",
-                    Long.class, batch.getId());
+            lockBatch(batch.getId());
             ArchiveBatch locked = batches.findById(batch.getId()).orElse(null);
-            if (locked == null || !ArchiveBatch.STATE_ARCHIVED.equals(locked.getState())) {
-                return true; // 并发已恢复：无可清除内容
-            }
-            if (!locked.getPurgeAfter().isBefore(cutoff)) {
-                return true; // 针对固定截止点重新校验
-            }
-            // 先幂等地重复删除 ES：在分块仍可能被搜索到之前，
-            // 绝不声称已完成本地清除。
-            if (chunkIndex != null) {
+            return purgeItemLocked(locked, item, cutoff, false);
+        }));
+    }
+
+    private boolean purgeItemLocked(ArchiveBatch locked, ArchiveBatchItem item,
+                                    Instant cutoff, boolean force) {
+        if (locked == null || !ArchiveBatch.STATE_ARCHIVED.equals(locked.getState())) {
+            return true; // 并发已恢复：无可清除内容
+        }
+        if (!force && !locked.getPurgeAfter().isBefore(cutoff)) {
+            return true; // 针对固定截止点重新校验
+        }
+        // 先幂等地重复删除 ES（每个 writeEnabled 物理索引）：
+        // 在分块仍可能被搜索到之前，绝不声称已完成本地清除。
+        if (chunkIndex != null) {
+            for (var target : writeTargets.current()) {
                 if (ArchiveBatchItem.RESOURCE_PAGE.equals(item.getResourceType())) {
-                    chunkIndex.deleteResourceChunksChecked("PAGE", item.getResourceId());
+                    chunkIndex.deleteResourceChunksChecked(
+                            target.physicalName(), "PAGE", item.getResourceId());
                 } else if (ArchiveBatchItem.RESOURCE_ATTACHMENT.equals(item.getResourceType())) {
-                    chunkIndex.deleteResourceChunksChecked("ATTACHMENT", item.getResourceId());
+                    chunkIndex.deleteResourceChunksChecked(
+                            target.physicalName(), "ATTACHMENT", item.getResourceId());
+                } else if (ArchiveBatchItem.RESOURCE_KNOWLEDGE_BASE.equals(item.getResourceType())) {
+                    chunkIndex.deleteResourceChunksChecked(
+                            target.physicalName(), "KNOWLEDGE_BASE", item.getResourceId());
                 }
             }
-            switch (item.getResourceType()) {
-                case ArchiveBatchItem.RESOURCE_PAGE -> deletePageRows(item.getResourceId());
-                case ArchiveBatchItem.RESOURCE_ATTACHMENT -> deleteAttachmentIfUnreferenced(
-                        item.getResourceId());
-                case ArchiveBatchItem.RESOURCE_KNOWLEDGE_BASE -> deleteKnowledgeBaseRows(
-                        item.getResourceId());
-                default -> {
-                }
+        }
+        switch (item.getResourceType()) {
+            case ArchiveBatchItem.RESOURCE_PAGE -> deletePageRows(item.getResourceId());
+            case ArchiveBatchItem.RESOURCE_ATTACHMENT -> deleteAttachmentIfUnreferenced(
+                    item.getResourceId());
+            case ArchiveBatchItem.RESOURCE_KNOWLEDGE_BASE -> deleteKnowledgeBaseRows(
+                    item.getResourceId());
+            default -> {
             }
-            jdbc.update("UPDATE archive_batch_item SET purged = TRUE, purged_at = ? WHERE id = ?",
-                    java.sql.Timestamp.from(clock.instant()), item.getId());
+        }
+        jdbc.update("UPDATE archive_batch_item SET purged = TRUE, purged_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(clock.instant()), item.getId());
+        return true;
+    }
+
+    private void lockBatch(long batchId) {
+        jdbc.queryForObject("SELECT id FROM archive_batch WHERE id = ? FOR UPDATE",
+                Long.class, batchId);
+    }
+
+    private boolean deleteBatchIfComplete(long batchId, Instant cutoff, boolean force) {
+        return Boolean.TRUE.equals(transactions.inTransactionReturning(() -> {
+            if (jdbc == null) return false;
+            if (batches.findById(batchId).isEmpty()) return true;
+            lockBatch(batchId);
+            ArchiveBatch current = batches.findById(batchId).orElse(null);
+            if (current == null || !ArchiveBatch.STATE_ARCHIVED.equals(current.getState())) {
+                return true;
+            }
+            if (!force && !current.getPurgeAfter().isBefore(cutoff)) {
+                return false;
+            }
+            if (batchItems.countByBatchIdAndPurgedFalse(batchId) > 0) {
+                return false;
+            }
+            jdbc.update("DELETE FROM archive_batch_item WHERE batch_id = ?", batchId);
+            jdbc.update("DELETE FROM archive_batch WHERE id = ?", batchId);
             return true;
         }));
     }
 
+    /**
+     * 按外键依赖顺序清除：页面（子页面优先）→附件→知识库。
+     * 归档批次的插入顺序是为了恢复方便，并不等于物理删除顺序。
+     */
+    private List<ArchiveBatchItem> purgeOrder(List<ArchiveBatchItem> items) {
+        Map<Long, ArchiveBatchItem> pages = new HashMap<>();
+        for (ArchiveBatchItem item : items) {
+            if (ArchiveBatchItem.RESOURCE_PAGE.equals(item.getResourceType())) {
+                pages.put(item.getResourceId(), item);
+            }
+        }
+        return items.stream()
+                .sorted(Comparator
+                        .comparingInt((ArchiveBatchItem item) -> resourcePriority(item))
+                        .thenComparingInt(item -> ArchiveBatchItem.RESOURCE_PAGE.equals(item.getResourceType())
+                                ? -pageDepth(item, pages) : 0)
+                        .thenComparingLong(item -> -item.getResourceId()))
+                .toList();
+    }
+
+    private int resourcePriority(ArchiveBatchItem item) {
+        if (ArchiveBatchItem.RESOURCE_PAGE.equals(item.getResourceType())) return 0;
+        if (ArchiveBatchItem.RESOURCE_ATTACHMENT.equals(item.getResourceType())) return 1;
+        if (ArchiveBatchItem.RESOURCE_KNOWLEDGE_BASE.equals(item.getResourceType())) return 2;
+        return 3;
+    }
+
+    private int pageDepth(ArchiveBatchItem item, Map<Long, ArchiveBatchItem> pages) {
+        int depth = 0;
+        Long parent = item.getPriorParentId();
+        int guard = pages.size() + 1;
+        while (parent != null && guard-- > 0) {
+            ArchiveBatchItem parentItem = pages.get(parent);
+            if (parentItem == null) break;
+            depth++;
+            parent = parentItem.getPriorParentId();
+        }
+        return depth;
+    }
+
     /** 外键/逻辑依赖顺序（见 implementation-notes.md §1.3）。 */
     private void deletePageRows(long pageId) {
+        // 先解除尚未归档的外部引用，避免自引用外键阻止物理删除。
+        jdbc.update("UPDATE wiki_page SET parent_id = NULL WHERE parent_id = ? AND status = 'ARCHIVED'",
+                pageId);
+        jdbc.update("DELETE FROM wiki_import_job WHERE page_id = ? OR parent_id = ?",
+                pageId, pageId);
         jdbc.update("DELETE FROM notification WHERE page_id = ?", pageId);
         jdbc.update("""
                 DELETE FROM notification WHERE comment_id IN
@@ -223,7 +356,21 @@ public class RecycleBinCleanupService {
                 DELETE FROM comment_like WHERE comment_id IN
                     (SELECT id FROM wiki_comment WHERE page_id = ?)
                 """, pageId);
+        jdbc.update("""
+                UPDATE wiki_comment
+                SET parent_id = NULL, reply_to = NULL, anchor_id = NULL
+                WHERE page_id = ?
+                """, pageId);
         jdbc.update("DELETE FROM wiki_comment WHERE page_id = ?", pageId);
+        jdbc.update("""
+                DELETE FROM notification
+                WHERE anchor_id IN (SELECT id FROM selection_anchor WHERE page_id = ?)
+                """, pageId);
+        jdbc.update("""
+                UPDATE wiki_comment
+                SET anchor_id = NULL
+                WHERE anchor_id IN (SELECT id FROM selection_anchor WHERE page_id = ?)
+                """, pageId);
         jdbc.update("DELETE FROM selection_anchor WHERE page_id = ?", pageId);
         jdbc.update("DELETE FROM page_like WHERE page_id = ?", pageId);
         jdbc.update("DELETE FROM page_favorite WHERE page_id = ?", pageId);
@@ -233,14 +380,19 @@ public class RecycleBinCleanupService {
         jdbc.update("DELETE FROM page_summary WHERE page_id = ?", pageId);
         jdbc.update("DELETE FROM stats_revision WHERE page_id = ?", pageId);
         jdbc.update("DELETE FROM stats_repair WHERE page_id = ?", pageId);
-        jdbc.update("DELETE FROM wiki_link WHERE from_page_id = ? OR to_page_id = ?", pageId, pageId);
+        jdbc.update("DELETE FROM wiki_link WHERE source_page_id = ? OR target_page_id = ?",
+                pageId, pageId);
         jdbc.update("DELETE FROM wiki_page_tag WHERE page_id = ?", pageId);
         jdbc.update("DELETE FROM source_document WHERE page_id = ?", pageId);
         jdbc.update("DELETE FROM page_revision_media WHERE page_id = ?", pageId);
         jdbc.update("DELETE FROM wiki_page_draft WHERE page_id = ?", pageId);
+        jdbc.update("""
+                UPDATE wiki_page
+                SET current_draft_revision_id = NULL, current_published_revision_id = NULL
+                WHERE id = ?
+                """, pageId);
         jdbc.update("DELETE FROM wiki_page_revision WHERE page_id = ?", pageId);
-        jdbc.update("DELETE FROM indexing_job WHERE resource_type = 'PAGE' AND resource_id = ?",
-                pageId);
+        deleteIndexingJobs("PAGE", pageId);
         jdbc.update("DELETE FROM wiki_page WHERE id = ?", pageId);
     }
 
@@ -255,8 +407,8 @@ public class RecycleBinCleanupService {
         if ((sources != null && sources > 0) || (mediaRefs != null && mediaRefs > 0)) {
             return; // 共享：保留文件/元数据，只有索引被移除
         }
-        jdbc.update("DELETE FROM indexing_job WHERE resource_type = 'ATTACHMENT' AND resource_id = ?",
-                attachmentId);
+        jdbc.update("DELETE FROM wiki_import_job WHERE source_attachment_id = ?", attachmentId);
+        deleteIndexingJobs("ATTACHMENT", attachmentId);
         jdbc.update("DELETE FROM attachment WHERE id = ?", attachmentId);
     }
 
@@ -268,12 +420,36 @@ public class RecycleBinCleanupService {
         jdbc.update("DELETE FROM ownership_transfer WHERE kb_id = ?", kbId);
         jdbc.update("DELETE FROM wiki_import_job WHERE kb_id = ?", kbId);
         jdbc.update("DELETE FROM knowledge_base_member WHERE kb_id = ?", kbId);
+        jdbc.update("DELETE FROM wiki_page_audience_member WHERE source_kb_id = ?", kbId);
+        jdbc.update("""
+                DELETE FROM wiki_page_tag
+                WHERE tag_id IN (SELECT id FROM wiki_tag WHERE kb_id = ?)
+                """, kbId);
+        jdbc.update("DELETE FROM wiki_tag WHERE kb_id = ?", kbId);
         jdbc.update("DELETE FROM archive_batch_item WHERE resource_type = 'KNOWLEDGE_BASE' AND resource_id = ?",
                 kbId);
-        jdbc.update("DELETE FROM indexing_job WHERE resource_type = 'KNOWLEDGE_BASE' AND resource_id = ?",
-                kbId);
+        jdbc.update("DELETE FROM archive_batch_item WHERE kb_id = ?", kbId);
+        jdbc.update("DELETE FROM archive_batch WHERE kb_id = ?", kbId);
+        deleteIndexingJobs("KNOWLEDGE_BASE", kbId);
         jdbc.update("DELETE FROM scope_version WHERE kb_id = ?", kbId);
         jdbc.update("DELETE FROM knowledge_base WHERE id = ?", kbId);
+    }
+
+    /**
+     * V23 introduced per-physical-index target rows with a foreign key to the
+     * legacy aggregate job.  Purging the aggregate first therefore fails for
+     * every resource that has already been fanned out to an index version.
+     */
+    private void deleteIndexingJobs(String resourceType, long resourceId) {
+        jdbc.update("""
+                DELETE FROM indexing_job_target
+                WHERE job_id IN (
+                    SELECT id FROM indexing_job
+                    WHERE resource_type = ? AND resource_id = ?
+                )
+                """, resourceType, resourceId);
+        jdbc.update("DELETE FROM indexing_job WHERE resource_type = ? AND resource_id = ?",
+                resourceType, resourceId);
     }
 
     public String newJobId() {

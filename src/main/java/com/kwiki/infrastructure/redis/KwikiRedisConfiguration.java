@@ -5,7 +5,6 @@ import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
-import org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -22,7 +21,11 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
  */
 @Configuration
 @ConditionalOnProperty(prefix = "kk.common.redis", name = "enabled", havingValue = "true")
-@Import({RedisAutoConfiguration.class, RedisRepositoriesAutoConfiguration.class})
+// 这里只恢复连接基础设施。不得直接导入 RedisRepositoriesAutoConfiguration：
+// Repository 自动配置依赖由 @EnableAutoConfiguration 注册的基础包，作为普通
+// @Configuration 提前导入会导致正式启动报 "Unable to retrieve
+// @EnableAutoConfiguration base packages"。kwiki 也没有 Redis Repository。
+@Import(RedisAutoConfiguration.class)
 public class KwikiRedisConfiguration {
 
     @Bean

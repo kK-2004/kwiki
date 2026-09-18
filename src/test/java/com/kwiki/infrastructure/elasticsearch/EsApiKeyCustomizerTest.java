@@ -34,7 +34,8 @@ class EsApiKeyCustomizerTest {
                 new ExternalServicesProperties.AnswerLlm("http://l/v1", "k", "m",
                         Duration.ofSeconds(10)),
                 new ExternalServicesProperties.QwenEmbedding("http://q/v1", "k",
-                        "text-embedding-v4", 1024, Duration.ofSeconds(10)));
+                        "text-embedding-v4", 1024, Duration.ofSeconds(10)),
+                ExternalServicesProperties.unusedVisionModel());
     }
 
     @Test

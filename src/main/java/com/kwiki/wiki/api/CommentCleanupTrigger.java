@@ -1,5 +1,6 @@
 package com.kwiki.wiki.api;
 
+import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -7,26 +8,34 @@ import org.springframework.stereotype.Component;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.dao.EmptyResultDataAccessException;
 
+import java.time.Duration;
+
 /** 默认触发器；XXL-JOB 适配器日后可以调用同一套策略。 */
 @Component
 @EnableScheduling
 public class CommentCleanupTrigger {
+    private static final String LOCK_PURPOSE = "comment-cleanup";
+
     private final CommentCleanupStrategy strategy;
     private final org.springframework.jdbc.core.JdbcOperations jdbc;
     private final MeterRegistry metrics;
+    private final KwikiDistributedLocks locks;
 
-    public CommentCleanupTrigger(CommentCleanupStrategy strategy, ObjectProvider<org.springframework.jdbc.core.JdbcOperations> jdbc, ObjectProvider<MeterRegistry> metrics) {
+    public CommentCleanupTrigger(CommentCleanupStrategy strategy,
+                                 ObjectProvider<org.springframework.jdbc.core.JdbcOperations> jdbc,
+                                 ObjectProvider<MeterRegistry> metrics,
+                                 KwikiDistributedLocks locks) {
         this.strategy = strategy;
         this.jdbc = jdbc.getIfAvailable();
         this.metrics = metrics.getIfAvailable();
+        this.locks = locks;
     }
 
     @Scheduled(cron = "0 0 1 * * *", zone = "Asia/Shanghai")
     public void daily() {
         if (jdbc == null) return;
-        Boolean acquired = jdbc.queryForObject("SELECT GET_LOCK('kwiki:comment-cleanup', 0)", Boolean.class);
-        if (!Boolean.TRUE.equals(acquired)) return;
-        try {
+        // 锁不可得（他实例持有或锁服务不可用）时跳过本轮；游标保证下次从断点继续。
+        locks.tryRun(LOCK_PURPOSE, Duration.ZERO, () -> {
             try {
                 long cursor = loadCursor();
                 for (int i = 0; i < 100; i++) {
@@ -40,9 +49,7 @@ public class CommentCleanupTrigger {
                 if (metrics != null) metrics.counter("kwiki_comment_cleanup_failures_total").increment();
                 throw failure;
             }
-        } finally {
-            jdbc.queryForObject("SELECT RELEASE_LOCK('kwiki:comment-cleanup')", Integer.class);
-        }
+        });
     }
 
     private long loadCursor() {

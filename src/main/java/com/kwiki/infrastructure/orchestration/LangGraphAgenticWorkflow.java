@@ -53,6 +53,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     private final AuthorizationScopeResolver scopes;
     private final ScopeVersionService versions;
     private final ChatPersistenceService persistence;
+    private final CitationDisplayNameResolver citationNames;
     private final MeterRegistry metrics;
     private final AgenticLimits limits;
     private final AgenticDebugLogger debug;
@@ -79,6 +80,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             AuthorizationScopeResolver scopes,
             ScopeVersionService versions,
             ChatPersistenceService persistence,
+            CitationDisplayNameResolver citationNames,
             MeterRegistry metrics,
             AgenticLimits limits,
             AgenticDebugLogger debug,
@@ -96,6 +98,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         this.scopes = scopes;
         this.versions = versions;
         this.persistence = persistence;
+        this.citationNames = citationNames;
         this.metrics = metrics;
         this.limits = limits;
         this.debug = debug;
@@ -120,14 +123,23 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                     name,
                     (state, config) -> {
                         Session s = (Session) config.metadata("session").orElseThrow();
+                        long nodeStartedAt = s.nowMs();
+                        s.debugStage(entry.getKey(), "start", 0, () -> Map.of(
+                                "query", AgenticDebugLogger.boundedQuery(s.currentQuery),
+                                "next", s.next));
                         try (var binding = s.run.bind();
                                 var limit = s.run.limit(nodeDeadline(name))) {
                             s.run.step();
                             s.nodes.add(name);
                             entry.getValue().accept(s);
+                            s.debugStage(entry.getKey(), "node-complete", s.sinceMs(nodeStartedAt),
+                                    () -> Map.of("next", s.next));
                             return CompletableFuture.completedFuture(
                                     Map.of("next", s.next, "round", s.queryRound));
                         } catch (Exception e) {
+                            String errorCode = code(e);
+                            s.debugStage(entry.getKey(), "failed", s.sinceMs(nodeStartedAt),
+                                    () -> Map.of("errorCode", errorCode));
                             return CompletableFuture.failedFuture(e);
                         }
                     });
@@ -187,6 +199,10 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                     return Flux.<ChatStreamEvent>create(
                                     sink -> {
                                         if (!permits.tryAcquire()) {
+                                            debug.terminal(null, AgenticErrorCodes.AGENT_BUSY,
+                                                    AgenticErrorCodes.AGENT_BUSY, () -> Map.of(
+                                                            "requestId", requestId,
+                                                            "query", AgenticDebugLogger.boundedQuery(query)));
                                             sink.next(
                                                     ChatStreamEvent.of(
                                                             "error",
@@ -233,6 +249,12 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                                                                 run, user, query,
                                                                                 conversationHistory, sink, persistConversation);
                                                                 reference.set(s);
+                                                                s.debugStage("workflow", "start", 0, () -> Map.of(
+                                                                        "query", AgenticDebugLogger.boundedQuery(query),
+                                                                        "conversationTurns", conversationHistory == null
+                                                                                ? 0 : conversationHistory.size(),
+                                                                        "knowledgeBaseScopeCount", kbIds.size(),
+                                                                        "pageScopeCount", pageIds.size()));
                                                                 Session active = s;
                                                                 deadline =
                                                                         timer.schedule(
@@ -270,6 +292,12 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                                             } catch (Exception e) {
                                                                 if (s != null) s.fail(code(e));
                                                                 else if (!sink.isCancelled()) {
+                                                                    debug.terminal(null,
+                                                                            AgenticErrorCodes.INTERNAL_ERROR,
+                                                                            AgenticErrorCodes.INTERNAL_ERROR,
+                                                                            () -> Map.of(
+                                                                                    "requestId", requestId,
+                                                                                    "query", AgenticDebugLogger.boundedQuery(query)));
                                                                     sink.next(
                                                                             ChatStreamEvent.of(
                                                                                     "error",
@@ -285,8 +313,17 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                                                     deadline.cancel(false);
                                                                 if (s != null) {
                                                                     if (cancelled.get()
-                                                                            && !s.terminal.get())
+                                                                            && !s.terminal.get()) {
                                                                         s.outcome = AgenticErrorCodes.CANCELLED;
+                                                                        Session cancelledSession = s;
+                                                                        s.debugTerminal(
+                                                                                AgenticErrorCodes.CANCELLED,
+                                                                                AgenticErrorCodes.CANCELLED,
+                                                                                () -> Map.of(
+                                                                                        "queryRound", cancelledSession.queryRound,
+                                                                                        "stage", cancelledSession.stage.name(),
+                                                                                        "nodes", List.copyOf(cancelledSession.nodes)));
+                                                                    }
                                                                     Thread.interrupted();
                                                                     s.audit();
                                                                     s.run.close();
@@ -353,6 +390,9 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             s.message = "你好，我可以根据你有权访问的 Wiki 内容检索资料并回答问题。";
             s.outcome = "direct";
             s.next = "respond";
+            s.debugStage("route", "direct", s.sinceMs(startedAt), () -> Map.of(
+                    "query", AgenticDebugLogger.boundedQuery(s.currentQuery),
+                    "intent", "GREETING"));
             s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
                     ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
                     s.sinceMs(startedAt), "问候直接回复", Map.of(), null));
@@ -363,14 +403,28 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             s.message = "请说明你指的是哪个页面、产品或主题。";
             s.outcome = "clarification";
             s.next = "respond";
+            s.debugStage("route", "clarification", s.sinceMs(startedAt), () -> Map.of(
+                    "query", AgenticDebugLogger.boundedQuery(s.currentQuery),
+                    "intent", s.route.intent().name()));
             s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
                     ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
                     s.sinceMs(startedAt), "需要澄清", Map.of(), null));
             return;
         }
-        s.debugStage("route", "complete", 0, () -> Map.of(
-                "query", AgenticDebugLogger.boundedQuery(s.currentQuery),
-                "intent", s.route.intent().name()));
+        s.debugStage("route", "complete", s.sinceMs(startedAt), () -> {
+            var fields = new LinkedHashMap<String, Object>();
+            fields.put("query", AgenticDebugLogger.boundedQuery(s.currentQuery));
+            fields.put("intent", s.route.intent().name());
+            fields.put("source", s.route.source().name());
+            fields.put("needsRetrieval", s.route.needsRetrieval());
+            fields.put("rewriteMode", s.route.rewriteMode().name());
+            fields.put("confidence", s.route.confidence());
+            fields.put("matchedRuleIds", s.route.matchedRuleIds());
+            if (s.route.fallbackReason() != null) {
+                fields.put("fallbackReason", s.route.fallbackReason());
+            }
+            return fields;
+        });
         s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
                 ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
                 s.sinceMs(startedAt), "已识别为知识检索", Map.of(), null));
@@ -416,7 +470,20 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         metrics.put("finalTopK", budget.finalTopK());
         metrics.put("fusedCandidateCount", outcome.fusedCandidateCount());
         metrics.put("retainedChildCount", s.children.size());
-        metrics.put("sourceTitles", sourceTitles(s.children));
+        metrics.put("sources", s.children.stream().map(child -> {
+            var source = new LinkedHashMap<String, Object>();
+            source.put("childChunkKey", child.chunkKey());
+            source.put("parentChunkKey", child.parentChunkKey());
+            source.put("kbId", child.kbId());
+            source.put("resourceId", child.resourceId());
+            source.put("resourceType", child.resourceType());
+            source.put("revisionId", child.revisionId());
+            source.put("headingPath", child.headingPath());
+            source.put("charStart", child.charStart());
+            source.put("charEnd", child.charEnd());
+            source.put("excerpt", child.content());
+            return source;
+        }).toList());
         if (!s.lastDegradations.isEmpty()) {
             metrics.put("degradedBranches", s.lastDegradations);
         }
@@ -427,7 +494,16 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                         "finalTopK", budget.finalTopK(),
                         "fusedCandidateCount", outcome.fusedCandidateCount(),
                         "retainedChildCount", s.children.size(),
-                        "degradations", s.lastDegradations));
+                        "degradations", s.lastDegradations,
+                        "results", s.children.stream().map(child -> {
+                            var result = new LinkedHashMap<String, Object>();
+                            result.put("chunkKey", child.chunkKey());
+                            result.put("parentChunkKey", child.parentChunkKey());
+                            result.put("bm25Rank", child.bm25Rank());
+                            result.put("vectorRank", child.vectorRank());
+                            result.put("rrfScore", child.rrfScore());
+                            return result;
+                        }).toList()));
         if (s.children.isEmpty()) {
             // 成功但命中为零：绝不让生成模型空转。
             s.recordStageFailure("no-evidence");
@@ -496,8 +572,14 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         String context = s.stage.isParentStage()
                 ? parentContext(s.parentEvidence)
                 : childContext(s.children);
-        var generated = candidates.generate(
-                s.run, s.query, s.currentQuery, s.stage, s.children, s.parentEvidence, context);
+        CandidateGenerator.Generated generated;
+        s.run.thinkingListener(text -> s.emit("reasoning-summary", Map.of("stepId", step, "text", text)));
+        try {
+            generated = candidates.generate(
+                    s.run, s.query, s.currentQuery, s.stage, s.children, s.parentEvidence, context);
+        } finally {
+            s.run.thinkingListener(null);
+        }
         s.candidate = generated.candidate();
         s.debugStage("generation", "complete", generated.elapsedMs(), () -> Map.of(
                 "candidateId", s.candidate.candidateId(),
@@ -520,8 +602,11 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         }
         String step = stepId(s, "quality");
         long startedAt = s.nowMs();
+        s.emitActivity(ActivityEvent.started(step, null, s.queryRound, s.stage.name(),
+                ActivityEvent.Phase.QUALITY, startedAt, "正在质量评审"));
         var input = new QualityV2Input(s.query, s.currentQuery, s.candidate, List.of());
         QualityAssessment assessment;
+        s.run.thinkingListener(text -> s.emit("reasoning-summary", Map.of("stepId", step, "text", text)));
         try {
             assessment = quality.assess(input);
         } catch (RunFailure e) {
@@ -529,6 +614,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                     ActivityEvent.Phase.QUALITY, ActivityEvent.Status.FAILED, startedAt,
                     s.sinceMs(startedAt), "质量评审暂不可用", Map.of(), e.getMessage()));
             throw e;
+        } finally {
+            s.run.thinkingListener(null);
         }
         var evidenceIds = evidenceIdsOf(s.candidate);
         boolean passes = assessment.gatePasses(qaThreshold, evidenceIds);
@@ -546,7 +633,10 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, s.stage.name(),
                     ActivityEvent.Phase.QUALITY, ActivityEvent.Status.COMPLETED, startedAt,
                     s.sinceMs(startedAt), "质量评审通过",
-                    Map.of("supportedEvidenceCount", assessment.supportedEvidenceIds().size()),
+                    Map.of("supportedEvidenceCount", assessment.supportedEvidenceIds().size(),
+                            "relevance", assessment.relevance(),
+                            "coverage", assessment.coverage(),
+                            "faithfulness", assessment.faithfulness()),
                     null));
             publish(s);
             return;
@@ -554,9 +644,12 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.recordStageFailure(assessment.reasonCode());
         s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, s.stage.name(),
                 ActivityEvent.Phase.QUALITY, ActivityEvent.Status.COMPLETED, startedAt,
-                s.sinceMs(startedAt), "质量评审未通过：" + businessReason(assessment),
-                Map.of("reasonCode", assessment.reasonCode()),
-                assessment.reasonCode()));
+                    s.sinceMs(startedAt), "质量评审未通过：" + businessReason(assessment),
+                    Map.of("reasonCode", assessment.reasonCode(),
+                            "relevance", assessment.relevance(),
+                            "coverage", assessment.coverage(),
+                            "faithfulness", assessment.faithfulness()),
+                    assessment.reasonCode()));
         advanceRecovery(s);
     }
 
@@ -576,7 +669,9 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.debugTerminal("completed", null, () -> Map.of(
                 "candidateId", s.candidate.candidateId(),
                 "queryRound", s.queryRound,
-                "stage", s.stage.name()));
+                "stage", s.stage.name(),
+                "answerChars", text.length(),
+                "citationCount", s.citationCount));
         s.done(Map.of(
                 "outcome", s.outcome,
                 "citationCount", s.citationCount,
@@ -668,7 +763,9 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.emit("citations", Map.of("citations", List.of()));
         s.debugTerminal(s.outcome, s.outcome, () -> Map.of(
                 "queryRound", s.queryRound,
-                "stage", s.stage.name()));
+                "stage", s.stage.name(),
+                "answerChars", s.message.length(),
+                "citationCount", 0));
         s.emitActivity(ActivityEvent.finished(stepId(s, "final"), null, s.queryRound,
                 s.stage.name(), ActivityEvent.Phase.FINAL, ActivityEvent.Status.COMPLETED,
                 s.nowMs(), 0L,
@@ -718,16 +815,6 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         if (assessment.minScore() < 0.5) return "与问题相关性或覆盖不足";
         if (assessment.missingAspects().isEmpty()) return "内容质量未达发布门槛";
         return "缺少关键方面：" + String.join("；", assessment.missingAspects());
-    }
-
-    /** 活动时间线最多展示四个互不相同的已授权来源标题。 */
-    private static List<String> sourceTitles(List<ChildEvidence> children) {
-        return children.stream()
-                .map(child -> child.headingPath() == null || child.headingPath().isBlank()
-                        ? "未命名段落" : child.headingPath())
-                .distinct()
-                .limit(4)
-                .toList();
     }
 
     private List<ChildEvidence> trimToBudget(List<ChildEvidence> children, long charBudget) {
@@ -849,6 +936,11 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         synchronized void fail(String errorCode) {
             if (terminal.get() || sink.isCancelled()) return;
             outcome = errorCode;
+            debugTerminal(errorCode, errorCode, () -> Map.of(
+                    "queryRound", queryRound,
+                    "stage", stage.name(),
+                    "currentQuery", AgenticDebugLogger.boundedQuery(currentQuery),
+                    "nodes", List.copyOf(nodes)));
             emit("error", Map.of("error", errorCode));
             terminal.set(true);
             sink.complete();
@@ -887,19 +979,22 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                     && candidate.evidenceLevel() == CandidateAnswer.EvidenceLevel.PARENT) {
                 for (var parent : parentEvidence) {
                     if (!used.contains(parent.firstHitOrder())) continue;
-                    for (ChunkHit child : parent.matchedChildren()) {
+                    parent.matchedChildren().stream().findFirst().ifPresent(child -> {
                         var item = new LinkedHashMap<String, Object>();
                         item.put("childChunkKey", child.chunkKey());
                         item.put("parentChunkKey", parent.parentChunkKey());
                         item.put("resourceType", parent.resourceType());
                         item.put("resourceId", parent.resourceId());
+                        item.put("kbId", parent.kbId());
+                        item.put("citationId", "P" + parent.firstHitOrder());
+                        item.put("displayName", citationNames.resolve(parent.resourceType(), parent.resourceId(), child.headingPath()));
                         item.put("revisionId", parent.revisionId());
                         item.put("headingPath", child.headingPath());
                         item.put("charStart", child.charStart());
                         item.put("charEnd", child.charEnd());
                         item.put("excerpt", excerpt(child.content(), 120));
                         citations.add(item);
-                    }
+                    });
                 }
             } else if (candidate != null) {
                 for (int i = 0; i < children.size(); i++) {
@@ -910,6 +1005,9 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                     item.put("parentChunkKey", child.parentChunkKey());
                     item.put("resourceType", child.resourceType());
                     item.put("resourceId", child.resourceId());
+                    item.put("kbId", child.kbId());
+                    item.put("citationId", "P" + i);
+                    item.put("displayName", citationNames.resolve(child.resourceType(), child.resourceId(), child.headingPath()));
                     item.put("revisionId", child.revisionId());
                     item.put("headingPath", child.headingPath());
                     item.put("charStart", child.charStart());

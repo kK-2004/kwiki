@@ -6,6 +6,7 @@ import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import com.kwiki.wiki.attach.AttachmentStorage;
 import com.kwiki.wiki.attach.AttachmentStorageException;
 import com.kwiki.wiki.attach.AttachmentUpload;
+import com.kwiki.wiki.attach.DirectUpload;
 import com.kwiki.wiki.attach.StoredAttachment;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -17,6 +18,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 以内容中心（content center）为后端的附件存储（attachment storage）。上传经由 SDK 的
@@ -27,6 +30,8 @@ import java.util.Locale;
  */
 @Component
 public class ContentCenterAttachmentStorage implements AttachmentStorage {
+
+    private static final Pattern CONTENT_RANGE = Pattern.compile("bytes\\s+(\\d+)-(\\d+)/(\\d+)");
 
     private final ContentCenterClient client;
     private final ExternalServicesProperties.ContentCenter config;
@@ -64,6 +69,105 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
             return requireConsistentResult(upload, result);
         } catch (ContentCenterException e) {
             throw translate("upload", e);
+        }
+    }
+
+    @Override
+    public DirectUpload initiateUpload(String fileName, String contentType, long byteSize) {
+        var options = ContentCenterClient.UploadOptions.defaults().contentType(contentType);
+        if (config.source() != null && !config.source().isBlank()) options = options.source(config.source());
+        if (config.path() != null && !config.path().isBlank()) options = options.path(config.path());
+        try {
+            var result = client.initUpload(fileName, byteSize, options);
+            if (result == null || result.storageKey() == null || result.storageKey().isBlank()
+                    || result.source() == null || result.source().isBlank()
+                    || result.putUrl() == null || result.putUrl().isBlank() || result.expiresIn() <= 0) {
+                throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                        "content-center returned an invalid upload session");
+            }
+            return new DirectUpload(result.storageKey(), result.source(), result.putUrl(), result.expiresIn(), result.fileId());
+        } catch (ContentCenterException e) {
+            throw translate("init upload", e);
+        }
+    }
+
+    @Override
+    public StoredAttachment completeUpload(String storageKey, String source, String contentType, long byteSize) {
+        return completeUpload(storageKey, source, contentType, byteSize, null);
+    }
+
+    @Override
+    public StoredAttachment completeUpload(String storageKey, String source, String contentType, long byteSize, Long fileId) {
+        try {
+            var result = client.completeUpload(storageKey, source);
+            if (fileId != null && !fileId.equals(result.fileId())) {
+                throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT, "content-center file identity disagrees");
+            }
+            return requireConsistentResult(new AttachmentUpload("direct-upload", contentType,
+                    InputStream.nullInputStream(), byteSize), result);
+        } catch (ContentCenterException e) {
+            // SDK 0.1.3 provider consumes its UPLOADING record on completion. Recover only
+            // this specific repeat-completion response, using the server-owned init identity.
+            // Other errors (including auth, object missing and outages) must fail closed.
+            if (fileId != null && fileId > 0 && e.getStatus() == 400 && e.getMessage() != null
+                    && e.getMessage().startsWith("未找到上传初始化记录:")) {
+                return recoverCompletedUpload(fileId, contentType, byteSize);
+            }
+            throw translate("complete upload", e);
+        }
+    }
+
+    private StoredAttachment recoverCompletedUpload(long fileId, String expectedType, long expectedSize) {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(downloadLink(fileId, null, presignTtl)))
+                .timeout(config.requestTimeout()).header("Range", "bytes=0-0").GET().build();
+        try {
+            var response = fetchClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            try (InputStream body = response.body()) {
+                long size = -1;
+                if (response.statusCode() == 206) {
+                    String range = response.headers().firstValue("Content-Range").orElse("");
+                    if (range.matches("bytes 0-0/[0-9]+")) size = Long.parseLong(range.substring(range.indexOf('/') + 1));
+                } else if (response.statusCode() == 200) {
+                    size = response.headers().firstValueAsLong("Content-Length").orElse(-1);
+                }
+                String type = response.headers().firstValue("Content-Type").orElse("");
+                if (size != expectedSize || !type.equalsIgnoreCase(expectedType)) {
+                    throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                            "completed object metadata disagrees with upload session");
+                }
+                return new StoredAttachment(fileId, size, type);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AttachmentStorageException(AttachmentStorageException.Category.TRANSIENT, "upload recovery interrupted");
+        } catch (java.io.IOException | NumberFormatException e) {
+            throw new AttachmentStorageException(AttachmentStorageException.Category.TRANSIENT, "upload recovery failed");
+        }
+    }
+
+    @Override
+    public byte[] readPrefix(long contentCenterFileId, int length) {
+        if (length < 1 || length > 8192) throw new IllegalArgumentException("invalid prefix length");
+        HttpRequest request = HttpRequest.newBuilder(URI.create(downloadLink(contentCenterFileId, null, presignTtl)))
+                .timeout(config.requestTimeout()).header("Range", "bytes=0-" + (length - 1)).GET().build();
+        try {
+            // Limit consumption even if a provider ignores Range; close immediately after the prefix.
+            var response = fetchClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            try (InputStream body = response.body()) {
+                if (response.statusCode() != 200 && response.statusCode() != 206) {
+                    throw new AttachmentStorageException(categoryFor(response.statusCode()), "content prefix fetch failed");
+                }
+                if (response.statusCode() == 206
+                        && !response.headers().firstValue("Content-Range").orElse("").startsWith("bytes 0-")) {
+                    throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT, "invalid content range");
+                }
+                return body.readNBytes(length);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AttachmentStorageException(AttachmentStorageException.Category.TRANSIENT, "content prefix fetch interrupted");
+        } catch (java.io.IOException e) {
+            throw new AttachmentStorageException(AttachmentStorageException.Category.TRANSIENT, "content prefix fetch failed");
         }
     }
 
@@ -152,6 +256,63 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
                     "content exceeds the configured attachment size limit");
         }
         return body;
+    }
+
+    @Override
+    public ContentRange readContentRange(long contentCenterFileId, long start, long end) {
+        if (contentCenterFileId <= 0 || start < 0 || end < start) {
+            throw new IllegalArgumentException("invalid content range");
+        }
+        String url = downloadLink(contentCenterFileId, null, presignTtl);
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(config.requestTimeout())
+                .header("Range", "bytes=" + start + "-" + end)
+                .GET().build();
+        try {
+            HttpResponse<byte[]> response = fetchClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() == 206) {
+                Matcher matcher = CONTENT_RANGE.matcher(response.headers().firstValue("Content-Range").orElse(""));
+                if (!matcher.matches()) {
+                    throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                            "content range response is invalid");
+                }
+                long actualStart = Long.parseLong(matcher.group(1));
+                long actualEnd = Long.parseLong(matcher.group(2));
+                long total = Long.parseLong(matcher.group(3));
+                byte[] body = response.body();
+                if (actualStart != start || actualEnd < actualStart || total <= actualEnd
+                        || body == null || body.length != actualEnd - actualStart + 1
+                        || total > maxBytes) {
+                    throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                            "content range response is inconsistent");
+                }
+                return new ContentRange(body, actualStart, actualEnd, total);
+            }
+            if (response.statusCode() == 200) {
+                byte[] body = response.body();
+                long total = response.headers().firstValueAsLong("Content-Length").orElse(body == null ? -1 : body.length);
+                if (body == null || body.length == 0 || total <= 0 || total > maxBytes
+                        || total != body.length || start >= total) {
+                    throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                            "content range response is unavailable");
+                }
+                long actualEnd = Math.min(end, total - 1);
+                return new ContentRange(java.util.Arrays.copyOfRange(body, (int) start, (int) actualEnd + 1),
+                        start, actualEnd, total);
+            }
+            throw new AttachmentStorageException(categoryFor(response.statusCode()),
+                    "content range fetch failed (HTTP " + response.statusCode() + ")");
+        } catch (java.net.http.HttpTimeoutException e) {
+            throw new AttachmentStorageException(AttachmentStorageException.Category.TRANSIENT,
+                    "content range fetch timed out", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AttachmentStorageException(AttachmentStorageException.Category.TRANSIENT,
+                    "content range fetch interrupted", e);
+        } catch (java.io.IOException e) {
+            throw new AttachmentStorageException(AttachmentStorageException.Category.TRANSIENT,
+                    "content range fetch transport failure", e);
+        }
     }
 
     /** 严格校验：不一致或不完整的结果绝不会变为 STORED。 */

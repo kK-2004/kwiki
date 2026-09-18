@@ -91,8 +91,9 @@ public class WikiImportService {
             String message = ex.getMessage() == null ? "" : ex.getMessage();
             if (message.contains("size")) throw new WikiImportValidationException("请选择非空文件，大小不超过 20 MB");
             if (message.contains("UTF-8")) throw new WikiImportValidationException("Markdown 文件需要使用 UTF-8 编码");
-            if (message.contains("only Markdown")) throw new WikiImportValidationException("仅支持 Markdown 和 DOCX 文件");
-            if (message.contains("content type")) throw new WikiImportValidationException("文件类型与扩展名不一致，请重新另存为 Markdown 或 DOCX");
+            if (message.contains("only Markdown")) throw new WikiImportValidationException("仅支持 Markdown、DOCX 和 PDF 文件");
+            if (message.contains("content type")) throw new WikiImportValidationException("文件类型与扩展名不一致，请重新另存为 Markdown、DOCX 或 PDF");
+            if (message.contains("PDF")) throw new WikiImportValidationException("PDF 文件结构无效，或文件已损坏、加密，请重新导出后上传");
             throw new WikiImportValidationException("DOCX 文件结构无效，或包含不支持的宏、嵌入文件，请重新另存后上传");
         }
     }
@@ -105,7 +106,8 @@ public class WikiImportService {
         String mime = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
         boolean markdown = lower.endsWith(".md") || lower.endsWith(".markdown");
         boolean docx = lower.endsWith(".docx");
-        if (!markdown && !docx) throw new IllegalArgumentException("only Markdown and DOCX imports are supported");
+        boolean pdf = lower.endsWith(".pdf");
+        if (!markdown && !docx && !pdf) throw new IllegalArgumentException("only Markdown, DOCX and PDF imports are supported");
         if (docx && !mime.isBlank() && !"application/octet-stream".equals(mime)
                 && !"application/vnd.openxmlformats-officedocument.wordprocessingml.document".equals(mime)) {
             throw new IllegalArgumentException("DOCX content type is not allowed");
@@ -113,6 +115,10 @@ public class WikiImportService {
         if (markdown && !mime.isBlank() && !"application/octet-stream".equals(mime)
                 && !"text/markdown".equals(mime) && !"text/plain".equals(mime)) {
             throw new IllegalArgumentException("Markdown content type is not allowed");
+        }
+        if (pdf && !mime.isBlank() && !"application/octet-stream".equals(mime)
+                && !"application/pdf".equals(mime)) {
+            throw new IllegalArgumentException("PDF content type is not allowed");
         }
         validateImportShape(lower, content);
     }
@@ -126,14 +132,21 @@ public class WikiImportService {
     private String title(String fileName) { String name = fileName.replace('\\', '/'); name = name.substring(name.lastIndexOf('/') + 1); int dot = name.lastIndexOf('.'); return (dot > 0 ? name.substring(0, dot) : name).trim(); }
     private List<String> validateImportShape(String fileName, byte[] content) {
         String lower = fileName.toLowerCase(Locale.ROOT);
-        if (!(lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".docx"))) {
-            throw new IllegalArgumentException("only Markdown and DOCX imports are supported");
+        if (!(lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".docx") || lower.endsWith(".pdf"))) {
+            throw new IllegalArgumentException("only Markdown, DOCX and PDF imports are supported");
         }
         if (lower.endsWith(".docx")) {
             if (content.length < 4 || content[0] != 'P' || content[1] != 'K') {
                 throw new IllegalArgumentException("DOCX signature is invalid");
             }
             return validateDocxArchive(content);
+        }
+        if (lower.endsWith(".pdf")) {
+            if (content.length < 5 || content[0] != '%' || content[1] != 'P'
+                    || content[2] != 'D' || content[3] != 'F' || content[4] != '-') {
+                throw new IllegalArgumentException("PDF signature is invalid");
+            }
+            return List.of();
         }
         try {
             StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)

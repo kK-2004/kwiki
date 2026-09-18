@@ -194,4 +194,12 @@ class QaRetrievalContractsTest {
         assertThat(evidence.get(0).body().length() + evidence.get(1).body().length())
                 .isLessThanOrEqualTo(1000);
     }
+
+    @Test
+    void assemblerExposesItsHardLimitsForQaStageBounding() {
+        var assembler = new EvidenceAssembler(
+                new RetrievalBudgets(50, 40, 8, 3, 24000, Duration.ofSeconds(5)));
+        assertThat(assembler.maxParentCount()).isEqualTo(8);
+        assertThat(assembler.maxContextChars()).isEqualTo(24000);
+    }
 }

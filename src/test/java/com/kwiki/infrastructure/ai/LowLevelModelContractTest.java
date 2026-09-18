@@ -111,6 +111,45 @@ class LowLevelModelContractTest {
     }
 
     @Test
+    void streamingHttpFailurePreservesStatusAndRootCause() throws Exception {
+        try (var server = new MockWebServer()) {
+            server.start();
+            server.enqueue(new MockResponse().setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("{\"error\":\"response_format is unsupported\"}"));
+            var model = OpenAiStreamingChatModel.builder()
+                    .baseUrl(server.url("/v1").toString())
+                    .apiKey("test")
+                    .modelName("test")
+                    .httpClientBuilder(new CancellableModelHttpClient.Builder())
+                    .build();
+            var failure = new CompletableFuture<Throwable>();
+
+            model.chat("question", new dev.langchain4j.model.chat.response.StreamingChatResponseHandler() {
+                @Override
+                public void onCompleteResponse(
+                        dev.langchain4j.model.chat.response.ChatResponse response) {
+                    failure.completeExceptionally(
+                            new AssertionError("provider rejection must not complete successfully"));
+                }
+
+                @Override
+                public void onError(Throwable error) {
+                    failure.complete(error);
+                }
+            });
+
+            Throwable error = failure.get(5, TimeUnit.SECONDS);
+            assertThat(error)
+                    .isInstanceOf(dev.langchain4j.exception.InvalidRequestException.class)
+                    .hasRootCauseInstanceOf(dev.langchain4j.exception.HttpException.class);
+            Throwable root = error;
+            while (root.getCause() != null) root = root.getCause();
+            assertThat(((dev.langchain4j.exception.HttpException) root).statusCode()).isEqualTo(400);
+        }
+    }
+
+    @Test
     void disconnectBeforeHeadersClosesTheActualSocket() throws Exception {
         cancellationClosesSocket(false);
     }

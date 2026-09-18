@@ -22,6 +22,14 @@ public class EvidenceAssembler {
         this.budgets = budgets;
     }
 
+    public int maxParentCount() {
+        return budgets.distinctParentLimit;
+    }
+
+    public long maxContextChars() {
+        return budgets.parentContextCharBudget;
+    }
+
     public List<ParentEvidence> assemble(
             List<ParentEvidenceChunk> parents, long contextCharBudget) {
         budgets.validateRequest(Math.max(1, parents.size()), contextCharBudget);

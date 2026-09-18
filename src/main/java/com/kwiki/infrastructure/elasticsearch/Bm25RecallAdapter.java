@@ -74,9 +74,23 @@ public class Bm25RecallAdapter implements ChildRecallPort {
                     text(source.get("headingPath")),
                     (int) number(source.get("charStart")),
                     (int) number(source.get("charEnd")),
-                    text(source.get("content"))));
+                    text(source.get("content")),
+                    contentIds(source)));
         }
         return mapped;
+    }
+
+    /** 由块内受保护块重建的去重资源身份（旧索引回退为空）。 */
+    static List<Long> contentIds(Map<?, ?> source) {
+        Object value = source.get("contentIds");
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(Bm25RecallAdapter::number)
+                    .distinct()
+                    .toList();
+        }
+        return java.util.List.of();
     }
 
     private static String text(Object value) {

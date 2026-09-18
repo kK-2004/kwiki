@@ -9,9 +9,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,20 +23,27 @@ public class WikiImportController {
     private final WikiImportJobService imports;
     public WikiImportController(WikiImportJobService imports) { this.imports = imports; }
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public record ImportRequest(String attachmentUuid, Long parentId, String audienceMode, String audienceMembers) {}
+
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     TransDTO<WikiImportJobService.ImportJobView> upload(@AuthenticationPrincipal CurrentUser user,
-                                                    @PathVariable long kbId,
-                                                    @RequestParam(required = false) Long parentId,
-                                                    @RequestParam(defaultValue = "KB_MEMBERS") String audienceMode,
-                                                    @RequestParam(defaultValue = "") String audienceMembers,
-                                                    @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
-                                                    @RequestParam("file") MultipartFile file) throws java.io.IOException {
-        return TransDTO.success(imports.submit(user, kbId, parentId, file.getOriginalFilename(), file.getContentType(), file.getBytes(), audienceMode, parseAudienceMembers(audienceMembers), idempotencyKey));
+                                                      @PathVariable long kbId,
+                                                      @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                                      @RequestBody ImportRequest request) {
+        return TransDTO.success(imports.submitStored(user, kbId, request.parentId(), request.attachmentUuid(),
+                request.audienceMode(), parseAudienceMembers(request.audienceMembers()), idempotencyKey));
     }
 
     @org.springframework.web.bind.annotation.GetMapping("/{jobId}")
     TransDTO<WikiImportJobService.ImportJobView> detail(@AuthenticationPrincipal CurrentUser user, @PathVariable long jobId) {
         return TransDTO.success(imports.detail(user, jobId));
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping
+    TransDTO<List<WikiImportJobService.ImportJobView>> list(@AuthenticationPrincipal CurrentUser user,
+                                                            @PathVariable long kbId,
+                                                            @RequestParam(defaultValue = "100") int limit) {
+        return TransDTO.success(imports.list(user, kbId, limit));
     }
 
     @org.springframework.web.bind.annotation.PostMapping("/{jobId}/retry")

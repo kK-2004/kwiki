@@ -10,6 +10,7 @@ import com.kwiki.wiki.domain.WikiPageDraft;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -35,13 +37,14 @@ public class PageController {
     private final PageProvenanceService pageProvenance;
     private final ResourceAuthorizationService resources;
     private final PublicationNotePort publicationNotes;
+    private final PageSourcePreviewService sourcePreviews;
 
     public PageController(PageRevisionService pageRevisions,
                           com.kwiki.wiki.render.MarkdownPort renderer,
                           PageLinkService pageLinks,
                           PageTagService pageTags,
                           PageProvenanceService pageProvenance) {
-        this(pageRevisions, renderer, pageLinks, pageTags, pageProvenance, null, null);
+        this(pageRevisions, renderer, pageLinks, pageTags, pageProvenance, null, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -51,7 +54,8 @@ public class PageController {
                           PageTagService pageTags,
                           PageProvenanceService pageProvenance,
                           ResourceAuthorizationService resources,
-                          PublicationNotePort publicationNotes) {
+                          PublicationNotePort publicationNotes,
+                          PageSourcePreviewService sourcePreviews) {
         this.pageRevisions = pageRevisions;
         this.renderer = renderer;
         this.pageLinks = pageLinks;
@@ -59,6 +63,7 @@ public class PageController {
         this.pageProvenance = pageProvenance;
         this.resources = resources;
         this.publicationNotes = publicationNotes;
+        this.sourcePreviews = sourcePreviews;
     }
 
     public record SaveDraftRequest(
@@ -75,9 +80,10 @@ public class PageController {
                             java.time.Instant updatedAt, String markdown) {
     }
 
-    public record PublishedView(long revisionNo, String markdown, String html,
+    public record PublishedView(long revisionNo, String markdown, String html, String title,
                                 long createdBy, java.time.Instant createdAt,
-                                boolean canEdit, boolean canManage) {
+                                boolean canEdit, boolean canManage,
+                                PageSourcePreviewService.SourceDocumentSummary sourceDocument) {
     }
 
     public record CompareView(RevisionView from, RevisionView to) {
@@ -102,11 +108,81 @@ public class PageController {
         WikiPageRevision published = pageRevisions.publishedContent(user, kbId, pageId);
         PublishedView view = new PublishedView(published.getRevisionNo(),
                 published.getMarkdown(), renderer.renderToHtml(published.getMarkdown()),
+                pageRevisions.title(user, kbId, pageId),
                 published.getCreatedBy(), published.getCreatedAt(),
                 resources != null && resources.can(user, pageId, ResourceAction.EDIT),
-                resources != null && resources.can(user, pageId, ResourceAction.MANAGE));
+                resources != null && resources.can(user, pageId, ResourceAction.MANAGE),
+                sourcePreviews == null ? null : sourcePreviews.sourceSummary(user, kbId, pageId));
         String etag = "\"rev-" + published.getRevisionNo() + "\"";
         return ResponseEntity.ok().header(HttpHeaders.ETAG, etag).body(TransDTO.success(view));
+    }
+
+    /** 页面作用域的授权源文件预览；返回内容中心短期地址，避免服务端中转大文件。 */
+    @GetMapping("/{pageId}/source-preview")
+    ResponseEntity<TransDTO<PageSourcePreviewService.SourcePreviewLink>> sourcePreview(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable long kbId,
+            @PathVariable long pageId) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .body(TransDTO.success(sourcePreviews.previewLink(user, kbId, pageId)));
+    }
+
+    /** 同源读取供 PDF.js 渲染，避免对象存储下载响应及跨域限制。 */
+    @GetMapping("/{pageId}/source-preview/content")
+    ResponseEntity<byte[]> sourcePreviewContent(@AuthenticationPrincipal CurrentUser user,
+                                                @PathVariable long kbId,
+                                                @PathVariable long pageId) {
+        return sourcePreviewContent(user, kbId, pageId, null);
+    }
+
+    @GetMapping(value = "/{pageId}/source-preview/content", headers = HttpHeaders.RANGE)
+    ResponseEntity<byte[]> sourcePreviewContent(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable long kbId,
+            @PathVariable long pageId,
+            @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader) {
+        if (rangeHeader != null && !rangeHeader.isBlank()) {
+            long[] range = parseSingleRange(rangeHeader);
+            PageSourcePreviewService.SourcePreviewRange preview =
+                    sourcePreviews.readPreviewRange(user, kbId, pageId, range[0], range[1]);
+            return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                    .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
+                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .header(HttpHeaders.CONTENT_RANGE,
+                            "bytes " + preview.start() + "-" + preview.end() + "/" + preview.total())
+                    .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(preview.bytes().length))
+                    .header("X-Content-Type-Options", "nosniff")
+                    .contentType(org.springframework.http.MediaType.parseMediaType(preview.contentType()))
+                    .body(preview.bytes());
+        }
+        PageSourcePreviewService.SourcePreview preview = sourcePreviews.readPreview(user, kbId, pageId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                .header("X-Content-Type-Options", "nosniff")
+                .contentType(org.springframework.http.MediaType.parseMediaType(preview.contentType()))
+                .body(preview.bytes());
+    }
+
+    private static long[] parseSingleRange(String header) {
+        if (!header.startsWith("bytes=") || header.substring(6).contains(",")) {
+            throw new IllegalArgumentException("only one byte range is supported");
+        }
+        String value = header.substring(6).trim();
+        int dash = value.indexOf('-');
+        if (dash <= 0) throw new IllegalArgumentException("invalid byte range");
+        try {
+            long start = Long.parseLong(value.substring(0, dash));
+            long end = value.substring(dash + 1).isBlank()
+                    ? Long.MAX_VALUE : Long.parseLong(value.substring(dash + 1));
+            if (start < 0 || end < start) throw new IllegalArgumentException("invalid byte range");
+            return new long[] { start, end };
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("invalid byte range", e);
+        }
     }
 
     @GetMapping("/{pageId}/draft")

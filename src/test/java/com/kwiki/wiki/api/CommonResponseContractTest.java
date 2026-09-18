@@ -5,13 +5,17 @@ import com.kwiki.security.JwtTokenService;
 import com.kwiki.testutil.StandardTestProperties;
 import com.kwiki.testutil.WikiMockBeans;
 import com.kwiki.wiki.access.ScopeVersionService;
+import com.kwiki.wiki.access.ResourceAuthorizationService;
 import com.kwiki.wiki.domain.KnowledgeBase;
 import com.kwiki.wiki.domain.KnowledgeBaseMember;
+import com.kwiki.wiki.domain.AppUser;
 import com.kwiki.wiki.domain.WikiPage;
+import com.kwiki.wiki.persistence.AppUserRepository;
 import com.kwiki.wiki.persistence.KnowledgeBaseMemberRepository;
 import com.kwiki.wiki.persistence.KnowledgeBaseRepository;
 import com.kwiki.wiki.persistence.WikiPageRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,6 +30,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -71,6 +77,26 @@ class CommonResponseContractTest {
 
     @Autowired
     ScopeVersionService scopeVersions;
+
+    @Autowired
+    AppUserRepository users;
+
+    @org.springframework.boot.test.mock.mockito.MockBean
+    ResourceAuthorizationService resourceAuthorization;
+
+    @BeforeEach
+    void authenticateIssuedTestUsersAgainstTheDatabaseFence() {
+        when(users.findById(anyLong())).thenAnswer(invocation -> {
+            long id = invocation.getArgument(0);
+            AppUser user = mock(AppUser.class);
+            when(user.getId()).thenReturn(id);
+            when(user.getUsername()).thenReturn(id == ADMIN.id() ? ADMIN.username()
+                    : id == OWNER.id() ? OWNER.username() : VIEWER.username());
+            when(user.isAdmin()).thenReturn(id == ADMIN.id());
+            when(user.isActive()).thenReturn(true);
+            return Optional.of(user);
+        });
+    }
 
     private String auth(CurrentUser user) {
         return "Bearer " + tokens.issue(user);

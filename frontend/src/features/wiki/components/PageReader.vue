@@ -7,31 +7,35 @@
       <div class="title-copy">
         <h1 class="page-title">{{ displayTitle }}</h1>
         <p class="meta" data-testid="page-meta">
-          <span class="pill"><i class="i-lucide-file-text" aria-hidden="true"></i>页面</span>
-          <span class="pill">r{{ page.revisionNo }}</span>
-          <span class="pill">已发布</span>
-          <span class="updated"><i class="i-lucide-clock" aria-hidden="true"></i>更新于 {{ page.createdAt }}</span>
+          <span class="updated"><i class="i-lucide-clock" aria-hidden="true"></i>更新于 {{ formattedCreatedAt }}</span>
         </p>
       </div>
-      <div v-if="props.kbId && props.pageId" class="export-menu">
-        <button type="button" class="export-toggle" :aria-expanded="exportOpen" aria-label="导出当前修订" data-testid="reader-export" @click="exportOpen = !exportOpen">导出 <i class="i-lucide-chevron-down" aria-hidden="true"></i></button>
-        <div v-if="exportOpen" class="export-panel">
-          <button type="button" :disabled="exporting" @click="exportRevision('md')">Markdown</button>
-          <button type="button" :disabled="exporting" @click="exportRevision('html')">HTML</button>
-        </div>
-      </div>
+    </div>
+    <div v-if="sourceFormat" class="source-tabs" role="tablist" aria-label="阅读视图切换">
+      <button type="button" role="tab" class="source-tab" :aria-selected="readerTab === 'source'" @click="readerTab = 'source'">{{ sourceFormat }} 源文件</button>
+      <button type="button" role="tab" class="source-tab" :aria-selected="readerTab === 'parsed'" @click="readerTab = 'parsed'">解析文本</button>
     </div>
     <div v-if="anchorResolution" class="anchor-notice" :class="{ warning: !anchorResolution.currentRevision }" role="status">
       <strong>{{ anchorResolution.status === 'RELOCATED' ? '已定位划词' : '划词位置提示' }}</strong>
       <span>{{ anchorResolution.message }}</span>
     </div>
+    <p v-if="chunkNotice" role="status" class="anchor-notice">{{ chunkNotice }}</p>
     <MediaMountRegion
+      v-show="!sourceFormat || readerTab === 'parsed'"
+      ref="contentRef"
       class="markdown article"
       data-testid="page-content"
       :html="resolvedHtml"
       :resolver="mediaResolver"
       :kb-id="props.kbId"
       @mouseup="captureSelection"
+    />
+    <SourcePreview
+      v-if="sourceFormat && readerTab === 'source' && props.kbId && props.pageId"
+      class="source-preview-area"
+      :kb-id="props.kbId"
+      :page-id="props.pageId"
+      :source="page.sourceDocument!"
     />
     <p v-if="selectionNotice" class="selection-notice" role="status">{{ selectionNotice }}</p>
     <div v-if="selectionText" class="selection-toolbar" :style="selectionToolbarStyle">
@@ -54,13 +58,18 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useWikiStore, normalizedError } from '../store';
-import { getAuthToken, setAuthToken } from '../api';
+import { api, getAuthToken, setAuthToken } from '../api';
+import { locateChunk, clearCitationHighlight, type ChunkLocation } from './locateChunk';
+import type { CitationEntry } from '../sse';
 import type { TreeNodeDto } from '../api';
 import MediaMountRegion from './MediaMountRegion.vue';
+import SourcePreview from './SourcePreview.vue';
 import { createMediaPreviewResolver } from './mediaResolver';
 import type { MediaSourceResolver } from '@kk-2004/ui-components/components/KMediaViewer';
 const props = defineProps<{
+  chunkKey?: string;
   breadcrumb?: string;
   title?: string;
   backlinks?: Array<{ id: number; title: string }>;
@@ -71,7 +80,87 @@ const props = defineProps<{
 const emit = defineEmits<{ comment: [text: string] }>();
 
 const store = useWikiStore();
+const route = useRoute();
+const router = useRouter();
 const page = computed(() => store.page);
+const formattedCreatedAt = computed(() => formatDateTime(page.value?.createdAt ?? ''));
+const chunkNotice = ref('');
+const contentRef = ref<InstanceType<typeof MediaMountRegion> | null>(null);
+
+function formatDateTime(value: string) {
+  const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(value);
+  return match ? `${match[1]} ${match[2]}` : value;
+}
+
+/** PDF/DOCX 导入页的来源/解析文本页签；其他页面保持单一阅读视图。 */
+const sourceFormat = computed(() => {
+  const format = page.value?.sourceDocument?.format;
+  return format === 'PDF' || format === 'DOCX' ? format : null;
+});
+const readerTab = ref<'parsed' | 'source'>('parsed');
+watch(() => [page.value?.createdAt, page.value?.revisionNo], () => { readerTab.value = 'parsed'; });
+
+/**
+ * 引用定位是一次性事务：以递增票据使旧任务失效，
+ * 目标键为 (chunkKey, 页面内容, 页Id)；目标改变或组件卸载时
+ * 取消未完成的解析并清理已有高亮。
+ */
+let citationTicket = 0;
+let citationLocation: ChunkLocation | null = null;
+
+function invalidateCitation() {
+  citationTicket++;
+  citationLocation?.cleanup();
+  citationLocation = null;
+  clearCitationHighlight();
+}
+
+async function consumeChunkQuery() {
+  const { chunk: _chunk, ...query } = route.query;
+  await router.replace({ query });
+}
+
+watch(() => [props.chunkKey, page.value, props.pageId], async () => {
+  const run = ++citationTicket;
+  const starting = Boolean(props.chunkKey && page.value);
+  // 定位成功或已展示最终错误后消费路由参数会使 chunkKey 变为空：
+  // 此时保留刚应用的高亮/状态提示（由超时/下一次目标清理），
+  // 只在有新目标或页面切换时清理。
+  if (starting || !page.value) {
+    citationLocation?.cleanup();
+    citationLocation = null;
+    clearCitationHighlight();
+    chunkNotice.value = '';
+  }
+  if (!starting || props.pageId == null) return;
+  const chunkKey = props.chunkKey;
+  if (!chunkKey) return;
+  try {
+    const citation = await api.json<CitationEntry>(`/citations/${encodeURIComponent(chunkKey)}`);
+    if (run !== citationTicket || citation.resourceId !== props.pageId) return;
+    // 引用命中的是解析文本；若正在查看源文件页签则切回再定位。
+    readerTab.value = 'parsed';
+    // 就绪握手：等待正文提交与异步媒体挂载（MediaMountRegion 在下一个 tick reconcile）。
+    await nextTick();
+    await nextTick();
+    if (run !== citationTicket) return;
+    const container = contentRef.value?.$el;
+    if (!(container instanceof Element)) return;
+    const location = locateChunk(container, { excerpt: citation.excerpt, charStart: citation.charStart });
+    if (location.status === 'located') {
+      citationLocation = location;
+    } else {
+      location.cleanup();
+      chunkNotice.value = `页面内容可能已更新，未能精确定位原片段。引用摘要：“${citation.excerpt}”`;
+    }
+    await consumeChunkQuery();
+  } catch {
+    if (run !== citationTicket) return;
+    chunkNotice.value = '原片段已失效或无权访问，无法定位。';
+    await consumeChunkQuery();
+  }
+}, { flush: 'post', immediate: true });
+
 const error = computed(() => store.pageError);
 const errorText = computed(() => normalizedError(error.value));
 
@@ -119,44 +208,6 @@ watch(sanitizedHtml, (html) => {
       });
   }
 }, { immediate: true });
-
-/** 阅读器导出当前查看的修订版本（绝不会触发发布）。 */
-const exportOpen = ref(false);
-const exporting = ref(false);
-async function exportRevision(format: 'md' | 'html') {
-  if (!props.kbId || !props.pageId || !page.value || exporting.value) return;
-  exportOpen.value = false;
-  exporting.value = true;
-  try {
-    const response = await fetch(
-      `/api/v1/knowledge-bases/${props.kbId}/pages/${props.pageId}/export`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
-        },
-        body: JSON.stringify({ format, revisionNo: page.value.revisionNo }),
-      },
-    );
-    if (!response.ok) return;
-    const blob = await response.blob();
-    const disposition = response.headers.get('Content-Disposition') || '';
-    const match = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
-    let name = `${displayTitle.value || 'export'}.${format}`;
-    if (match) {
-      try { name = decodeURIComponent(match[1]); } catch { /* 保留兜底 */ }
-    }
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = name;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  } finally {
-    exporting.value = false;
-  }
-}
 
 /** 标题与路径回退到所选页面在树中的条目。 */
 function findPath(nodes: TreeNodeDto[], id: number, trail: TreeNodeDto[]): TreeNodeDto[] | null {
@@ -249,10 +300,16 @@ async function askQuestion() {
   } catch (error) { if ((error as { name?: string })?.name !== 'AbortError') questionError.value = '问 AI 失败，请重试'; } finally { if (questionController.value === controller) questionController.value = null; asking.value = false; }
 }
 watch([() => props.anchorResolution?.anchorId, () => page.value?.revisionNo], () => { void locateAnchor(); }, { immediate: true });
-onBeforeUnmount(() => questionController.value?.abort());
+onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort(); });
 </script>
 
 <style scoped>
+:global(::highlight(kwiki-citation)) { background: #ffe58f; color: inherit; }
+:global(mark[data-kwiki-citation]) { background: #ffe58f; color: inherit; border-radius: 2px; }
+.source-tabs { display: inline-flex; gap: 4px; margin: 20px 0 4px; padding: 4px; border: 1px solid #e4e9e6; border-radius: 12px; background: #f2f5f3; }
+.source-tab { height: 32px; border: 0; border-radius: 8px; padding: 0 16px; background: none; font: inherit; font-size: 13px; color: #77827c; cursor: pointer; }
+.source-tab[aria-selected='true'] { background: #fff; color: #1f7a4d; box-shadow: 0 1px 4px #1f3c2817; }
+.source-preview-area { margin: 8px 0 18px; min-height: 60vh; display: flex; }
 .reader {
   color: var(--kwiki-ink);
 }
@@ -279,55 +336,15 @@ onBeforeUnmount(() => questionController.value?.abort());
   align-items: flex-start;
   gap: 20px;
 }
-.export-menu {
-  position: relative;
-  flex-shrink: 0;
-}
-.export-toggle {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid #dfe3e2;
-  border-radius: 6px;
-  background: var(--kwiki-panel, #fff);
-  font: inherit;
-  font-size: 12px;
-  color: #555c5c;
-  cursor: pointer;
-}
-.export-panel {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 30;
-  background: #fff;
-  border: 1px solid #e0e8e2;
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(27, 52, 40, 0.12);
-  display: grid;
-  min-width: 200px;
-}
-.export-panel button {
-  border: 0;
-  background: none;
-  text-align: left;
-  padding: 10px 14px;
-  font: inherit;
-  font-size: 12px;
-  color: #4a5454;
-  cursor: pointer;
-}
-.export-panel button:hover {
-  background: #f0f7f2;
-}
 .title-copy {
   min-width: 0;
   flex: 1;
 }
 .page-title {
   margin: 0 0 9px;
-  font-size: 29px;
+  font-size: 36px;
   line-height: 1.15;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.04em;
 }
 .meta {
   display: flex;
@@ -360,9 +377,10 @@ onBeforeUnmount(() => questionController.value?.abort());
   font-size: 12px;
 }
 .markdown.article {
-  font-size: 15px;
-  line-height: 1.85;
-  color: #343a3a;
+  margin-top: 28px;
+  font-size: 16px;
+  line-height: 1.9;
+  color: #37413c;
 }
 .markdown :deep(h1) {
   font-size: 25px;
@@ -472,7 +490,7 @@ onBeforeUnmount(() => questionController.value?.abort());
     display: block;
   }
   .page-title {
-    font-size: 25px;
+    font-size: 28px;
   }
   .provenance {
     grid-template-columns: 1fr;

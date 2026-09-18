@@ -4,13 +4,13 @@ import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.KnowledgeBaseAuthorizationService;
 import com.kwiki.wiki.access.WikiAction;
 import com.kwiki.wiki.attach.AttachmentStorage;
-import com.kwiki.wiki.attach.AttachmentUpload;
-import com.kwiki.wiki.attach.StoredAttachment;
 import com.kwiki.wiki.domain.Attachment;
 import com.kwiki.wiki.persistence.AttachmentRepository;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcOperations;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
@@ -25,6 +25,8 @@ import org.springframework.scheduling.annotation.Scheduled;
  * 生成的 Wiki 修订版本是唯一送入索引构建流水线的内容。 */
 @Service
 public class WikiImportJobService {
+    private static final Logger log = LoggerFactory.getLogger(WikiImportJobService.class);
+
     private final JdbcOperations jdbc;
     private final AttachmentRepository attachments;
     private final AttachmentStorage storage;
@@ -43,17 +45,29 @@ public class WikiImportJobService {
         this.importer = importer;
     }
 
-    public ImportJobView submit(CurrentUser user, long kbId, Long parentId, String fileName,
-                                String contentType, byte[] content, String audienceMode,
-                                List<ResourceAudienceService.Member> audienceMembers,
-                                String requestedIdempotencyKey) {
+    /** Queue a completed browser upload. Parsing runs in the existing durable worker. */
+    @org.springframework.transaction.annotation.Transactional
+    public ImportJobView submitStored(CurrentUser user, long kbId, Long parentId, String attachmentUuid,
+                                      String audienceMode, List<ResourceAudienceService.Member> audienceMembers,
+                                      String requestedIdempotencyKey) {
         requireDb();
         authorization.require(user, kbId, WikiAction.UPLOAD_ATTACHMENT);
-        importer.validateUpload(fileName, contentType, content);
+        Attachment attachment = attachments.findByUuidForUpdate(attachmentUuid)
+                .filter(a -> a.getKbId() == kbId && a.getUploadedBy() == user.id()
+                        && a.isStored() && Attachment.PURPOSE_WIKI_IMPORT_SOURCE.equals(a.getPurpose()))
+                .orElseThrow(() -> new IllegalArgumentException("completed import attachment not found"));
+        // One uploaded source cannot accidentally produce two pages after a lost response.
+        List<Long> existingJobs = jdbc.query("SELECT id FROM wiki_import_job WHERE source_attachment_id = ? ORDER BY id LIMIT 1",
+                (rs, n) -> rs.getLong(1), attachment.getId());
+        if (!existingJobs.isEmpty()) return detail(user, existingJobs.getFirst());
         String key = normalizeKey(requestedIdempotencyKey);
         ImportJobView existing = findOwned(user, key);
-        if (existing != null) return existing;
-        String safeName = fileName == null || fileName.isBlank() ? "导入文档" : fileName;
+        if (existing != null) {
+            if (!java.util.Objects.equals(row(existing.jobId()).attachmentId(), attachment.getId())) {
+                throw new IllegalArgumentException("idempotency key belongs to another upload");
+            }
+            return existing;
+        }
         String mode = audienceMode == null ? "KB_MEMBERS" : audienceMode.trim().toUpperCase(Locale.ROOT);
         if ("SELECTED_MEMBERS".equals(mode) && (audienceMembers == null || audienceMembers.isEmpty())) {
             throw new IllegalArgumentException("selected audience requires members");
@@ -61,29 +75,12 @@ public class WikiImportJobService {
         if (!List.of("PRIVATE", "SELECTED_MEMBERS", "KB_MEMBERS").contains(mode)) {
             throw new IllegalArgumentException("invalid audience mode");
         }
-        String memberJson = membersJson(audienceMembers);
         String jobUuid = UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO wiki_import_job (uuid, created_by, kb_id, parent_id, idempotency_key, file_name, content_type, audience_mode, audience_members_json, warnings_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                jobUuid, user.id(), kbId, parentId, key, safeName,
-                contentType == null ? "application/octet-stream" : contentType, mode, memberJson, "[]");
+        jdbc.update("INSERT INTO wiki_import_job (uuid, created_by, kb_id, parent_id, source_attachment_id, idempotency_key, file_name, content_type, audience_mode, audience_members_json, warnings_json, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'STORED')",
+                jobUuid, user.id(), kbId, parentId, attachment.getId(), key, attachment.getFileName(),
+                attachment.getContentType(), mode, membersJson(audienceMembers), "[]");
         long jobId = jdbc.queryForObject("SELECT id FROM wiki_import_job WHERE uuid = ?", Long.class, jobUuid);
-        try {
-            Attachment attachment = attachments.save(new Attachment(UUID.randomUUID().toString(), kbId, user.id(), safeName,
-                    contentType == null ? "application/octet-stream" : contentType, content.length));
-            attachment.markWikiImportSource();
-            attachment = attachments.save(attachment);
-            StoredAttachment stored = storage.store(new AttachmentUpload(safeName,
-                    contentType == null ? "application/octet-stream" : contentType,
-                    new java.io.ByteArrayInputStream(content), content.length));
-            if (stored.verifiedByteSize() != content.length) throw new IllegalStateException("attachment storage returned inconsistent size");
-            attachment.markStored(stored.contentCenterFileId());
-            attachments.save(attachment);
-            jdbc.update("UPDATE wiki_import_job SET source_attachment_id = ?, state = 'STORED', updated_at = CURRENT_TIMESTAMP(6) WHERE id = ?", attachment.getId(), jobId);
-            return process(user, jobId);
-        } catch (RuntimeException failure) {
-            fail(jobId, failure);
-            return detail(user, jobId);
-        }
+        return detail(user, jobId);
     }
 
     public ImportJobView detail(CurrentUser user, long jobId) {
@@ -93,11 +90,12 @@ public class WikiImportJobService {
         return view(row);
     }
 
-    public List<ImportJobView> list(CurrentUser user, int limit) {
+    public List<ImportJobView> list(CurrentUser user, long kbId, int limit) {
         requireDb();
+        authorization.require(user, kbId, WikiAction.READ_PAGE);
         int bounded = Math.max(1, Math.min(limit, 100));
-        return jdbc.query("SELECT id, uuid, created_by, kb_id, parent_id, source_attachment_id, idempotency_key, file_name, content_type, audience_mode, state, page_id, revision_id, attempt_count, last_error, warnings_json, created_at, updated_at FROM wiki_import_job WHERE created_by = ? ORDER BY id DESC LIMIT " + bounded,
-                (rs, n) -> view(new ImportRow(rs.getLong(1), rs.getString(2), rs.getLong(3), rs.getLong(4), nullableLong(rs.getObject(5)), nullableLong(rs.getObject(6)), rs.getString(7), rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11), nullableLong(rs.getObject(12)), nullableLong(rs.getObject(13)), rs.getInt(14), rs.getString(15), rs.getString(16), rs.getTimestamp(17).toInstant(), rs.getTimestamp(18).toInstant())), user.id());
+        return jdbc.query("SELECT id, uuid, created_by, kb_id, parent_id, source_attachment_id, idempotency_key, file_name, content_type, audience_mode, state, page_id, revision_id, attempt_count, last_error, warnings_json, created_at, updated_at FROM wiki_import_job WHERE created_by = ? AND kb_id = ? ORDER BY id DESC LIMIT " + bounded,
+                (rs, n) -> view(new ImportRow(rs.getLong(1), rs.getString(2), rs.getLong(3), rs.getLong(4), nullableLong(rs.getObject(5)), nullableLong(rs.getObject(6)), rs.getString(7), rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11), nullableLong(rs.getObject(12)), nullableLong(rs.getObject(13)), rs.getInt(14), rs.getString(15), rs.getString(16), rs.getTimestamp(17).toInstant(), rs.getTimestamp(18).toInstant())), user.id(), kbId);
     }
 
     public ImportJobView retry(CurrentUser user, long jobId) {
@@ -106,8 +104,9 @@ public class WikiImportJobService {
         if (row.createdBy() != user.id() && !user.admin()) throw new AccessDeniedException("import job is unavailable");
         if (!"FAILED".equals(row.state())) throw new IllegalArgumentException("only failed imports can be retried");
         if (row.attachmentId() == null) throw new IllegalArgumentException("import has no stored attachment");
+        authorization.require(user, row.kbId(), WikiAction.UPLOAD_ATTACHMENT);
         jdbc.update("UPDATE wiki_import_job SET state = 'STORED', last_error = NULL, lease_owner = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP(6) WHERE id = ? AND state = 'FAILED'", jobId);
-        return process(loadCreator(row), jobId);
+        return detail(user, jobId);
     }
 
     /** 恢复进程重启后滞留在 STORED/PARSING 的上传。租约
@@ -143,12 +142,15 @@ public class WikiImportJobService {
                 jdbc.update("UPDATE wiki_import_job SET state = 'SUCCEEDED', page_id = ?, revision_id = ?, lease_owner = NULL, lease_expires_at = NULL, last_error = NULL, updated_at = CURRENT_TIMESTAMP(6) WHERE id = ?", existingPage, existingRevision, jobId);
                 return detail(user, jobId);
             }
+            authorization.require(user, row.kbId(), WikiAction.UPLOAD_ATTACHMENT);
             byte[] content = storage.readContent(attachment.getContentCenterFileId());
             String audienceMembersJson = jdbc.queryForObject("SELECT audience_members_json FROM wiki_import_job WHERE id = ?", String.class, jobId);
             List<ResourceAudienceService.Member> members = parseMembers(audienceMembersJson);
             WikiImportService.ImportedPage page = importer.importDocument(user, row.kbId(), row.parentId(), row.fileName(), row.contentType(), content, row.audienceMode(), members, attachment.getId());
             Long revisionId = jdbc.queryForObject("SELECT current_published_revision_id FROM wiki_page WHERE id = ?", Long.class, page.id());
             jdbc.update("UPDATE wiki_import_job SET state = 'SUCCEEDED', page_id = ?, revision_id = ?, warnings_json = ?, lease_owner = NULL, lease_expires_at = NULL, last_error = NULL, updated_at = CURRENT_TIMESTAMP(6) WHERE id = ?", page.id(), revisionId, json(page.warnings()), jobId);
+            log.info("Wiki import parsed and published: jobId={}, pageId={}, revisionId={}, blocks={}",
+                    jobId, page.id(), revisionId, page.blockCount());
         } catch (RuntimeException failure) {
             fail(jobId, failure);
         }
@@ -159,12 +161,12 @@ public class WikiImportJobService {
         String raw = failure.getMessage() == null ? "" : failure.getMessage();
         String message;
         if (failure instanceof org.springframework.security.access.AccessDeniedException) message = "没有导入或发布到此知识库的权限";
+        else if (failure instanceof WikiImportValidationException) message = raw;
         else if (raw.contains("no extractable text")) message = "文档中没有可提取的文字，暂不支持扫描件或纯图片文档";
-        else if (failure instanceof com.kwiki.indexing.parse.UnsupportedInputException) message = "文档无法解析，请确认文件未损坏、未加密，并重新另存为 DOCX 后导入";
+        else if (failure instanceof com.kwiki.indexing.parse.UnsupportedInputException) message = "文档无法解析，请确认文件未损坏、未加密，并重新导出为可编辑的 PDF 或 DOCX 后导入";
         else if (failure instanceof IllegalArgumentException && raw.startsWith("DOCX")) message = "DOCX 文件结构无效，或包含不支持的嵌入文件";
         else message = row(jobId).attachmentId() == null ? "文件存储失败，请重新上传" : "导入处理失败，请重试；若仍失败，请提供任务编号以便排查";
-        org.slf4j.LoggerFactory.getLogger(WikiImportJobService.class)
-                .warn("Wiki import job {} failed ({})", jobId, failure.getClass().getSimpleName());
+        log.warn("Wiki import job {} failed ({})", jobId, failure.getClass().getSimpleName());
         jdbc.update("UPDATE wiki_import_job SET state = 'FAILED', last_error = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP(6) WHERE id = ?", message.substring(0, Math.min(500, message.length())), jobId);
     }
 

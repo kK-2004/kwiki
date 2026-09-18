@@ -2,125 +2,68 @@ package com.kwiki.infrastructure.redis;
 
 import com.kk2004.common.lock.DistributedLock;
 import com.kk2004.common.lock.DistributedLockFactory;
+import com.kk2004.common.redis.RedisUtil;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcOperations;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
-
-import java.time.Duration;
-import java.util.Map;
-import java.util.function.Supplier;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-/** 尽力而为的文档计数器；MySQL 仍是真实来源。 */
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+/**
+ * 尽力而为的文档计数器；MySQL 仍是真实来源。
+ *
+ * <p>Redis 数据访问全部经 kk-common {@link RedisUtil}：每页一个带
+ * dbVersion 的整体 DTO（SDK 的 kkRedisTemplate JSON 序列化），锁内的
+ * 读-改-写保证跨实例一致。锁统一来自 kk-common
+ * {@link DistributedLockFactory}（名字遵循 kwiki:lock:&lt;purpose&gt;:&lt;resource&gt;），
+ * 有界等待且只在确实持有时解锁；没有锁工厂时写路径失败关闭并排队修复，
+ * 读路径直接回源数据库。Redis 故障同样不阻断已提交的互动。
+ */
 @Component
 public class WikiStatisticsCache {
-    private static final String PREFIX = "kwiki:wiki:stats:v1:";
+    private static final String KEY_PREFIX = "kwiki:wiki:stats:v2:";
+    private static final String LOCK_PREFIX = "kwiki:lock:wiki-stats:";
     private static final Duration TTL = Duration.ofMinutes(30);
-    private static final DefaultRedisScript<Long> VERSIONED_DELTA = new DefaultRedisScript<>("""
-            local current = tonumber(redis.call('HGET', KEYS[1], 'dbVersion') or '0')
-            local incoming = tonumber(ARGV[1])
-            if incoming <= current then return 0 end
-            if current == 0 and incoming ~= 1 then return -1 end
-            if current > 0 and incoming ~= current + 1 then return -1 end
-            if redis.call('HEXISTS', KEYS[1], 'likes') == 0 or redis.call('HEXISTS', KEYS[1], 'favorites') == 0 or redis.call('HEXISTS', KEYS[1], 'comments') == 0 then return -1 end
-            local likes = tonumber(redis.call('HINCRBY', KEYS[1], 'likes', ARGV[2]))
-            local favorites = tonumber(redis.call('HINCRBY', KEYS[1], 'favorites', ARGV[3]))
-            local comments = tonumber(redis.call('HINCRBY', KEYS[1], 'comments', ARGV[4]))
-            if likes < 0 or favorites < 0 or comments < 0 then return -1 end
-            redis.call('HSET', KEYS[1], 'dbVersion', incoming)
-            redis.call('EXPIRE', KEYS[1], ARGV[5])
-            return 1
-            """, Long.class);
-    private final StringRedisTemplate redis;
+    private static final long LOCK_WAIT_MILLIS = 5000;
+
+    private final RedisUtil redis;
     private final JdbcOperations jdbc;
     private final DistributedLockFactory lockFactory;
 
-    public WikiStatisticsCache(ObjectProvider<StringRedisTemplate> redis) {
-        this(redis, null, null);
-    }
-
-    public WikiStatisticsCache(ObjectProvider<StringRedisTemplate> redis,
-                               ObjectProvider<JdbcOperations> jdbc) {
-        this(redis, jdbc, null);
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
-    public WikiStatisticsCache(ObjectProvider<StringRedisTemplate> redis,
+    public WikiStatisticsCache(ObjectProvider<RedisUtil> redis,
                                ObjectProvider<JdbcOperations> jdbc,
                                ObjectProvider<DistributedLockFactory> lockFactory) {
-        this.redis = redis.getIfAvailable();
+        this.redis = redis == null ? null : redis.getIfAvailable();
         this.jdbc = jdbc == null ? null : jdbc.getIfAvailable();
         this.lockFactory = lockFactory == null ? null : lockFactory.getIfAvailable();
     }
 
     public Counters getOrLoad(long pageId, Supplier<Counters> loader) {
-        if (redis == null) return loader.get();
-        String key = PREFIX + pageId;
-        try {
-            Map<Object, Object> values = redis.opsForHash().entries(key);
-            Counters cached = parse(values);
-            if (cached != null) return cached;
-            if (lockFactory != null) {
-                DistributedLock lock = lockFactory.getDistributedLock(key + ":lock");
-                boolean acquired;
-                try { acquired = lock.tryLock(5, TimeUnit.SECONDS); }
-                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); acquired = false; }
-                if (acquired) {
-                    try {
-                        values = redis.opsForHash().entries(key);
-                        cached = parse(values);
-                        if (cached != null) return cached;
-                        Counters loaded = loader.get();
-                        write(key, loaded);
-                        return loaded;
-                    } finally { if (lock.isHeldByCurrentThread()) lock.unlock(); }
-                }
-                return loader.get();
-            }
-            String lockKey = key + ":lock";
-            String owner = UUID.randomUUID().toString();
-            Boolean locked = redis.opsForValue().setIfAbsent(lockKey, owner, Duration.ofSeconds(5));
-            if (Boolean.TRUE.equals(locked)) {
-                try {
-                    values = redis.opsForHash().entries(key);
-                    cached = parse(values);
-                    if (cached != null) return cached;
-                    Counters loaded = loader.get();
-                    write(key, loaded);
-                    return loaded;
-                } finally {
-                    Object current = redis.opsForValue().get(lockKey);
-                    if (owner.equals(String.valueOf(current))) redis.delete(lockKey);
-                }
-            }
+        if (redis == null) {
             return loader.get();
-        } catch (RuntimeException failure) { return loader.get(); }
-    }
-
-    public void increment(long pageId, long likes, long favorites, long comments) {
-        if (redis == null) return;
-        String key = PREFIX + pageId;
+        }
         try {
-            boolean applied = withStatsLock(pageId, () -> {
-                if (!Boolean.TRUE.equals(redis.hasKey(key))) {
-                    requestRepair(pageId, "cache_missing_before_delta");
-                    return;
+            Counters cached = read(pageId);
+            if (cached != null) {
+                return cached;
+            }
+            Counters filled = withLock(pageId, () -> {
+                Counters again = read(pageId);
+                if (again != null) {
+                    return again;
                 }
-                if (likes != 0) redis.opsForHash().increment(key, "likes", likes);
-                if (favorites != 0) redis.opsForHash().increment(key, "favorites", favorites);
-                if (comments != 0) redis.opsForHash().increment(key, "comments", comments);
-                // 当记录行存在时，零增量也是一次有意为之的触达。
-                redis.expire(key, TTL);
+                Counters loaded = loader.get();
+                write(pageId, loaded);
+                return loaded;
             });
-            if (!applied) requestRepair(pageId, "stats_lock_unavailable");
-        } catch (RuntimeException ignored) {
-            requestRepair(pageId, "redis_update_failed");
+            // 锁竞争/中断/无锁工厂时读路径可降级：直接回源，不填充缓存。
+            return filled != null ? filled : loader.get();
+        } catch (RuntimeException failure) {
+            return loader.get();
         }
     }
 
@@ -132,14 +75,12 @@ public class WikiStatisticsCache {
     /** 感知版本的事务提交后增量。版本跳变或版本过期时从 MySQL 修复。 */
     public void incrementAfterCommit(long pageId, long likes, long favorites, long comments, long dbVersion) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            if (dbVersion > 0) incrementVersioned(pageId, likes, favorites, comments, dbVersion);
-            else increment(pageId, likes, favorites, comments);
+            applyDeltas(pageId, likes, favorites, comments, dbVersion > 0 ? dbVersion : null);
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
-                if (dbVersion > 0) incrementVersioned(pageId, likes, favorites, comments, dbVersion);
-                else increment(pageId, likes, favorites, comments);
+                applyDeltas(pageId, likes, favorites, comments, dbVersion > 0 ? dbVersion : null);
             }
         });
     }
@@ -147,7 +88,7 @@ public class WikiStatisticsCache {
     public void invalidate(long pageId) {
         if (redis == null) return;
         try {
-            if (!withStatsLock(pageId, () -> redis.delete(PREFIX + pageId))) {
+            if (!lockAndRun(pageId, () -> redis.del(KEY_PREFIX + pageId))) {
                 requestRepair(pageId, "stats_lock_unavailable");
             }
         } catch (RuntimeException ignored) { }
@@ -166,10 +107,46 @@ public class WikiStatisticsCache {
     public void replace(long pageId, Counters counters) {
         if (redis == null || counters == null) return;
         try {
-            if (!withStatsLock(pageId, () -> write(PREFIX + pageId, counters))) {
+            if (!lockAndRun(pageId, () -> write(pageId, counters))) {
                 requestRepair(pageId, "stats_lock_unavailable");
             }
         } catch (RuntimeException ignored) { }
+    }
+
+    /**
+     * 锁内整体读-改-写。dbVersion 为 null 表示不感知版本（保持既有值）；
+     * 否则仅当新版本恰好是缓存版本 + 1 时应用，跳变即作废缓存并排队修复。
+     */
+    private void applyDeltas(long pageId, long likes, long favorites, long comments, Long dbVersion) {
+        if (redis == null) return;
+        try {
+            boolean applied = lockAndRun(pageId, () -> {
+                Counters cached = read(pageId);
+                if (cached == null) {
+                    requestRepair(pageId, "cache_missing_before_delta");
+                    return;
+                }
+                if (dbVersion != null && dbVersion != cached.dbVersion() + 1) {
+                    requestRepair(pageId, "redis_version_gap");
+                    redis.del(KEY_PREFIX + pageId);
+                    return;
+                }
+                long nextLikes = cached.likes() + likes;
+                long nextFavorites = cached.favorites() + favorites;
+                long nextComments = cached.comments() + comments;
+                if (nextLikes < 0 || nextFavorites < 0 || nextComments < 0) {
+                    requestRepair(pageId, "stats_delta_negative");
+                    redis.del(KEY_PREFIX + pageId);
+                    return;
+                }
+                // 记录行存在时零增量也是一次有意为之的触达（续期 TTL）。
+                write(pageId, new Counters(nextLikes, nextFavorites, nextComments,
+                        dbVersion == null ? cached.dbVersion() : dbVersion));
+            });
+            if (!applied) requestRepair(pageId, "stats_lock_unavailable");
+        } catch (RuntimeException failure) {
+            requestRepair(pageId, "redis_update_failed");
+        }
     }
 
     private void requestRepair(long pageId, String reason) {
@@ -181,47 +158,55 @@ public class WikiStatisticsCache {
         }
     }
 
-    private void write(String key, Counters value) {
-        redis.opsForHash().putAll(key, Map.of("likes", String.valueOf(value.likes()),
-                "favorites", String.valueOf(value.favorites()), "comments", String.valueOf(value.comments()),
-                "dbVersion", String.valueOf(value.dbVersion())));
-        redis.expire(key, TTL);
-    }
-
-    private Counters parse(Map<Object, Object> values) {
-        if (values == null || values.size() < 3) return null;
-        try { return new Counters(Long.parseLong(String.valueOf(values.get("likes"))), Long.parseLong(String.valueOf(values.get("favorites"))), Long.parseLong(String.valueOf(values.get("comments"))), values.get("dbVersion") == null ? 0L : Long.parseLong(String.valueOf(values.get("dbVersion")))); }
-        catch (RuntimeException ignored) { return null; }
-    }
-
-    private void incrementVersioned(long pageId, long likes, long favorites, long comments, long dbVersion) {
-        if (redis == null) return;
-        String key = PREFIX + pageId;
+    /** SDK JSON 序列化的整体 DTO；损坏的载荷按未命中处理。 */
+    private Counters read(long pageId) {
         try {
-            boolean applied = withStatsLock(pageId, () -> {
-                Long result = redis.execute(VERSIONED_DELTA, List.of(key), String.valueOf(dbVersion), String.valueOf(likes), String.valueOf(favorites), String.valueOf(comments), String.valueOf(TTL.toSeconds()));
-                if (result == null || result < 0) {
-                    requestRepair(pageId, "redis_version_gap");
-                    redis.delete(key);
-                }
-            });
-            if (!applied) requestRepair(pageId, "stats_lock_unavailable");
-        } catch (RuntimeException failure) {
-            requestRepair(pageId, "redis_versioned_update_failed");
-            try { redis.delete(key); } catch (RuntimeException ignored) { }
+            Object value = redis.get(KEY_PREFIX + pageId);
+            return value instanceof Counters counters ? counters : null;
+        } catch (RuntimeException corruptedOrUnavailable) {
+            return null;
         }
     }
 
-    /** 写入、修复替换与失效共享同一读未命中锁。 */
-    private boolean withStatsLock(long pageId, Runnable action) {
-        if (lockFactory == null) { action.run(); return true; }
-        DistributedLock lock = lockFactory.getDistributedLock(PREFIX + pageId + ":lock");
+    private void write(long pageId, Counters value) {
+        redis.set(KEY_PREFIX + pageId, value, TTL);
+    }
+
+    /** 获取每页细粒度锁并执行临界区；返回 false 表示未进入（超时/中断/无锁工厂）。 */
+    private boolean lockAndRun(long pageId, Runnable action) {
+        return withLock(pageId, () -> {
+            action.run();
+            return Boolean.TRUE;
+        }) != null;
+    }
+
+    /**
+     * 锁内执行并返回结果；未获取锁（超时、中断、无锁工厂）时返回 null。
+     * 临界区自身不返回 null，因此 null 只表示"未进入"。
+     */
+    private <T> T withLock(long pageId, Supplier<T> section) {
+        if (lockFactory == null) {
+            // 互斥是正确性前提：没有锁工厂时写路径失败关闭，由调用方排队修复。
+            return null;
+        }
+        DistributedLock lock = lockFactory.getDistributedLock(LOCK_PREFIX + pageId);
         boolean acquired;
-        try { acquired = lock.tryLock(5, TimeUnit.SECONDS); }
-        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return false; }
-        if (!acquired) return false;
-        try { action.run(); return true; }
-        finally { if (lock.isHeldByCurrentThread()) lock.unlock(); }
+        try {
+            acquired = lock.tryLock(LOCK_WAIT_MILLIS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        if (!acquired) {
+            return null;
+        }
+        try {
+            return section.get();
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
     }
 
     public record Counters(long likes, long favorites, long comments, long dbVersion) {

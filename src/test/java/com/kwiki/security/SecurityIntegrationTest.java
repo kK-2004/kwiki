@@ -4,6 +4,7 @@ import com.kwiki.testutil.StandardTestProperties;
 import com.kwiki.wiki.domain.AppUser;
 import com.kwiki.wiki.persistence.AppUserRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,6 +20,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -69,6 +71,19 @@ class SecurityIntegrationTest {
 
     @Autowired
     PasswordEncoder passwordEncoder;
+
+    @BeforeEach
+    void authenticateIssuedTestUsersAgainstTheDatabaseFence() {
+        when(users.findById(anyLong())).thenAnswer(invocation -> {
+            long id = invocation.getArgument(0);
+            AppUser user = mock(AppUser.class);
+            when(user.getId()).thenReturn(id);
+            when(user.getUsername()).thenReturn(id == 1L ? "root" : "alice");
+            when(user.isAdmin()).thenReturn(id == 1L);
+            when(user.isActive()).thenReturn(true);
+            return java.util.Optional.of(user);
+        });
+    }
 
     private String bearer(CurrentUser user) {
         return "Bearer " + tokens.issue(user);

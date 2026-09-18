@@ -8,6 +8,14 @@ export interface TreeNodeDto {
   children: TreeNodeDto[];
 }
 
+/** PDF/DOCX 导入页的可选来源摘要；不含任何持久公开地址。 */
+export interface SourceDocumentSummary {
+  format: 'PDF' | 'DOCX';
+  fileName: string;
+  byteSize: number;
+  attachmentUuid: string;
+}
+
 export interface PageDto {
   revisionNo: number;
   markdown: string;
@@ -17,6 +25,8 @@ export interface PageDto {
   title?: string;
   canEdit?: boolean;
   canManage?: boolean;
+  /** 仅当页面派生自可预览的 PDF/DOCX 附件时返回；旧响应可省略。 */
+  sourceDocument?: SourceDocumentSummary | null;
 }
 
 export interface UserDto {

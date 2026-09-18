@@ -1,6 +1,6 @@
 <template>
   <div class="collaboration">
-    <button v-if="!embedded" type="button" class="open-button" @click="open">协作</button>
+    <button v-if="!embedded" type="button" class="open-button" @click="open"><i class="i-lucide-users" aria-hidden="true" />协作</button>
     <div v-if="visible || embedded" class="backdrop" :class="{ embedded }" role="presentation" @click.self="close">
       <section class="modal" role="dialog" aria-modal="true" :aria-label="`${resourceLabel}协作管理`">
         <header v-if="!embedded" class="modal-header">
@@ -112,7 +112,8 @@ function format(value: string) { try { return new Intl.DateTimeFormat('zh-CN', {
 </script>
 
 <style scoped>
-.open-button { padding: 8px 13px; border: 1px solid #cedbd3; border-radius: 7px; background: #fff; color: #26352e; cursor: pointer; }
+.open-button { height: 38px; display:inline-flex; align-items:center; gap:8px; padding:0 14px; border:1px solid #cfdad4; border-radius:11px; background:#fff; color:#31463a; font-size:13px; font-weight:600; cursor:pointer; transition:.16s ease; }
+.open-button:hover, .open-button:focus-visible { background:#f7faf8; border-color:#c4d3c9; outline:none; }
 .backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 20px; background: #1c282255; }
 .modal { width: min(620px, 100%); max-height: min(760px, 92vh); overflow: auto; box-sizing: border-box; padding: 23px; border: 1px solid #e0eae3; border-radius: 14px; background: #fff; color: #26352e; box-shadow: 0 24px 70px #17261d33; }
 .modal-header, .section-title, .link-row, .row-actions, .modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

@@ -69,7 +69,7 @@ public class CandidateGenerator {
         run.authorize();
         if (text.toString().isBlank()) {
             throw new com.kwiki.rag.orchestration.RunFailure(
-                    com.kwiki.rag.orchestration.AgenticErrorCodes.ANSWER_PROVIDER_FAILED);
+                    com.kwiki.rag.orchestration.AgenticErrorCodes.ANSWER_EMPTY);
         }
         var candidate = new CandidateAnswer(
                 candidateId,

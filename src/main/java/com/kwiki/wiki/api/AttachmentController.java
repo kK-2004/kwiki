@@ -12,11 +12,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -27,22 +25,36 @@ import java.util.Map;
 public class AttachmentController {
 
     private final AttachmentService attachments;
+    private final DirectUploadService uploads;
 
-    public AttachmentController(AttachmentService attachments) {
+    public AttachmentController(AttachmentService attachments, DirectUploadService uploads) {
         this.attachments = attachments;
+        this.uploads = uploads;
     }
 
     public record AttachmentView(String uuid, String fileName, String contentType,
                                  long byteSize, String status) {
     }
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    TransDTO<AttachmentView> upload(@AuthenticationPrincipal CurrentUser user,
-                                    @PathVariable long kbId,
-                                    @RequestParam("file") MultipartFile file) throws IOException {
-        Attachment stored = attachments.upload(user, kbId, file.getOriginalFilename(),
-                file.getContentType(), file.getSize(), file.getInputStream());
-        return TransDTO.success(toView(stored));
+    @PostMapping(value = "/uploads", consumes = MediaType.APPLICATION_JSON_VALUE)
+    TransDTO<DirectUploadService.Ticket> initiate(@AuthenticationPrincipal CurrentUser user,
+                                               @PathVariable long kbId,
+                                               @RequestBody DirectUploadService.Request request) {
+        return TransDTO.success(uploads.initiate(user, kbId, request));
+    }
+
+    @PostMapping(value = "/dedup/prefix", consumes = MediaType.APPLICATION_JSON_VALUE)
+    TransDTO<DirectUploadService.PrefixLookup> lookupPrefix(@AuthenticationPrincipal CurrentUser user,
+                                                             @PathVariable long kbId,
+                                                             @RequestBody DirectUploadService.Request request) {
+        return TransDTO.success(uploads.lookupPrefix(user, kbId, request.hashVersion(), request.prefixSha256(),
+                request.byteSize()));
+    }
+
+    @PostMapping("/{attachmentUuid}/complete")
+    TransDTO<AttachmentView> complete(@AuthenticationPrincipal CurrentUser user,
+                                     @PathVariable long kbId, @PathVariable String attachmentUuid) {
+        return TransDTO.success(toView(uploads.complete(user, kbId, attachmentUuid)));
     }
 
     @GetMapping("/{attachmentUuid}/download-url")

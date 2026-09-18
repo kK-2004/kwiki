@@ -9,8 +9,10 @@
  * 编造数字。可键盘操作（按钮 + aria-expanded），状态不
  * 仅靠颜色传达，且手动展开状态按各实例分别保存。
  */
-import { computed, ref, watch } from 'vue';
-import type { ActivityStep } from '../sse';
+import { computed, onBeforeUnmount, ref, useId, watch } from 'vue';
+import ThinkingStream from './ThinkingStream.vue';
+import ChunkPreview from './ChunkPreview.vue';
+import type { ActivityStep, RetrievalSource } from '../sse';
 
 const props = defineProps<{
   steps: ActivityStep[];
@@ -22,7 +24,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{ (e: 'update:expanded', value: boolean): void }>();
 
-const expanded = ref(props.expandedInitial ?? false);
+const timelineId = useId();
+const expanded = ref(props.running ? true : (props.expandedInitial ?? false));
+
+// A new run opens the process chain; reaching a terminal state closes it.
+watch(
+  () => props.running,
+  running => { expanded.value = running; },
+);
 
 watch(
   () => props.expandedInitial,
@@ -40,20 +49,25 @@ const completedSteps = computed(() =>
   props.steps.filter((step) => step.status === 'COMPLETED' || step.status === 'SKIPPED').length,
 );
 
-const totalDurationMs = computed(() =>
-  props.steps.reduce((sum, step) => sum + (step.durationMs ?? 0), 0),
-);
-
-const hasRetrieval = computed(() =>
-  props.steps.some((step) => step.phase === 'RETRIEVAL'),
-);
-
+const now = ref(Date.now());
+let timer: ReturnType<typeof setInterval> | undefined;
+watch(() => props.running, running => {
+  if (timer) clearInterval(timer);
+  now.value = Date.now();
+  if (running) timer = setInterval(() => { now.value = Date.now(); }, 100);
+}, { immediate: true });
+onBeforeUnmount(() => { if (timer) clearInterval(timer); });
+const totalDurationMs = computed(() => {
+  const starts = props.steps.map(step => step.startedAt).filter(value => value > 0);
+  if (!starts.length) return props.steps.reduce((sum, step) => sum + (step.durationMs ?? 0), 0);
+  const end = props.running ? now.value : Math.max(...props.steps.map(step => step.startedAt + (step.durationMs ?? 0)));
+  return Math.max(0, end - Math.min(...starts));
+});
 const overallStatus = computed(() => {
-  if (props.failed) return '检索失败';
-  if (props.running) return '正在检索知识库';
-  if (!hasRetrieval.value && props.steps.length === 0) return '';
-  if (!props.running && props.steps.length > 0) return '已完成知识检索';
-  return '正在检索知识库';
+  if (props.failed) return '回答处理失败';
+  if (!props.running) return props.steps.length ? '处理已完成' : '';
+  const active = [...props.steps].reverse().find(step => step.status === 'STARTED');
+  return active?.summary || props.steps.at(-1)?.summary || '正在理解问题';
 });
 
 const markerLabel = computed(() => {
@@ -112,9 +126,14 @@ function stepStatusLabel(step: ActivityStep): string {
 }
 
 function durationText(step: ActivityStep): string {
-  if (step.durationMs == null) return '';
-  if (step.durationMs < 1000) return `${step.durationMs}ms`;
-  return `${(step.durationMs / 1000).toFixed(1)}s`;
+  const duration = step.durationMs ?? (props.running && step.status === 'STARTED' ? Math.max(0, now.value - step.startedAt) : undefined);
+  if (duration == null) return '';
+  if (duration < 1000) return `${duration}ms`;
+  return `${(duration / 1000).toFixed(1)}s`;
+}
+
+function sources(step: ActivityStep): RetrievalSource[] {
+  return Array.isArray(step.metrics?.sources) ? step.metrics.sources as RetrievalSource[] : [];
 }
 
 function sourceTitles(step: ActivityStep): string[] {
@@ -125,6 +144,10 @@ function sourceTitles(step: ActivityStep): string[] {
 function metricNumber(step: ActivityStep, key: string): number | undefined {
   const value = step.metrics?.[key];
   return typeof value === 'number' ? value : undefined;
+}
+
+function scoreText(step: ActivityStep, key: string): string {
+  return (metricNumber(step, key) ?? 0).toFixed(2);
 }
 
 function degraded(step: ActivityStep): boolean {
@@ -139,7 +162,7 @@ function degraded(step: ActivityStep): boolean {
       type="button"
       class="summary-row"
       :aria-expanded="expanded"
-      aria-controls="retrieval-timeline"
+      :aria-controls="timelineId"
       data-testid="retrieval-activity-toggle"
       @click="toggle"
       @keydown.enter.prevent="toggle"
@@ -156,7 +179,7 @@ function degraded(step: ActivityStep): boolean {
       </span>
       <span class="chevron i-lucide-chevron-right" :class="{ open: expanded }" aria-hidden="true"></span>
     </button>
-    <ol v-if="expanded" id="retrieval-timeline" class="timeline" data-testid="retrieval-timeline">
+    <ol v-if="expanded" :id="timelineId" class="timeline" data-testid="retrieval-timeline">
       <li v-for="round in grouped" :key="round.round" class="round">
         <div v-if="grouped.length > 1" class="round-title">第 {{ round.round }} 轮检索</div>
         <div v-for="stage in round.stages" :key="stage.stage" class="stage">
@@ -174,16 +197,23 @@ function degraded(step: ActivityStep): boolean {
                   <span class="phase">{{ PHASE_LABELS[step.phase] ?? step.phase }}</span>
                   <span class="summary">{{ step.summary ?? '' }}</span>
                 </div>
+                <ThinkingStream v-if="step.phase === 'GENERATION'" :text="step.thinking ?? ''" :running="running && step.status === 'STARTED'" />
                 <div v-if="step.reasonCode" class="reason">{{ step.reasonCode }}</div>
                 <div class="facts">
                   <span v-if="durationText(step)" class="fact">{{ durationText(step) }}</span>
                   <span v-if="metricNumber(step, 'retainedChildCount') != null" class="fact">保留 {{ metricNumber(step, 'retainedChildCount') }} 个片段</span>
                   <span v-if="metricNumber(step, 'fusedCandidateCount') != null" class="fact optional">融合候选 {{ metricNumber(step, 'fusedCandidateCount') }}</span>
                   <span v-if="metricNumber(step, 'parentCount') != null" class="fact">父段落 {{ metricNumber(step, 'parentCount') }}</span>
+                  <span v-if="metricNumber(step, 'relevance') != null" class="fact">相关性 {{ scoreText(step, 'relevance') }}</span>
+                  <span v-if="metricNumber(step, 'coverage') != null" class="fact">覆盖度 {{ scoreText(step, 'coverage') }}</span>
+                  <span v-if="metricNumber(step, 'faithfulness') != null" class="fact">忠实度 {{ scoreText(step, 'faithfulness') }}</span>
                   <span v-if="degraded(step)" class="fact degraded">部分检索链路降级</span>
                   <span class="fact state">{{ stepStatusLabel(step) }}</span>
                 </div>
-                <div v-if="sourceTitles(step).length" class="sources">
+                <div v-if="sources(step).length" class="sources">
+                  <ChunkPreview v-for="source in sources(step)" :key="source.childChunkKey" :source="source" />
+                </div>
+                <div v-else-if="sourceTitles(step).length" class="sources">
                   <span v-for="title in sourceTitles(step)" :key="title" class="source" :title="title">{{ title }}</span>
                 </div>
               </div>
@@ -289,6 +319,7 @@ function degraded(step: ActivityStep): boolean {
 }
 .step.status-completed .dot { color: #0e9858; border-color: #bfe8d5; }
 .step.status-failed .dot { color: #ad4c4c; border-color: #e7c4c4; }
+.body { min-width: 0; flex: 1; }
 .line { display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
 .phase { color: #858c8c; }
 .summary { color: #252a2a; }

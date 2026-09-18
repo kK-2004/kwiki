@@ -66,7 +66,12 @@ public class QaParentFetchService {
             hitsByKey.putIfAbsent(child.chunkKey(), toHit(child));
         }
 
-        var parentChunks = resolver.resolve(fused, hitsByKey, filter, parentLimit);
+        // QA stages may be configured more generously than the shared assembler.
+        // Bound the request before resolution so a valid expanded stage cannot fail
+        // merely because it found more distinct parents than the assembler accepts.
+        int effectiveParentLimit = Math.min(parentLimit, assembler.maxParentCount());
+        long effectiveCharBudget = Math.min(parentCharBudget, assembler.maxContextChars());
+        var parentChunks = resolver.resolve(fused, hitsByKey, filter, effectiveParentLimit);
         authorize(scope);
         run.authorize();
 
@@ -79,7 +84,7 @@ public class QaParentFetchService {
                     parentChunks.isEmpty() ? "no-parents" : "no-new-parents",
                     0, elapsed);
         }
-        var evidence = assembler.assemble(parentChunks, parentCharBudget);
+        var evidence = assembler.assemble(parentChunks, effectiveCharBudget);
         authorize(scope);
         run.authorize();
         long elapsed = (System.nanoTime() - started) / 1_000_000;

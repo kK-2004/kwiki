@@ -1,9 +1,12 @@
 <template>
   <section class="interactions" aria-label="文档互动" data-testid="wiki-interactions">
+    <div class="interaction-heading">
+      <h3>评论</h3>
+      <span>{{ stats?.comments ?? comments.length }} 条</span>
+    </div>
     <div class="stats" v-if="stats">
       <button type="button" :aria-pressed="liked" @click="toggleLike">{{ liked ? '已点赞' : '点赞' }} <span>{{ stats.likes }}</span></button>
       <button type="button" :aria-pressed="favorite" @click="toggleFavorite">{{ favorite ? '已收藏' : '收藏' }} <span>{{ stats.favorites }}</span></button>
-      <span>评论 {{ stats.comments }}</span>
     </div>
     <form class="comment-form" @submit.prevent="submitComment">
       <div class="comment-editor">
@@ -18,7 +21,11 @@
           <li v-if="!mentionCandidates.length" class="mention-empty">没有匹配的可见用户</li>
         </ul>
       </div>
-      <button type="submit" :disabled="!draft.trim() || saving">{{ saving ? '保存中…' : '发表评论' }}</button>
+      <div class="comment-toolbar">
+        <button type="button" class="comment-tool" aria-label="插入提及" title="提及成员" @click="insertMention"><i class="i-lucide-at-sign" aria-hidden="true" /></button>
+        <button type="button" class="comment-tool" aria-label="添加附件" title="评论暂不支持附件" disabled><i class="i-lucide-paperclip" aria-hidden="true" /></button>
+        <button type="submit" class="comment-submit" :disabled="!draft.trim() || saving">{{ saving ? '保存中…' : '发表评论' }}</button>
+      </div>
     </form>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <div v-if="comments.length" class="comment-tree">
@@ -74,6 +81,15 @@ function onInput() {
     } catch (cause) { if ((cause as { name?: string })?.name !== 'AbortError' && request === mentionRequest) mentionCandidates.value = []; }
   }, 180);
 }
+function insertMention() {
+  const position = editor.value?.selectionStart ?? draft.value.length;
+  draft.value = `${draft.value.slice(0, position)}@${draft.value.slice(position)}`;
+  void nextTick(() => {
+    editor.value?.focus();
+    editor.value?.setSelectionRange(position + 1, position + 1);
+    onInput();
+  });
+}
 function onKeydown(event: KeyboardEvent) {
   if (!mentionOpen.value) return;
   if (event.key === 'ArrowDown') { event.preventDefault(); mentionIndex.value = Math.min(mentionIndex.value + 1, Math.max(mentionCandidates.value.length - 1, 0)); }
@@ -115,8 +131,24 @@ const CommentItem = defineComponent({
 </script>
 
 <style scoped>
-.interactions { margin-top: 32px; padding-top: 18px; border-top: 1px solid var(--kwiki-line); } .stats { display:flex; gap:10px; align-items:center; color:#77847c; font-size:12px; } .stats button { border:1px solid #dce7df; border-radius:99px; padding:6px 10px; background:#fff; color:#4b5d53; cursor:pointer; } .stats button[aria-pressed='true'] { border-color:#6bcf9b; color:#187b4a; background:#f0fbf4; }
-.comment-form { display:flex; gap:8px; margin-top:18px; align-items:flex-end; } .comment-editor { position:relative; flex:1; } textarea { width:100%; box-sizing:border-box; min-height:62px; resize:vertical; padding:10px; border:1px solid #dfe7e2; border-radius:8px; font:inherit; } .comment-form button { padding:9px 13px; border:0; border-radius:7px; background:#1b9d61; color:#fff; cursor:pointer; } .comment-form button:disabled { opacity:.5; }
+.interactions { margin:44px auto 0; padding-top:30px; border-top:1px solid var(--kwiki-line); }
+.interaction-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.interaction-heading h3 { margin:0; color:#55625b; font-size:14px; font-weight:600; }
+.interaction-heading span { color:#99a29d; font-size:12px; }
+.stats { display:flex; gap:8px; align-items:center; margin-bottom:10px; color:#77847c; font-size:12px; }
+.stats button { border:1px solid #dce7df; border-radius:99px; padding:5px 10px; background:#fff; color:#4b5d53; cursor:pointer; }
+.stats button[aria-pressed='true'] { border-color:#6bcf9b; color:#187b4a; background:#f0fbf4; }
+.comment-form { overflow:hidden; margin-top:12px; border:1px solid #dce4df; border-radius:16px; background:#fff; transition:.16s ease; }
+.comment-form:focus-within { border-color:#a6c8b4; box-shadow:0 0 0 3px rgba(47,107,79,.08); }
+.comment-editor { position:relative; }
+textarea { display:block; width:100%; box-sizing:border-box; min-height:100px; resize:vertical; padding:16px; border:0; border-radius:0; outline:none; font:inherit; font-size:13px; }
+.comment-toolbar { display:flex; align-items:center; height:48px; padding:0 10px; border-top:1px solid #edf0ee; }
+.comment-tool { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:8px; background:transparent; color:#77847c; cursor:pointer; }
+.comment-tool:hover:not(:disabled) { background:#f4f7f5; color:#2e4237; }
+.comment-tool:disabled { opacity:.45; cursor:default; }
+.comment-submit { height:32px; margin-left:auto; padding:0 14px; border:0; border-radius:8px; background:#9bc9ad; color:#fff; font-size:13px; font-weight:600; cursor:pointer; }
+.comment-submit:hover:not(:disabled) { background:#86b99b; }
+.comment-submit:disabled { opacity:.55; cursor:default; }
 .mention-pills { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:5px; } .mention-pill { color:#187b4a; background:#edf9f1; border-radius:99px; padding:3px 7px; font-size:12px; }
 .mention-menu { position:absolute; z-index:4; left:0; right:0; bottom:calc(100% + 5px); max-height:180px; overflow:auto; margin:0; padding:4px; list-style:none; border:1px solid #dce7df; border-radius:8px; background:#fff; box-shadow:0 8px 22px #273a2c1c; } .mention-menu li { display:flex; gap:9px; align-items:baseline; padding:7px 9px; border-radius:5px; cursor:pointer; } .mention-menu li.selected { background:#edf9f1; } .mention-menu li span { color:#89948d; font-size:12px; } .mention-empty { color:#89948d; cursor:default !important; }
 .error { color:#b24a4a; font-size:13px; } .empty { color:#8d9991; font-size:13px; } .comment-tree { display:grid; gap:12px; margin-top:20px; } .comment-root { padding:14px; border:1px solid #e5ece7; border-radius:10px; } .comment-root.focused, .replies > .focused { border-radius:8px; outline:2px solid #8bd8ae; outline-offset:2px; } .replies { display:grid; gap:8px; margin:10px 0 0 24px; padding-left:14px; border-left:2px solid #edf2ee; } .comment { padding:6px 0; } .comment-head { display:flex; gap:10px; align-items:baseline; } .comment-head time { color:#9aa59e; font-size:11px; } .comment p { margin:6px 0; white-space:pre-wrap; } .comment p.deleted { color:#9aa59e; font-style:italic; } .comment-actions { display:flex; gap:10px; } .comment-actions button { padding:0; border:0; background:none; color:#728078; cursor:pointer; font-size:12px; }

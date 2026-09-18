@@ -1,38 +1,6 @@
 <template>
-  <div data-testid="workspace-page">
+  <div class="workspace-page" data-testid="workspace-page">
     <p v-if="route.query.imported" class="ui-notice" role="status">{{ route.query.imported }}</p>
-    <nav class="page-actions" aria-label="页面操作">
-      <CollaborationPanel v-if="numericPageId && store.page?.canManage" resource-type="PAGE" :resource-id="numericPageId" :knowledge-base-id="numericKbId ?? undefined" />
-      <button v-if="store.page?.canEdit"
-        type="button"
-        class="icon"
-        :class="{ active: mode === 'edit' }"
-        data-testid="action-edit"
-        aria-label="编辑页面"
-        :aria-pressed="mode === 'edit'"
-        @click="mode = mode === 'edit' ? 'read' : 'edit'"
-      >
-        <i class="i-lucide-square-pen" aria-hidden="true"></i>
-      </button>
-      <button
-        type="button"
-        class="icon"
-        :class="{ active: mode === 'history' }"
-        data-testid="action-history"
-        aria-label="查看版本历史"
-        :aria-pressed="mode === 'history'"
-        @click="toggleHistory"
-      >
-        <i class="i-lucide-history" aria-hidden="true"></i>
-      </button>
-      <button type="button" class="icon" aria-label="查看页面洞察" @click="store.middleTab = 'summary'">
-        <i class="i-lucide-lightbulb" aria-hidden="true"></i>
-      </button>
-      <button v-if="store.page?.canManage" type="button" class="icon" aria-label="归档页面" data-testid="action-archive" @click="archiveDialogOpen = true">
-        <i class="i-lucide-archive" aria-hidden="true"></i>
-      </button>
-    </nav>
-
     <ArchiveConfirmDialog
       :open="archiveDialogOpen"
       scope-label="页面"
@@ -42,7 +10,7 @@
       @confirm="archivePage"
     />
 
-    <PageReader v-if="mode !== 'edit'" :kb-id="numericKbId ?? undefined" :page-id="numericPageId ?? undefined" :anchor-resolution="anchorResolution" @comment="beginSelectionComment" />
+    <PageReader v-if="mode !== 'edit'" :kb-id="numericKbId ?? undefined" :page-id="numericPageId ?? undefined" :anchor-resolution="anchorResolution" :chunk-key="typeof route.query.chunk === 'string' ? route.query.chunk : undefined" @comment="beginSelectionComment" />
     <WikiInteractionPanel v-if="mode !== 'edit' && numericKbId && numericPageId" :kb-id="numericKbId" :page-id="numericPageId" :selection-text="selectionForComment" :anchor-id="selectionAnchorId" :focus-comment-id="commentId" />
     <PageEditor
       v-if="mode === 'edit' && numericKbId && numericPageId"
@@ -72,7 +40,6 @@ import PageEditor from './PageEditor.vue';
 import RevisionHistoryDrawer from './RevisionHistoryDrawer.vue';
 
 import WikiInteractionPanel from './WikiInteractionPanel.vue';
-import CollaborationPanel from '../../workspace/CollaborationPanel.vue';
 import ArchiveConfirmDialog from './ArchiveConfirmDialog.vue';
 import { useWikiStore } from '../store';
 import { api } from '../api';
@@ -93,6 +60,7 @@ const commentId = computed(() => { const raw = Array.isArray(route.query.comment
 const numericKbId = computed(() => (props.kbId ? Number(props.kbId) : null));
 const numericPageId = computed(() => (props.pageId ? Number(props.pageId) : null));
 
+function toggleEdit() { mode.value = mode.value === 'edit' ? 'read' : 'edit'; }
 async function toggleHistory() {
   if (mode.value === 'history') {
     mode.value = 'read';
@@ -128,10 +96,16 @@ function loadCurrentPage() {
         .then((value) => { anchorResolution.value = value; })
         .catch(() => { anchorResolution.value = null; });
     }
+  } else {
+    store.selectPage(null);
+    anchorResolution.value = null;
+    selectionForComment.value = '';
+    selectionAnchorId.value = null;
   }
 }
 onMounted(loadCurrentPage);
-watch(() => [props.kbId, props.pageId, route.query.anchor], loadCurrentPage);
+// 逐值比较：查询对象整体变化（如消费 ?chunk）不得触发页面重载。
+watch([() => props.kbId, () => props.pageId, () => route.query.anchor], loadCurrentPage);
 
 async function onRestore(revisionNo: number) {
   if (!numericKbId.value || !numericPageId.value) return;
@@ -158,6 +132,7 @@ async function beginSelectionComment(text: string) {
 
 const archiveDialogOpen = ref(false);
 const archivePending = ref(false);
+function openArchive() { archiveDialogOpen.value = true; }
 
 /** 仅在二次弹窗确认时触发；带防抖，且服务端调用幂等。 */
 async function archivePage() {
@@ -166,42 +141,25 @@ async function archivePage() {
   try {
     await api.post(`/knowledge-bases/${numericKbId.value}/pages/${numericPageId.value}/archive`, {});
     archiveDialogOpen.value = false;
-    await store.loadTree(numericKbId.value);
-    await router.replace({ name: 'workspace', params: { kbId: numericKbId.value } });
+    const kb = numericKbId.value;
+    store.selectPage(null);
+    store.tree = [];
+    await router.replace(`/knowledge-bases/${kb}`);
+    try { await store.loadTree(kb); } catch { /* 归档已完成，知识库页面仍可通过目录重试加载。 */ }
   } catch {
     // 当服务端拒绝归档时，保持阅读器与对话框打开。
   } finally {
     archivePending.value = false;
   }
 }
+defineExpose({ toggleEdit, toggleHistory, openArchive });
 </script>
 
 <style scoped>
-.page-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 2px;
-  margin-bottom: 4px;
-}
-.icon {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: none;
-  border-radius: 7px;
-  color: #737a7a;
-  cursor: pointer;
-  font-size: 16px;
-}
-.icon:hover {
-  background: #eef1ef;
-  color: #303636;
-}
-.icon.active {
-  background: #edf3ef;
-  color: var(--kwiki-green-dark);
+.workspace-page {
+  width:100%;
+  max-width:1080px;
+  margin:0 auto;
 }
 .overlay {
   position: fixed;

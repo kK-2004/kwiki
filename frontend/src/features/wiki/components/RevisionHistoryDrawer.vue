@@ -14,7 +14,7 @@
         :class="{ current: index === 0 }"
         data-testid="revision-item"
       >
-        <strong>r{{ revision.revisionNo }} · {{ index === 0 ? '当前版本' : '已发布' }}</strong>
+        <strong>v{{ revision.revisionNo }} · {{ index === 0 ? '当前版本' : '已发布' }}</strong>
         <div class="rev-meta">{{ revision.createdAt }}</div>
         <p>{{ revision.changeNote ?? '无说明' }}</p>
         <button type="button" class="btn" @click="selected = revision">查看版本</button>
@@ -22,8 +22,8 @@
     </ol>
     <p v-if="revisions.length === 0" class="empty" data-testid="revision-empty">暂无历史版本</p>
     <div v-if="selected" class="revision-overlay" @click.self="selected = null">
-      <section class="revision-dialog" role="dialog" aria-modal="true" :aria-label="`版本 r${selected.revisionNo}`">
-        <header><div><h3>r{{ selected.revisionNo }}</h3><p>{{ selected.changeNote || '无说明' }}</p></div><button type="button" class="icon" aria-label="关闭版本内容" @click="selected = null"><i class="i-lucide-x" /></button></header>
+      <section class="revision-dialog" role="dialog" aria-modal="true" :aria-label="`版本 v${selected.revisionNo}`">
+        <header><div><h3>v{{ selected.revisionNo }}</h3><p>{{ selected.changeNote || '无说明' }}</p></div><button type="button" class="icon" aria-label="关闭版本内容" @click="selected = null"><i class="i-lucide-x" /></button></header>
         <div class="revision-content markdown" v-html="renderMarkdown(selected.markdown || '')"></div>
         <footer><button type="button" class="btn" @click="selected = null">关闭</button><button v-if="selected.revisionNo !== revisions[0]?.revisionNo" type="button" class="btn primary" @click="restoreSelected">恢复到当前版本</button></footer>
       </section>

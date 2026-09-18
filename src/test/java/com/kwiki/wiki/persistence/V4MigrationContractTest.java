@@ -10,17 +10,15 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.Statement;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * V4 针对运维方提供的一次性 MySQL 的表结构契约
  * （KWIKI_IT_MYSQL_URL/USER/PASSWORD）：MinIO 定位符列已移除、pending
- * 记录保持 file id 为 null、非空的内容中心 file id 唯一，且已存储
+ * 记录保持 file id 为 null、共享 blob 可被多个 attachment 引用，且已存储
  * 记录可往返。仅通过显式开关启用；绝不指向共享数据库（BeforeAll
  * 会清理它所运行的表结构）。
  */
@@ -117,7 +115,7 @@ class V4MigrationContractTest {
     }
 
     @Test
-    void duplicateNonNullFileIdsAreRejected() throws Exception {
+    void sharedNonNullFileIdsCanBeReferencedByMultipleAttachments() throws Exception {
         try (Connection c = open()) {
             long kb = freshKnowledgeBase(c, "v4-unique");
             long creator = queryLong(c, "SELECT created_by FROM knowledge_base WHERE id = " + kb);
@@ -128,13 +126,12 @@ class V4MigrationContractTest {
                     "first.docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     10, 1001L);
-            assertThatThrownBy(() -> insert(c, insert,
-                    java.util.UUID.randomUUID().toString(), kb, creator,
+            // V27 removes the old one-to-one file-id constraint so a verified
+            // physical blob can be referenced by more than one user row.
+            insert(c, insert, java.util.UUID.randomUUID().toString(), kb, creator,
                     "second.docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    10, 1001L))
-                    .isInstanceOf(SQLIntegrityConstraintViolationException.class);
-            // 不同的 file id 可以被接受
+                    10, 1001L);
             insert(c, insert, java.util.UUID.randomUUID().toString(), kb, creator,
                     "third.docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -66,7 +66,7 @@
           <pre class="upload-text">{{ row.view.before }}</pre>
           <div class="upload-placeholder" :class="{ failed: row.upload?.status === 'failed' }" data-testid="upload-placeholder">
             <template v-if="row.upload?.status === 'uploading'">
-              <span class="spinner" aria-hidden="true"></span> 正在上传 {{ row.upload.name }}…
+              <span class="spinner" aria-hidden="true"></span> {{ row.upload.stage || '正在上传' }} {{ row.upload.name }}
             </template>
             <template v-else>
               <span>{{ row.upload?.name }} 上传失败：{{ row.upload?.error }}</span>
@@ -85,6 +85,7 @@
 </template>
 
 <script setup lang="ts">
+import { uploadDirect } from '../directUpload';
 /**
  * 基于 Markdown 源的块编辑视图。源由
  * scanMediaBlocks 拆分为带精确偏移的文本段与媒体段：文本
@@ -105,7 +106,7 @@ import {
 import { createMediaPreviewResolver } from './mediaResolver';
 import type { MediaSourceResolver } from '@kk-2004/ui-components/components/KMediaViewer';
 import MediaBlock from './MediaBlock.vue';
-import { api, errorMessage } from '../api';
+import { errorMessage } from '../api';
 
 const props = defineProps<{
   modelValue: string;
@@ -123,6 +124,7 @@ interface PendingUpload {
   byteSize: number;
   kind: MediaKind;
   status: 'uploading' | 'failed';
+  stage?: string;
   error?: string;
   segmentIndex: number;
   offset: number;
@@ -334,7 +336,6 @@ function pickFile(kind: MediaKind) {
   input.click();
 }
 
-type AttachmentUploadResult = { uuid: string; fileName: string; contentType: string; byteSize: number };
 
 async function uploadFile(kind: MediaKind, file: File) {
   if (!props.kbId) return;
@@ -351,11 +352,18 @@ async function uploadFile(kind: MediaKind, file: File) {
     controller,
   };
   pendingUploads.value = [...pendingUploads.value, upload];
-  const form = new FormData();
-  form.append('file', file);
   try {
-    const result = await api.upload<AttachmentUploadResult>(
-      `/knowledge-bases/${props.kbId}/attachments`, form, controller.signal);
+    const result = await uploadDirect(
+      { file, kbId: props.kbId, purpose: 'GENERAL' },
+      controller.signal,
+      stage => {
+        const current = pendingUploads.value.find(item => item.id === id);
+        if (current) {
+          current.stage = stage;
+          pendingUploads.value = [...pendingUploads.value];
+        }
+      },
+    );
     insertMediaToken(kind, result.uuid, result.fileName || file.name, result.byteSize || file.size);
     removeUpload(id);
   } catch (error) {

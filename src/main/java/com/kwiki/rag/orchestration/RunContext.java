@@ -50,6 +50,17 @@ public final class RunContext implements AutoCloseable {
         this.deadline = clock.instant().plus(limits.timeout());
     }
 
+    private volatile java.util.function.Consumer<String> thinking = text -> {};
+
+    public void thinkingListener(java.util.function.Consumer<String> listener) {
+        thinking = listener == null ? text -> {} : listener;
+    }
+
+    public void emitThinking(String text) {
+        authorize();
+        if (text != null && !text.isEmpty()) thinking.accept(text);
+    }
+
     public static RunContext current() {
         return CURRENT.get();
     }

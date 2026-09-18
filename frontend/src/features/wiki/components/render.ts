@@ -15,6 +15,8 @@ export type MediaUrlResolver = (attrs: MediaAttrs) => string | null;
 export interface RenderMarkdownOptions {
   resolveMedia?: MediaUrlResolver;
   mediaPlaceholder?: (attrs: MediaAttrs, index: number) => string;
+  citationLabel?: (citationId: string) => string | null;
+  citationTarget?: (citationId: string) => { label: string; kbId: number; pageId: number; chunkKey: string; referenceIndex?: number } | null;
 }
 
 export type MarkdownPart =
@@ -66,6 +68,17 @@ export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions
     let value = escape(text).replace(/`([^`]+)`/g, (_, code: string) => { codes.push(`<code>${code}</code>`); return `\u0000${codes.length - 1}\u0000`; });
     value = value.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    if (options?.citationTarget) {
+      value = value.replace(/\[P(\d+)]/g, (marker, index: string) => {
+        const target = options.citationTarget?.(`P${index}`);
+        return target ? `<button type="button" class="kwiki-citation" data-reference-index="${target.referenceIndex ?? index}">${escape(target.label)}</button>` : marker;
+      });
+    } else if (options?.citationLabel) {
+      value = value.replace(/\[P(\d+)]/g, (marker, index: string) => {
+        const label = options.citationLabel?.(`P${index}`);
+        return label ? `<span class="kwiki-citation">${escape(label)}</span>` : marker;
+      });
+    }
     return value.replace(/\u0000(\d+)\u0000/g, (_, index: string) => codes[Number(index)] || '');
   };
 

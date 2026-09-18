@@ -28,7 +28,15 @@ public record ExternalServicesProperties(
         @Valid @NotNull ContentCenter contentCenter,
         @Valid @NotNull Elasticsearch elasticsearch,
         @Valid @NotNull AnswerLlm answerLlm,
-        @Valid @NotNull QwenEmbedding qwenEmbedding) {
+        @Valid @NotNull QwenEmbedding qwenEmbedding,
+        /** 缺省绑定（空 vision-model 键）时以全默认值构造；启用多模态时再校验凭据。 */
+        @Valid @NotNull @DefaultValue VisionModel visionModel) {
+
+    /** 测试/装配辅助：视觉模型取未配置但校验可通过的默认形态。 */
+    public static VisionModel unusedVisionModel() {
+        return new VisionModel(null, null, "qwen3.7-flash",
+                Duration.ofSeconds(5), Duration.ofSeconds(60), 2, 4);
+    }
 
     /**
      * 内容中心（k-File）的附件存储（attachment storage）。app token 对全部
@@ -63,7 +71,7 @@ public record ExternalServicesProperties(
 
     /**
      * Qwen embedding 配置。API key 必须是 kwiki 专属的（绝不可从
-     * k-Rag 复制），模型固定为 text-embedding-v4，单一维度值同时驱动
+     * k-Rag 复制），模型与维度显式配置，单一维度值同时驱动
      * embedding 响应校验与 Elasticsearch 的稠密向量映射。
      */
     public record QwenEmbedding(
@@ -73,9 +81,34 @@ public record ExternalServicesProperties(
             String baseUrl,
             @NotBlank String apiKey,
             @NotBlank
-            @NotBlank
             String model,
             @NotNull @Min(64) @Max(2048) @DefaultValue("1024") Integer dimensions,
             @NotNull @DefaultValue("30s") Duration requestTimeout) {
+    }
+
+    /**
+     * 图片摘要视觉模型的独立配置（OpenAI-compatible
+     * /chat/completions）。与回答模型、embedding 完全解耦：
+     * 独立凭据、超时与并发生命周期。base-url 与 api-key 在
+     * 多模态索引关闭（kwiki.multimodal.enabled=false，默认）时
+     * 允许为空；启用时由多模态装配做启动期校验并快速失败。
+     * api key 绝不出现在日志、异常或指标中。
+     */
+    public record VisionModel(
+            @DefaultValue("") String baseUrl,
+            @DefaultValue("") String apiKey,
+            @NotBlank
+            @DefaultValue("qwen3.7-flash")
+            String model,
+            @NotNull @DefaultValue("5s") Duration connectTimeout,
+            @NotNull @DefaultValue("60s") Duration requestTimeout,
+            @NotNull @Min(0) @Max(10) @DefaultValue("2") Integer maxRetries,
+            @NotNull @Min(1) @Max(64) @DefaultValue("4") Integer concurrency) {
+
+        public boolean isConfigured() {
+            return baseUrl != null && !baseUrl.isBlank()
+                    && baseUrl.matches("https?://\\S+")
+                    && apiKey != null && !apiKey.isBlank();
+        }
     }
 }

@@ -36,8 +36,9 @@ public class Attachment {
     private String fileName;
     private String contentType;
     private long byteSize;
-    // 规范的内容中心文件 id；上传处于 PENDING 时为 null。这是唯一
-    // 持久化的内容标识——存储密钥/来源保留在内容中心内部。
+    private Long blobId;
+    // 规范的内容中心文件 id；上传处于 PENDING 时为 null。存储密钥/来源
+    // 保留在内容中心内部，blobId 仅连接本地共享物理文件元数据。
     private Long contentCenterFileId;
     private String status = STATUS_PENDING;
     private String purpose = PURPOSE_GENERAL;
@@ -106,6 +107,10 @@ public class Attachment {
         return contentCenterFileId;
     }
 
+    public Long getBlobId() {
+        return blobId;
+    }
+
     public String getStatus() {
         return status;
     }
@@ -124,6 +129,13 @@ public class Attachment {
         }
         this.contentCenterFileId = contentCenterFileId;
         this.status = STATUS_STORED;
+    }
+
+    /** Attach this user-visible row to a verified shared physical blob. */
+    public void markStoredFromBlob(long blobId, long contentCenterFileId) {
+        if (blobId <= 0) throw new IllegalArgumentException("blob id must be positive");
+        markStored(contentCenterFileId);
+        this.blobId = blobId;
     }
 
     public void archive() {

@@ -5,3 +5,11 @@ it('keeps code literal, renders lists/tables, and escapes executable HTML', () =
   expect(html).toContain('<ul><li>第一项</li>'); expect(html).toContain('<table>');
   expect(html).toContain('&lt;'); expect(html).toContain('script'); expect(html).toContain('**literal**'); expect(html).not.toContain('<script>'); expect(html).not.toContain('<img'); expect(html).not.toContain('href="javascript:');
 });
+
+it('renders evidence markers with caller-provided wiki names', () => {
+  const html = renderMarkdown('验收代号：青竹0908 [P0]', {
+    citationLabel: id => id === 'P0' ? '发布验收规范' : null,
+  });
+  expect(html).toContain('<span class="kwiki-citation">发布验收规范</span>');
+  expect(html).not.toContain('[P0]');
+});

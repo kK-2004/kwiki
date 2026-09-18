@@ -9,9 +9,9 @@ import { createTestingPinia } from './test-pinia';
 
 const kb = { id: 12, name: '产品资料', description: '产品使用文档', canManage: true, canUpload: true };
 const tree = [{ id: 2, title: '使用指南', nodeType: 'FOLDER', children: [{ id: 3, title: '安装说明', nodeType: 'PAGE', children: [] }] }];
-async function mountWorkspace() {
+async function mountWorkspace(path = '/knowledge-bases/12/3') {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/knowledge-bases/:kbId/:pageId?', component: WikiWorkspaceLayout, props: true }] });
-  await router.push('/knowledge-bases/12/3'); await router.isReady();
+  await router.push(path); await router.isReady();
   const screen = render(defineComponent({ components: { WorkspaceShell }, template: '<WorkspaceShell><RouterView /></WorkspaceShell>' }), { global: { plugins: [createTestingPinia(), router] } });
   await flushPromises(); return screen;
 }
@@ -28,6 +28,26 @@ describe('workspace navigation', () => {
     const screen = await mountWorkspace(); const tabs = screen.getAllByRole('tab');
     expect(tabs[0].getAttribute('aria-selected')).toBe('true'); await fireEvent.click(tabs[1]);
     expect(tabs[1].getAttribute('aria-selected')).toBe('true');
+  });
+  it('shows durable import progress beside the document list without opening a blocking dialog', async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      const data = url.endsWith('/tree')
+        ? tree
+        : url.endsWith('/knowledge-bases/12')
+          ? kb
+          : url.includes('/imports?limit=100')
+            ? [{ jobId: 41, state: 'PARSING', fileName: '产品手册.pdf' }]
+            : url.endsWith('/unread-count')
+              ? 0
+              : [];
+      return new Response(JSON.stringify({ success: true, code: 200, data }));
+    });
+    const screen = await mountWorkspace('/knowledge-bases/12');
+    expect(screen.getByText('产品手册.pdf')).toBeTruthy();
+    expect(screen.getByText('解析中')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: '导入文档' })).toBeNull();
+    expect(screen.getByText('2 项')).toBeTruthy();
   });
   it('publishes an initial revision when creating a page', async () => {
     vi.mocked(fetch).mockImplementation(async (input) => {

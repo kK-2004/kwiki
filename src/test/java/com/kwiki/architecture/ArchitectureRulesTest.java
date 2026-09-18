@@ -217,4 +217,89 @@ class ArchitectureRulesTest {
                                     + " serializer");
         noDefaultTyping.check(classes);
     }
+
+    @Test
+    void productionCodeNeverTouchesRedisTemplatesOrSerializers() {
+        // Redis 数据访问的唯一入口是 kk-common RedisUtil（内部持有
+        // kkRedisTemplate）；任何 kwiki 生产类都不得直接依赖
+        // RedisTemplate/StringRedisTemplate 或自带 Redis 序列化器。
+        ArchRule rule =
+                noClasses()
+                        .that()
+                        .resideInAPackage("..com.kwiki..")
+                        .should()
+                        .dependOnClassesThat()
+                        .resideInAnyPackage(
+                                "org.springframework.data.redis.core..",
+                                "org.springframework.data.redis.serializer..")
+                        .because("Redis data access must go through kk-common RedisUtil");
+        rule.check(classes);
+    }
+
+    @Test
+    void productionCodeNeverDependsOnTheRedissonClient() {
+        // Redisson 客户端由 kk-common 自动配置拥有；kwiki 只通过
+        // DistributedLockFactory/DistributedLock 消费锁语义。
+        ArchRule rule =
+                noClasses()
+                        .that()
+                        .resideInAPackage("..com.kwiki..")
+                        .should()
+                        .dependOnClassesThat()
+                        .resideInAnyPackage("org.redisson..")
+                        .because("the Redisson client stays owned by kk-common's auto-configuration");
+        rule.check(classes);
+    }
+
+    @Test
+    void productionCodeNeverImplementsSetnxStyleLocks() {
+        ArchRule rule =
+                noClasses()
+                        .that()
+                        .resideInAPackage("..com.kwiki..")
+                        .should()
+                        .callMethodWhere(
+                                new com.tngtech.archunit.base.DescribedPredicate<>(
+                                        "Redis SETNX-style lock acquisition") {
+                                    @Override
+                                    public boolean test(
+                                            com.tngtech.archunit.core.domain.JavaMethodCall call) {
+                                        return call.getTarget()
+                                                        .getOwner()
+                                                        .getName()
+                                                        .startsWith("org.springframework.data.redis")
+                                                && (call.getName().equals("setIfAbsent")
+                                                        || call.getName().equals("setNX"));
+                                    }
+                                })
+                        .because("distributed locks must come from kk-common DistributedLockFactory");
+        rule.check(classes);
+    }
+
+    @Test
+    void productionSourcesAvoidMysqlAdvisoryLocks() throws java.io.IOException {
+        // GET_LOCK/RELEASE_LOCK 以字符串形式执行，字节码规则看不到；
+        // 直接审计生产源码。测试代码不在扫描范围内。
+        java.util.List<String> violations = new java.util.ArrayList<>();
+        try (var paths = java.nio.file.Files.walk(
+                java.nio.file.Path.of("src", "main", "java"))) {
+            paths.filter(path -> path.toString().endsWith(".java"))
+                    .forEach(path -> {
+                        try {
+                            var lines = java.nio.file.Files.readAllLines(path);
+                            for (int i = 0; i < lines.size(); i++) {
+                                String line = lines.get(i);
+                                if (line.contains("GET_LOCK") || line.contains("RELEASE_LOCK")) {
+                                    violations.add(path + ":" + (i + 1) + " " + line.trim());
+                                }
+                            }
+                        } catch (java.io.IOException unreadable) {
+                            violations.add(path + " (unreadable)");
+                        }
+                    });
+        }
+        org.assertj.core.api.Assertions.assertThat(violations)
+                .as("MySQL advisory locks must be replaced by kk-common DistributedLockFactory")
+                .isEmpty();
+    }
 }

@@ -198,6 +198,13 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <!-- MockWebServer 的 HTTPS 模式（SSRF 下载器契约测试） -->
+      <groupId>com.squareup.okhttp3</groupId>
+      <artifactId>okhttp-tls</artifactId>
+      <version>4.12.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>com.tngtech.archunit</groupId>
       <artifactId>archunit-junit5</artifactId>
       <version>${archunit.version}</version>
@@ -215,6 +222,34 @@
   </build>
 
   <profiles>
+    <!-- 生产管理端：pnpm 锁定安装、构建，并把产物打入同一个 Spring Boot jar。
+         使用 ./mvnw -Padmin-ui package；默认后端测试不依赖 Node。 -->
+    <profile>
+      <id>admin-ui</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <version>3.5.0</version>
+            <executions>
+              <execution>
+                <id>build-admin-ui</id><phase>generate-resources</phase><goals><goal>exec</goal></goals>
+                <configuration><executable>pnpm</executable><environmentVariables><CI>true</CI></environmentVariables><arguments><argument>--dir</argument><argument>${project.basedir}/admin-frontend</argument><argument>install</argument><argument>--frozen-lockfile</argument></arguments></configuration>
+              </execution>
+              <execution>
+                <id>bundle-admin-ui</id><phase>generate-resources</phase><goals><goal>exec</goal></goals>
+                <configuration><executable>pnpm</executable><environmentVariables><CI>true</CI></environmentVariables><arguments><argument>--dir</argument><argument>${project.basedir}/admin-frontend</argument><argument>build</argument></arguments></configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId><artifactId>maven-resources-plugin</artifactId>
+            <executions><execution><id>copy-admin-ui</id><phase>process-resources</phase><goals><goal>copy-resources</goal></goals><configuration><outputDirectory>${project.build.outputDirectory}/static/admin</outputDirectory><resources><resource><directory>${project.basedir}/admin-frontend/dist</directory><filtering>false</filtering></resource></resources></configuration></execution></executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
     <!-- 可选的验收运行，针对运维方提供的 MySQL/Redis/内容中心/Elasticsearch/千问。
          由环境变量开关控制的 *ContractTest 类通过 KWIKI_IT_* 变量激活；默认的
          ./mvnw verify 完全无需 Docker，并会跳过它们。 -->

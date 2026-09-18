@@ -1,5 +1,9 @@
 <template>
-  <section class="editor" data-testid="page-editor" aria-label="页面编辑器">
+  <section class="editor" data-testid="page-editor" aria-label="页面编辑器" :aria-busy="draftLoading || savingDraft || publishing || exporting">
+    <div v-if="draftLoading" class="draft-loading" role="status" aria-live="polite">
+      <span class="spinner" aria-hidden="true"></span>
+      正在加载草稿…
+    </div>
     <div class="toolbar" role="toolbar" aria-label="编辑工具栏">
       <button type="button" class="tool" aria-label="一级标题" data-testid="tool-h1" @click="command('h1')">H1</button>
       <button type="button" class="tool" aria-label="二级标题" data-testid="tool-h2" @click="command('h2')">H2</button>
@@ -29,7 +33,7 @@
       </button>
       <span class="spacer"></span>
       <div class="menu">
-        <button type="button" class="tool" :aria-expanded="exportOpen" aria-label="导出菜单" data-testid="tool-export" @click="exportOpen = !exportOpen">导出 <i class="i-lucide-chevron-down chevron" aria-hidden="true"></i></button>
+        <button type="button" class="tool" :disabled="exporting" :aria-expanded="exportOpen" aria-label="导出菜单" data-testid="tool-export" @click="exportOpen = !exportOpen">{{ exporting ? '导出中…' : '导出' }} <i class="i-lucide-chevron-down chevron" aria-hidden="true"></i></button>
         <div v-if="exportOpen" class="menu-panel" data-testid="menu-export">
           <button type="button" :disabled="exporting" @click="exportAs('md')">Markdown</button>
           <button type="button" :disabled="exporting" @click="exportAs('html')">HTML</button>
@@ -73,8 +77,8 @@
       }}</span>
       <div class="buttons">
         <button type="button" class="btn" @click="emit('cancel')">取消</button>
-        <button type="button" class="btn" :disabled="!dirty" data-testid="editor-save-draft" @click="save()">
-          保存草稿
+        <button type="button" class="btn" :disabled="!dirty || savingDraft || draftLoading" data-testid="editor-save-draft" @click="save()">
+          {{ savingDraft ? '保存中…' : '保存草稿' }}
         </button>
         <button type="button" class="btn primary" :disabled="publishBlocked" :title="publishTitle" data-testid="editor-publish" @click="publishDialogOpen = true">
           发布
@@ -84,6 +88,7 @@
     <p v-if="conflict" role="alert" data-testid="editor-conflict">
       页面已被他人修改（409），请重新载入后再试
     </p>
+    <p v-if="saveError" class="upload-note" role="alert">{{ saveError }}</p>
     <p v-if="publishBlocked" class="upload-note" role="status">
       仍有媒体上传进行中，发布前请等待完成或移除失败项。
     </p>
@@ -133,6 +138,9 @@ const exportError = ref('');
 const publishDialogOpen = ref(false);
 const publishNote = ref('');
 const publishing = ref(false);
+const draftLoading = ref(true);
+const savingDraft = ref(false);
+const saveError = ref('');
 /** 共享预览解析器：每个编辑器对每个附件只获取一次已签名 URL。 */
 const mediaResolver = ref<MediaSourceResolver>(() => null);
 watch(
@@ -172,6 +180,7 @@ onMounted(async () => {
     draft.value = saved.markdown;
     savedDraft.value = saved.markdown;
   } catch { /* 没有独立草稿的页面从已发布内容开始。 */ }
+  finally { draftLoading.value = false; }
 });
 
 // 页面可能在编辑器打开之后才加载完成；在页面未被修改时接受它。
@@ -219,11 +228,15 @@ function beginExternalLink(kind: 'IMAGE' | 'AUDIO' | 'VIDEO') {
   if (url && url.trim()) editor.value?.insertExternalLink(kind, url.trim());
 }
 
-async function save(changeNote = '') {
+async function save(changeNote = ''): Promise<boolean> {
+  if (savingDraft.value) return false;
   try {
     conflict.value = false;
+    saveError.value = '';
+    savingDraft.value = true;
     await store.saveDraft(props.kbId, props.pageId, draft.value, changeNote);
     savedDraft.value = draft.value;
+    return true;
   } catch (error) {
     if (
       typeof error === 'object' &&
@@ -231,7 +244,12 @@ async function save(changeNote = '') {
       (error as { code?: string }).code === 'http_409'
     ) {
       conflict.value = true;
+    } else {
+      saveError.value = errorMessage(error, '草稿保存失败，请稍后重试');
     }
+    return false;
+  } finally {
+    savingDraft.value = false;
   }
 }
 
@@ -246,7 +264,7 @@ async function publish() {
       note = generated.changeNote;
       publishNote.value = note;
     }
-    await save(note);
+    if (!await save(note)) return;
     await store.publishPage(props.kbId, props.pageId);
     await Promise.all([store.loadPage(props.kbId, props.pageId), store.loadTree(props.kbId)]);
     publishDialogOpen.value = false;
@@ -310,6 +328,7 @@ function downloadBlob(blob: Blob, name: string) {
 
 <style scoped>
 .editor {
+  position: relative;
   margin-top: 22px;
   border: 1px solid #dfe4e2;
   border-radius: 9px;
@@ -317,6 +336,28 @@ function downloadBlob(blob: Blob, name: string) {
   box-shadow: 0 8px 30px rgba(27, 52, 40, 0.06);
   background: var(--kwiki-panel);
 }
+.draft-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 180px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--kwiki-muted);
+  font-size: 13px;
+}
+.draft-loading .spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid #bcd9c6;
+  border-top-color: #2f8f5b;
+  border-radius: 50%;
+  animation: page-editor-spin 0.8s linear infinite;
+}
+@keyframes page-editor-spin { to { transform: rotate(360deg); } }
 .toolbar {
   min-height: 47px;
   display: flex;

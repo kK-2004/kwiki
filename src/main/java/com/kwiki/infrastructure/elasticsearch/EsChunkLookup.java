@@ -6,6 +6,7 @@ import com.kwiki.wiki.api.CitationService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -47,10 +48,24 @@ public class EsChunkLookup implements CitationService.ChunkLookup {
                     String.valueOf(source.get("headingPath")),
                     (int) longValue(source.get("charStart")),
                     (int) longValue(source.get("charEnd")),
-                    String.valueOf(source.get("content"))));
+                    String.valueOf(source.get("content")),
+                    contentIds(source)));
         } catch (Exception e) {
             return Optional.empty();
         }
+    }
+
+    /** 旧索引无 contentIds 字段时安全回退为空列表。 */
+    private static List<Long> contentIds(Map<?, ?> source) {
+        Object value = source.get("contentIds");
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(item -> longValue(item))
+                    .distinct()
+                    .toList();
+        }
+        return List.of();
     }
 
     private static long longValue(Object value) {

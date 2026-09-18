@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * 回收站界面。工作空间视图（`/trash`）：已归档的知识库；
- * 知识库视图（`/knowledge-bases/:kbId/trash`）：该知识库的页面批次
+ * 回收站界面。工作空间视图（`/trash`）：用户可管理的知识库和 Wiki 页面批次；
+ * 知识库视图（`/knowledge-bases/:kbId/trash`）：该知识库的归档批次
  * 行。表格行展示操作人、归档 / 过期时间、索引同步状态以及
- * 可恢复性；恢复操作将 409/410 原因以可读的内联提示展示。
+ * 可恢复性；恢复和永久删除操作将 409/410 原因以可读的内联提示展示。
  */
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -31,13 +31,16 @@ const loading = ref(false);
 const error = ref('');
 const notice = ref('');
 const restoringId = ref<number | null>(null);
+const deletingId = ref<number | null>(null);
+const deleteTarget = ref<TrashItem | null>(null);
+const deleteError = ref('');
 
 const kbId = computed(() => {
   const raw = Array.isArray(route.params.kbId) ? route.params.kbId[0] : route.params.kbId;
   return raw ? Number(raw) : null;
 });
 
-const heading = computed(() => (kbId.value ? '知识库回收站' : '已归档的知识库'));
+const heading = computed(() => (kbId.value ? '知识库回收站' : '回收站'));
 
 async function load(reset = true) {
   loading.value = true;
@@ -72,6 +75,37 @@ async function restore(item: TrashItem) {
   }
 }
 
+function requestDelete(item: TrashItem) {
+  if (deletingId.value != null) return;
+  deleteError.value = '';
+  deleteTarget.value = item;
+}
+
+function cancelDelete() {
+  if (deletingId.value != null) return;
+  deleteTarget.value = null;
+  deleteError.value = '';
+}
+
+async function confirmDelete() {
+  const item = deleteTarget.value;
+  if (!item || deletingId.value != null) return;
+  deletingId.value = item.batchId;
+  deleteError.value = '';
+  notice.value = '';
+  error.value = '';
+  try {
+    const result = await api.delete<{ message?: string }>(`/trash/${item.batchId}`);
+    notice.value = result?.message || '已永久删除，内容不可恢复';
+    deleteTarget.value = null;
+    await load(true);
+  } catch (e) {
+    deleteError.value = errorMessage(e, '永久删除失败，请稍后重试');
+  } finally {
+    deletingId.value = null;
+  }
+}
+
 function formatTime(value: string): string {
   try {
     return new Date(value).toLocaleString('zh-CN', { hour12: false });
@@ -97,7 +131,7 @@ watch(kbId, () => void load(true));
     </nav>
     <header class="head">
       <h1>{{ heading }}</h1>
-      <p>归档内容保留 7 天，到期后由系统每日 01:00 物理清理；归档期间立即停止被检索。</p>
+      <p>归档内容保留 7 天，到期后由系统每日 01:00 物理清理；也可确认后立即永久删除。归档期间立即停止被检索。</p>
     </header>
     <p v-if="notice" class="ui-notice" role="status">{{ notice }}</p>
     <p v-if="error" class="ui-error" role="alert">{{ error }}</p>
@@ -124,15 +158,27 @@ watch(kbId, () => void load(true));
           <td>{{ formatTime(item.purgeAfter) }}</td>
           <td>{{ syncLabel(item.indexSyncStatus) }}</td>
           <td>
-            <button
-              type="button"
-              class="ui-button"
-              :disabled="!item.restorable || restoringId === item.batchId"
-              :title="item.restorable ? '恢复到归档前的位置' : '保留期已过或已清理，无法恢复'"
-              @click="restore(item)"
-            >
-              {{ restoringId === item.batchId ? '恢复中…' : item.restorable ? '恢复' : '不可恢复' }}
-            </button>
+            <div class="actions">
+              <button
+                type="button"
+                class="ui-button"
+                :disabled="!item.restorable || restoringId != null || deletingId != null"
+                :title="item.restorable ? '恢复到归档前的位置' : '保留期已过或已清理，无法恢复'"
+                @click="restore(item)"
+              >
+                {{ restoringId === item.batchId ? '恢复中…' : item.restorable ? '恢复' : '不可恢复' }}
+              </button>
+              <button
+                type="button"
+                class="ui-button danger"
+                :disabled="deletingId != null || restoringId != null"
+                title="永久删除，无法恢复"
+                :data-testid="`trash-delete-${item.batchId}`"
+                @click="requestDelete(item)"
+              >
+                {{ deletingId === item.batchId ? '删除中…' : '删除' }}
+              </button>
+            </div>
           </td>
         </tr>
       </tbody>
@@ -143,6 +189,20 @@ watch(kbId, () => void load(true));
       </button>
     </footer>
     <RouterLink v-if="kbId" class="back" :to="`/knowledge-bases/${kbId}`">返回工作区</RouterLink>
+
+    <div v-if="deleteTarget" class="confirm-overlay" data-testid="trash-delete-confirm">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="trash-delete-title">
+        <h2 id="trash-delete-title">永久删除「{{ deleteTarget.title }}」？</h2>
+        <p>该操作会立即删除归档内容及其索引，且无法恢复。确定继续吗？</p>
+        <p v-if="deleteError" class="ui-error" role="alert">{{ deleteError }}</p>
+        <footer>
+          <button type="button" class="ui-button" :disabled="deletingId != null" @click="cancelDelete">取消</button>
+          <button type="button" class="ui-button danger" data-testid="trash-delete-submit" :disabled="deletingId != null" @click="confirmDelete">
+            {{ deletingId != null ? '删除中…' : '确认永久删除' }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </main>
 </template>
 
@@ -196,6 +256,46 @@ watch(kbId, () => void load(true));
   padding: 13px 8px;
   border-bottom: 1px solid #edf2ee;
   color: #5b6f63;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.ui-button.danger {
+  color: #a55f5f;
+  border-color: #e8cccc;
+}
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #203d2b44;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.confirm-dialog {
+  background: #fff;
+  padding: 28px;
+  border-radius: 14px;
+  width: min(460px, 100%);
+  box-shadow: 0 25px 80px #14302026;
+}
+.confirm-dialog h2 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+.confirm-dialog p {
+  color: #8b9c90;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.confirm-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 28px;
 }
 .title {
   max-width: 280px;

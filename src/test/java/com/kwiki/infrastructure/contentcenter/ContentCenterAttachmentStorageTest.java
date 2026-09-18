@@ -59,7 +59,8 @@ class ContentCenterAttachmentStorageTest {
                 new ExternalServicesProperties.AnswerLlm("http://l/v1", "k", "m",
                         Duration.ofSeconds(10)),
                 new ExternalServicesProperties.QwenEmbedding("http://q/v1", "k",
-                        "text-embedding-v4", 4, Duration.ofSeconds(10)));
+                        "text-embedding-v4", 4, Duration.ofSeconds(10)),
+                ExternalServicesProperties.unusedVisionModel());
     }
 
     @AfterEach
@@ -83,6 +84,69 @@ class ContentCenterAttachmentStorageTest {
                 {"fileId":%d,"name":"spec.docx","size":%d,"contentType":"%s"}"""
                         .formatted(fileId, size, DOCX))
                 .addHeader("Content-Type", "application/json"));
+    }
+
+    @Test
+    void browserUploadOnlyInitializesAndCompletesWithoutProxyingPut() throws Exception {
+        server.enqueue(new MockResponse().setBody("""
+                {"storageKey":"k/direct.pdf","source":"mock","putUrl":"%s","expiresIn":300}
+                """.formatted(server.url("/must-not-put"))).addHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse().setBody("""
+                {"fileId":42,"name":"book.pdf","size":100,"contentType":"application/pdf"}
+                """).addHeader("Content-Type", "application/json"));
+        var ticket = storage.initiateUpload("book.pdf", "application/pdf", 100);
+        var stored = storage.completeUpload(ticket.storageKey(), ticket.source(), "application/pdf", 100);
+        assertThat(stored.contentCenterFileId()).isEqualTo(42);
+        assertThat(server.takeRequest().getPath()).isEqualTo("/api/open/uploads");
+        assertThat(server.takeRequest().getPath()).isEqualTo("/api/open/uploads/complete");
+        assertThat(server.getRequestCount()).isEqualTo(2);
+    }
+
+    @Test
+    void retriesAfterProviderCompletedButResponseWasLostUsingBoundIdentity() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(400).setBody("""
+                {"message":"未找到上传初始化记录: k/direct.pdf"}
+                """).addHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse().setBody("""
+                {"url":"%s","expiresIn":120}
+                """.formatted(server.url("/recovery"))).addHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse().setResponseCode(206).addHeader("Content-Range", "bytes 0-0/100")
+                .addHeader("Content-Type", "application/pdf").setBody("x"));
+        assertThat(storage.completeUpload("k/direct.pdf", "mock", "application/pdf", 100, 42L).contentCenterFileId()).isEqualTo(42);
+        assertThat(server.takeRequest().getPath()).isEqualTo("/api/open/uploads/complete");
+        assertThat(server.takeRequest().getBody().readUtf8()).contains("\"fileId\":42");
+        assertThat(server.takeRequest().getHeader("Range")).isEqualTo("bytes=0-0");
+    }
+
+    @Test
+    void recoveryDoesNotTreatAnUnrelatedProviderRejectionAsSuccess() {
+        server.enqueue(new MockResponse().setResponseCode(400).setBody("""
+                {"message":"对象尚未上传或不存在"}
+                """).addHeader("Content-Type", "application/json"));
+        assertThatThrownBy(() -> storage.completeUpload("k/direct.pdf", "mock", "application/pdf", 100, 42L))
+                .isInstanceOf(AttachmentStorageException.class);
+        assertThat(server.getRequestCount()).isEqualTo(1);
+    }
+
+    @Test
+    void directCompletionRejectsWrongActualSize() {
+        server.enqueue(new MockResponse().setBody("""
+                {"fileId":42,"name":"book.pdf","size":999,"contentType":"application/pdf"}
+                """).addHeader("Content-Type", "application/json"));
+        assertThatThrownBy(() -> storage.completeUpload("k/direct.pdf", "mock", "application/pdf", 100))
+                .isInstanceOf(AttachmentStorageException.class).hasMessageContaining("size disagrees");
+    }
+
+    @Test
+    void mediaSignatureReadRequestsOnlyPrefix() throws Exception {
+        server.enqueue(new MockResponse().setBody("""
+                {"url":"%s","expiresIn":120}
+                """.formatted(server.url("/prefix"))).addHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse().setResponseCode(206)
+                .addHeader("Content-Range", "bytes 0-11/99999").setBody("0123456789ab"));
+        assertThat(storage.readPrefix(42, 12)).isEqualTo("0123456789ab".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        server.takeRequest();
+        assertThat(server.takeRequest().getHeader("Range")).isEqualTo("bytes=0-11");
     }
 
     @Test

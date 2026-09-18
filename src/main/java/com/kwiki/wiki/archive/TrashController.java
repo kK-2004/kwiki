@@ -4,6 +4,7 @@ import com.kwiki.security.CurrentUser;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,8 +16,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 /**
- * 回收站接口：可恢复的归档批次的分页列表与恢复动作。恢复冲突以 409 暴露
- * （状态错误 / 父级知识库仍处于归档），过期则以 410 并附带可读原因暴露。
+ * 回收站接口：可恢复的归档批次分页列表、恢复和用户主动永久删除动作。
+ * 恢复/删除冲突以 409 暴露（状态错误 / 父级知识库仍处于归档），过期则以
+ * 410 并附带可读原因暴露。
  */
 @RestController
 @RequestMapping("/api/v1/trash")
@@ -24,10 +26,13 @@ public class TrashController {
 
     private final TrashQueryService trash;
     private final ResourceArchiveService archive;
+    private final TrashPurgeService purge;
 
-    public TrashController(TrashQueryService trash, ResourceArchiveService archive) {
+    public TrashController(TrashQueryService trash, ResourceArchiveService archive,
+                           TrashPurgeService purge) {
         this.trash = trash;
         this.archive = archive;
+        this.purge = purge;
     }
 
     @GetMapping
@@ -45,6 +50,20 @@ public class TrashController {
                                           @PathVariable long batchId) {
         try {
             return ResponseEntity.ok(archive.restore(user, batchId));
+        } catch (ResourceArchiveService.ExpiredBatchException e) {
+            return ResponseEntity.status(HttpStatus.GONE)
+                    .body(Map.of("error", "trash-expired", "message", e.getMessage()));
+        } catch (ResourceArchiveService.BatchConflictException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "trash-conflict", "message", e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/{batchId}")
+    public ResponseEntity<Object> delete(@AuthenticationPrincipal CurrentUser user,
+                                         @PathVariable long batchId) {
+        try {
+            return ResponseEntity.ok(purge.purge(user, batchId));
         } catch (ResourceArchiveService.ExpiredBatchException e) {
             return ResponseEntity.status(HttpStatus.GONE)
                     .body(Map.of("error", "trash-expired", "message", e.getMessage()));

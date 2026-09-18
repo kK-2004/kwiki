@@ -33,7 +33,8 @@ class ContentCenterConfigurationTest {
                         "https://llm.internal/v1", "sk-answer", "qwen-max", Duration.ofSeconds(120)),
                 new ExternalServicesProperties.QwenEmbedding(
                         "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                        "sk-embed", "text-embedding-v4", 1024, Duration.ofSeconds(30)));
+                        "sk-embed", "text-embedding-v4", 1024, Duration.ofSeconds(30)),
+                ExternalServicesProperties.unusedVisionModel());
     }
 
     private static Object field(Object target, String name) throws Exception {
@@ -61,7 +62,8 @@ class ContentCenterConfigurationTest {
                         "https://content-center.internal", "  ", null, null,
                         Duration.ofSeconds(5), Duration.ofSeconds(30)),
                 validProperties().elasticsearch(), validProperties().answerLlm(),
-                validProperties().qwenEmbedding());
+                validProperties().qwenEmbedding(),
+                ExternalServicesProperties.unusedVisionModel());
 
         assertThatThrownBy(() ->
                 new ContentCenterConfiguration().kwikiContentCenterClient(properties))
@@ -75,7 +77,8 @@ class ContentCenterConfigurationTest {
                 new ExternalServicesProperties.ContentCenter(
                         "   ", TOKEN, null, null, Duration.ofSeconds(5), Duration.ofSeconds(30)),
                 validProperties().elasticsearch(), validProperties().answerLlm(),
-                validProperties().qwenEmbedding());
+                validProperties().qwenEmbedding(),
+                ExternalServicesProperties.unusedVisionModel());
 
         assertThatThrownBy(() ->
                 new ContentCenterConfiguration().kwikiContentCenterClient(properties))
@@ -105,7 +108,8 @@ class ContentCenterConfigurationTest {
                         "kwiki.answer-llm.base-url=https://llm.internal/v1",
                         "kwiki.answer-llm.api-key=k",
                         "kwiki.answer-llm.model=m",
-                        "kwiki.qwen-embedding.api-key=k")
+                        "kwiki.qwen-embedding.api-key=k",
+                        "kwiki.qwen-embedding.model=test-model")
                 .run(context -> {
                     assertThat(context).hasSingleBean(ContentCenterClient.class);
                     assertThat(context.getBean(ContentCenterClient.class))
@@ -125,7 +129,8 @@ class ContentCenterConfigurationTest {
                         "kwiki.answer-llm.base-url=https://llm.internal/v1",
                         "kwiki.answer-llm.api-key=k",
                         "kwiki.answer-llm.model=m",
-                        "kwiki.qwen-embedding.api-key=k")
+                        "kwiki.qwen-embedding.api-key=k",
+                        "kwiki.qwen-embedding.model=test-model")
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())

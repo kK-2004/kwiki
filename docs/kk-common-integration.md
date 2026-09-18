@@ -55,28 +55,36 @@ kk:
     exception:
       enabled: ${KK_COMMON_EXCEPTION_ENABLED:true} # GlobalExceptionHandler
     redis:
-      enabled: ${KK_COMMON_REDIS_ENABLED:false}    # RedisUtil + kkRedisTemplate
+      enabled: ${KK_COMMON_REDIS_ENABLED:true}     # RedisUtil + kkRedisTemplate
     redisson:
-      enabled: ${KK_COMMON_REDISSON_ENABLED:false} # RedissonClient + DistributedLockFactory
+      enabled: ${KK_COMMON_REDISSON_ENABLED:true}  # RedissonClient + DistributedLockFactory
 ```
 
-Defaults (enforced by the SDK's own conditions, so omitting the keys is safe):
+Defaults (the SDK's own conditions enforce the same values when keys are omitted):
 
-| Switch | Default | Effect when off |
+| Switch | kwiki default | Effect when off |
 | --- | --- | --- |
 | `kk.common.web.enabled` | `true` | no SDK request-context filter/decorator beans |
 | `kk.common.exception.enabled` | `true` | no shared `GlobalExceptionHandler` |
-| `kk.common.redis.enabled` | `false` | no `RedisUtil`; in kwiki the whole Redis stack (Spring connection factory included) stays unconfigured and disconnected |
-| `kk.common.redisson.enabled` | `false` | no `RedissonClient`, no lock factory, and **no connection attempt to `localhost:6379`** |
+| `kk.common.redis.enabled` | `true` | no `RedisUtil`; the whole Redis stack (Spring connection factory included) stays unconfigured and disconnected |
+| `kk.common.redisson.enabled` | `true` | no `RedissonClient`, no lock factory — and still **no connection attempt to `localhost:6379`** |
 
-Enabling `redis` or `redisson` is a deployment decision: provide the connection
-values (`KWIKI_REDIS_HOST`, port, password, database) and — for Redisson — remember
-the SDK derives its endpoint from `spring.data.redis.host/port`. kwiki has no
-implicit `localhost` fallback; with the switch off, `spring.data.redis.*` is never
-read (the Spring Redis auto-configurations are excluded and re-imported by
-`KwikiRedisConfiguration` only when `kk.common.redis.enabled=true`).
+Redis and Redisson are **formal runtime dependencies**: kwiki defaults both switches to
+`true`, so a deployment must provide the connection values (`KWIKI_REDIS_HOST` is
+required with no fallback; Redisson derives its endpoint from
+`spring.data.redis.host/port`). Consequences of the defaults:
 
-The two Redis switches are independent: Redisson does not require
+- `kk.common.redisson.enabled=true` builds the `RedissonClient` eagerly at startup —
+  an unreachable Redis fails the boot (fail fast, by design).
+- `kk.common.redis.enabled=true` re-imports the Spring Redis auto-configurations
+  through `KwikiRedisConfiguration`; the kwiki Redis health indicator and Boot's own
+  `redis` indicator both participate in the readiness group, so a Redis outage drains
+  the instance while caches keep degrading to the database.
+- Explicitly setting either flag to `false` remains supported for an approved isolated
+  environment; features that require a distributed lock then fail closed or skip their
+  scheduled run.
+
+The two Redis switches stay independent: Redisson does not require
 `kk.common.redis.enabled=true` (it builds its own client from `RedisProperties`).
 
 ## 3. HTTP contract
@@ -213,28 +221,34 @@ the SDK resolves the name collision natively.
 Domain, retrieval, indexing and persistence packages stay SDK-free
 (`ArchitectureRulesTest.kkCommonSdkIsConfinedToApprovedPackages`).
 
-## 8. Deployment & rollback notes (Redis / Redisson opt-in environments)
+## 8. Deployment & rollback notes (Redis / Redisson as default dependencies)
 
-**Release.** Environments that use the scope cache or any distributed lock must set,
+**Release.** Redis and Redisson are enabled by default; every environment must set,
 before rollout:
 
-- `KK_COMMON_REDIS_ENABLED=true` (scope cache) and/or `KK_COMMON_REDISSON_ENABLED=true` (locks)
 - the full connection set: `KWIKI_REDIS_HOST` (required, no fallback), plus
   `KWIKI_REDIS_PORT` / `KWIKI_REDIS_PASSWORD` / `KWIKI_REDIS_DATABASE` as needed;
   Redisson derives its endpoint from the same `spring.data.redis.host/port`.
+- nothing else — omitting `KK_COMMON_REDIS_ENABLED` / `KK_COMMON_REDISSON_ENABLED`
+  keeps both integrations on.
 
-Readiness probes: when `KK_COMMON_REDIS_ENABLED=true`, the kwiki Redis health
-indicator participates in readiness; a Redis outage then drains the instance.
-Application correctness never depends on the cache — a scope-cache outage degrades
-to database loads even while readiness reports down.
+Readiness expectations: the kwiki Redis health indicator and Boot's built-in `redis`
+indicator both participate in readiness, so a Redis outage drains the instance while
+caches keep degrading to their database loaders. Redisson connects eagerly: a Redis
+that is unreachable at boot fails startup explicitly (there is no localhost fallback
+and no lazy retry). Operations that require a distributed lock (scheduled cleanups,
+index rebuild coordination, alias switching) fail closed or skip the run while Redis
+is unavailable.
 
-**Rollback.** Disable the features first (`KK_COMMON_REDIS_ENABLED=false`,
-`KK_COMMON_REDISSON_ENABLED=false`): the context boots with no Redis/Redisson beans
-and reads no `spring.data.redis.*` value, so no middleware outage can block a rollback.
-Correctness during rollback comes from the database (scope resolution is cache-or-DB
-by contract). To roll the SDK integration back entirely, revert the dependency and
-config changes together with the pre-migration local adapters in a coordinated
-release; never commit package credentials as part of any rollback artifact.
+**Rollback.** To decouple a rollback from middleware availability, disable the
+integrations first (`KK_COMMON_REDIS_ENABLED=false`, `KK_COMMON_REDISSON_ENABLED=false`):
+the context boots with no Redis/Redisson beans and reads no `spring.data.redis.*`
+value, so no middleware outage can block a rollback. Correctness during rollback
+comes from the database (scope resolution is cache-or-DB by contract); lock-protected
+features must stay out of the rollback path while disabled. To roll the SDK
+integration back entirely, revert the dependency and config changes together with the
+pre-migration local adapters in a coordinated release; never commit package
+credentials as part of any rollback artifact.
 
 **Upgrade checks for newer kk-common builds** (see
 `openspec/changes/integrate-kk-common-sdk/notes/sdk-integration-findings.md`):

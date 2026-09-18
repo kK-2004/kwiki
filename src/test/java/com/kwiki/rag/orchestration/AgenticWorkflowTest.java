@@ -18,6 +18,7 @@ import com.kwiki.wiki.access.AuthorizationScopeResolver;
 import com.kwiki.wiki.access.ScopeVersionService;
 
 import org.junit.jupiter.api.*;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.*;
@@ -30,6 +31,40 @@ import java.util.stream.Collectors;
  * 基础设施终止态。未经评审的候选绝不能上线。
  */
 class AgenticWorkflowTest {
+
+    @Test
+    void debugLogCoversTheCompleteSuccessfulQueryLifecycle() {
+        var logger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger("kwiki.agentic.debug");
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        var previousLevel = logger.getLevel();
+        logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
+        try {
+            var harness = harness();
+            stubCorpus(harness, List.of(hit("C1", "P1", "候选依据 [P0]")));
+            harness.answer.scripted.add("基于证据的回答 [P0]");
+            harness.quality.passes = input -> true;
+
+            run(harness, "什么是部署方式");
+
+            String logs = appender.list.stream()
+                    .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(Collectors.joining("\n"));
+            assertThat(logs)
+                    .contains("\"phase\":\"workflow\"", "\"status\":\"start\"")
+                    .contains("\"phase\":\"route\"")
+                    .contains("\"phase\":\"retrieval\"")
+                    .contains("\"bm25Rank\":1", "\"vectorRank\":1", "\"rrfScore\":")
+                    .contains("\"phase\":\"generation\"")
+                    .contains("\"phase\":\"quality\"")
+                    .contains("agentic-terminal", "\"status\":\"completed\"");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previousLevel);
+            appender.stop();
+        }
+    }
 
     final CurrentUser user = new CurrentUser(1L, "admin", true);
     final io.micrometer.core.instrument.simple.SimpleMeterRegistry metrics =
@@ -338,5 +373,14 @@ class AgenticWorkflowTest {
         var metricKeys = metricsMap.keySet().stream().map(String::valueOf).toList();
         assertThat(metricKeys).contains("branchTopK", "finalTopK", "retainedChildCount");
         assertThat(metricsMap.get("retainedChildCount")).isEqualTo(1);
+        var sources = (List<?>) metricsMap.get("sources");
+        assertThat(sources).hasSize(1);
+        var source = (Map<?, ?>) sources.getFirst();
+        assertThat(source.get("childChunkKey")).isEqualTo("C1");
+        assertThat(source.get("excerpt")).isEqualTo("片段 [P0]");
+        assertThat(activities).anySatisfy(payload -> {
+            assertThat(payload.get("phase")).isEqualTo("QUALITY");
+            assertThat(payload.get("status")).isEqualTo("STARTED");
+        });
     }
 }

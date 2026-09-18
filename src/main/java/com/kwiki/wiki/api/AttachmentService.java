@@ -60,6 +60,7 @@ public class AttachmentService {
     private final Set<String> allowedContentTypes;
     private final ResourceAuthorizationService resources;
     private final JdbcOperations jdbc;
+    private final com.kwiki.indexing.config.MultimodalIndexingProperties multimodal;
 
     public AttachmentService(AttachmentRepository attachments,
                              AttachmentStorage storage,
@@ -68,7 +69,8 @@ public class AttachmentService {
                              @Value("${kwiki.attachments.max-bytes:52428800}") long maxBytes,
                              @Value("${kwiki.attachments.presign-ttl:300s}") Duration presignTtl,
                              @Value("${kwiki.attachments.allowed-content-types:}") List<String> allowedContentTypes) {
-        this(attachments, storage, authorization, indexingJobs, maxBytes, presignTtl, allowedContentTypes, null, null);
+        this(attachments, storage, authorization, indexingJobs, maxBytes, presignTtl,
+                allowedContentTypes, null, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -80,7 +82,9 @@ public class AttachmentService {
                              @Value("${kwiki.attachments.presign-ttl:300s}") Duration presignTtl,
                              @Value("${kwiki.attachments.allowed-content-types:}") List<String> allowedContentTypes,
                              ResourceAuthorizationService resources,
-                             ObjectProvider<JdbcOperations> jdbc) {
+                             ObjectProvider<JdbcOperations> jdbc,
+                             org.springframework.beans.factory.ObjectProvider<
+                                     com.kwiki.indexing.config.MultimodalIndexingProperties> multimodal) {
         this.attachments = attachments;
         this.storage = storage;
         this.authorization = authorization;
@@ -94,6 +98,7 @@ public class AttachmentService {
                         .toList());
         this.resources = resources;
         this.jdbc = jdbc == null ? null : jdbc.getIfAvailable();
+        this.multimodal = multimodal == null ? null : multimodal.getIfAvailable();
     }
 
     /**
@@ -149,11 +154,39 @@ public class AttachmentService {
         }
         attachment.markStored(stored.contentCenterFileId());
         attachments.save(attachment);
-        // 仅图片具备索引资格：其他一切仅供展示。
-        if (com.kwiki.indexing.parse.AttachmentIndexEligibility.isIndexableImage(normalizedType)) {
+        // 索引资格：图片始终可索引；多模态开启时 PDF 也进入
+        // （由目标索引版本的解析代决定实际处理方式）。
+        if (com.kwiki.indexing.parse.AttachmentIndexEligibility.isIndexableImage(normalizedType)
+                || (multimodalEnabled() && "application/pdf".equals(normalizedType))) {
             indexingJobs.enqueueAttachmentUpsert(attachment.getId());
         }
         return attachment;
+    }
+
+    /** Metadata gate shared by browser direct uploads; actual media bytes are checked after PUT. */
+    String validateDirectMetadata(String fileName, String contentType, long byteSize) {
+        String safeName = AttachmentFileNames.sanitizeFileName(fileName);
+        if (safeName.length() > 300 || safeName.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("invalid file name");
+        }
+        if (byteSize <= 0 || byteSize > maxBytes) throw new IllegalArgumentException("attachment size out of allowed range");
+        if (contentType == null || !allowedContentTypes.contains(contentType)) {
+            throw new IllegalArgumentException("attachment content type is not allowed");
+        }
+        return safeName;
+    }
+
+    void enqueueDirectAttachment(Attachment attachment) {
+        if (Attachment.PURPOSE_GENERAL.equals(attachment.getPurpose())
+                && (com.kwiki.indexing.parse.AttachmentIndexEligibility.isIndexableImage(attachment.getContentType())
+                || (multimodalEnabled() && "application/pdf".equals(attachment.getContentType())))) {
+            indexingJobs.enqueueAttachmentUpsert(attachment.getId());
+        }
+    }
+
+    /** kwiki.multimodal.enabled 的注入式视图（测试可关闭）。 */
+    private boolean multimodalEnabled() {
+        return multimodal != null && Boolean.TRUE.equals(multimodal.enabled());
     }
 
     private static byte[] readAll(InputStream content) {

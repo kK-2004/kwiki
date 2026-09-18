@@ -8,7 +8,7 @@ import java.util.Map;
  * {@code stepId} 合并：同一步骤的 started 事件会被 completed/skipped/failed 事件取代；
  * 同一步骤的事件；序号仅用于排序投递。指标使用
  * 显式命名的 key（branch、branchTopK、hitCount、fusedCandidateCount、
- * retainedChildCount、parentCount 等）——缺失数据直接省略，绝不
+ * retainedChildCount、parentCount、relevance、coverage、faithfulness 等）——缺失数据直接省略，绝不
  * 臆造。内部候选体、提示词、工具参数与密钥
  * 绝不出现在活动载荷中。
  */

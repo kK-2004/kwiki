@@ -28,7 +28,7 @@ class AgenticAnswerSessionTest {
         var run = new ChatSessionService.RunHandle("s", "c", "r", 1L, 2L, false);
         when(sessions.begin(user, null, "c", null, "问题")).thenReturn(run);
         when(sessions.historyBefore(2L)).thenReturn(List.of());
-        when(workflow.answerInSession(user, "问题", List.of())).thenReturn(Flux.just(
+        when(workflow.answerInSession(user, "问题", List.of(), java.util.Set.of(), java.util.Set.of())).thenReturn(Flux.just(
                 ChatStreamEvent.of("error", 1, "r", Map.of("error", "retrieval-failed"))));
         var events = new AgenticAnswerService(workflow, provider, eventProvider).answer(user, "问题", null, "c", null).collectList().block();
         assertThat(events).extracting(ChatStreamEvent::type).containsExactly("session", "error");

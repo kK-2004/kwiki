@@ -53,7 +53,8 @@ class QwenEmbeddingClientTest {
                 new ExternalServicesProperties.Elasticsearch( null, null, null),
                 new ExternalServicesProperties.AnswerLlm("http://l/v1", "k", "m", Duration.ofSeconds(10)),
                 new ExternalServicesProperties.QwenEmbedding("http://q/v1", "test-embedding-key",
-                        "text-embedding-v4", 4, Duration.ofSeconds(10)));
+                        "text-embedding-v4", 4, Duration.ofSeconds(10)),
+                ExternalServicesProperties.unusedVisionModel());
     }
 
     private static String embeddingJson(int count, int dims) {

@@ -1,5 +1,7 @@
 package com.kwiki.indexing.search;
 
+import co.elastic.clients.elasticsearch._types.mapping.Property;
+import co.elastic.clients.elasticsearch._types.mapping.TypeMapping;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -13,6 +15,36 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 别名切换之前拒绝不兼容的维度或缺失的溯源字段。
  */
 class ChunkMappingTest {
+
+    @Test
+    void validatesTypedElasticsearchMappingResponse() {
+        TypeMapping mapping = typedMapping(1024, true);
+
+        assertThat(MappingValidator.validate(mapping, 1024)).isNull();
+        assertThat(MappingValidator.validate(mapping, 768))
+                .contains("vector dimension mismatch");
+    }
+
+    @Test
+    void rejectsTypedVectorThatIsNotIndexed() {
+        assertThat(MappingValidator.validate(typedMapping(1024, false), 1024))
+                .contains("not indexed");
+    }
+
+    private static TypeMapping typedMapping(int dimensions, boolean indexed) {
+        TypeMapping.Builder mapping = new TypeMapping.Builder();
+        for (String field : java.util.List.of(
+                "chunkLevel", "chunkKey", "parentChunkKey", "resourceType", "resourceId",
+                "revisionId", "lifecycleVersion", "kbId", "headingPath", "charStart",
+                "charEnd", "content", "parserVersion", "chunkerVersion", "embeddingModel",
+                "indexVersion")) {
+            mapping.properties(field, Property.of(property -> property.keyword(keyword -> keyword)));
+        }
+        mapping.properties("vector", Property.of(property -> property.denseVector(vector -> vector
+                .dims(dimensions)
+                .index(indexed))));
+        return mapping.build();
+    }
 
     private final ChunkMappingBuilder builder = new ChunkMappingBuilder();
 

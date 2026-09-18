@@ -22,7 +22,7 @@ import java.util.List;
 /**
  * 分页式回收站列表。授权针对批次作用域上已保存的管理权限进行校验——
  * 绝不经由要求 ACTIVE 状态的资源加载器，因为此处列出的内容按定义都已归档。
- * 工作空间视图（无 kbId）：已归档的知识库；知识库视图：该库内的页面批次。
+ * 工作空间视图（无 kbId）：调用方可管理的所有已归档批次；知识库视图：该库内的批次。
  */
 @Service
 public class TrashQueryService {
@@ -69,20 +69,22 @@ public class TrashQueryService {
         int pageSize = Math.min(Math.max(limit, 1), 50);
         List<ArchiveBatch> rows;
         if (kbId == null) {
-            // 工作空间视图：仅调用方管理的已归档知识库。
+            // 全局回收站同时展示知识库和 Wiki 页面批次。页面归档也必须
+            // 能在全局入口找到，否则用户只能记住归档发生在哪个知识库。
             rows = batches.findByStateOrderByArchivedAtDesc(
                     ArchiveBatch.STATE_ARCHIVED, PageRequest.of(0, pageSize * 8));
             List<ArchiveBatch> visible = new ArrayList<>();
             for (ArchiveBatch batch : rows) {
-                if (!ArchiveBatch.SCOPE_KNOWLEDGE_BASE.equals(batch.getScopeType())) {
+                if (!matchesResourceType(batch, resourceType)) {
                     continue;
                 }
                 if (cursor != null && batch.getId() >= cursor) {
                     continue; // 稳定的按 id 降序分页
                 }
-                if (user.admin()
-                        || authorization.can(user, batch.getKbId(),
-                                WikiAction.ARCHIVE_KNOWLEDGE_BASE)) {
+                WikiAction action = ArchiveBatch.SCOPE_KNOWLEDGE_BASE.equals(batch.getScopeType())
+                        ? WikiAction.ARCHIVE_KNOWLEDGE_BASE
+                        : WikiAction.ARCHIVE_PAGE;
+                if (user.admin() || authorization.can(user, batch.getKbId(), action)) {
                     visible.add(batch);
                     if (visible.size() >= pageSize + 1) {
                         break;
@@ -97,8 +99,7 @@ public class TrashQueryService {
                 ArchiveBatch.STATE_ARCHIVED, kbId, PageRequest.of(0, pageSize * 8));
         List<ArchiveBatch> visible = new ArrayList<>();
         for (ArchiveBatch batch : rows) {
-            if (resourceType != null && !resourceType.isBlank()
-                    && !batch.getScopeType().equalsIgnoreCase(resourceType)) {
+            if (!matchesResourceType(batch, resourceType)) {
                 continue;
             }
             if (cursor != null && batch.getId() >= cursor) {
@@ -134,6 +135,11 @@ public class TrashQueryService {
                 ? page.get(page.size() - 1).getId()
                 : null;
         return new TrashPage(items, nextCursor);
+    }
+
+    private boolean matchesResourceType(ArchiveBatch batch, String resourceType) {
+        return resourceType == null || resourceType.isBlank()
+                || batch.getScopeType().equalsIgnoreCase(resourceType);
     }
 
     private String resolveTitle(ArchiveBatch batch) {

@@ -6,6 +6,8 @@ import com.kwiki.security.CurrentUser;
 import com.kwiki.security.JwtTokenService;
 import com.kwiki.testutil.StandardTestProperties;
 import com.kwiki.testutil.WikiMockBeans;
+import com.kwiki.wiki.domain.AppUser;
+import com.kwiki.wiki.persistence.AppUserRepository;
 
 import io.micrometer.tracing.Tracer;
 
@@ -14,6 +16,7 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
@@ -38,6 +41,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /** 真实套接字验证服务端抽取、MDC 关联，以及两个 AI 客户端的注入。 */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -74,6 +80,17 @@ class TracePropagationIntegrationTest {
     @LocalServerPort int port;
 
     @Autowired JwtTokenService tokens;
+
+    @Autowired AppUserRepository users;
+
+    @BeforeEach
+    void authenticateTheTraceProbeUserAgainstTheDatabaseFence() {
+        AppUser account = mock(AppUser.class);
+        when(account.getId()).thenReturn(7L);
+        when(account.getUsername()).thenReturn("trace-test");
+        when(account.isActive()).thenReturn(true);
+        when(users.findById(7L)).thenReturn(java.util.Optional.of(account));
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"answer", "embedding"})

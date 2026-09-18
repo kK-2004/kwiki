@@ -1,0 +1,3 @@
+import{beforeEach,describe,expect,it,vi}from"vitest";import{createPinia,setActivePinia}from"pinia";
+const mocks=vi.hoisted(()=>({me:vi.fn()}));vi.mock("../src/api",async original=>{const actual=await original<typeof import("../src/api")>();return{...actual,api:{...actual.api,me:mocks.me}}});
+describe("admin route guard",()=>{beforeEach(()=>{setActivePinia(createPinia());vi.resetModules()});it("redirects a non-admin session even when the UI route is known",async()=>{mocks.me.mockResolvedValue({id:2,username:"user",admin:false});const{router}=await import("../src/router");await router.push("/");await router.isReady();expect(router.currentRoute.value.path).toBe("/login");expect(router.currentRoute.value.query.error).toBe("admin_required")})});

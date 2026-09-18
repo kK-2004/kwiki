@@ -29,9 +29,9 @@ import static org.mockito.Mockito.when;
 
 /**
  * 使用模拟客户端的批量写入契约：确定性的 id（= chunk key）、
- * 写入目标为别名、资源删除同时按 type 与 id 过滤，且批量
- * 失败会归类为临时性或永久性。文档形态由
- * ChunkDocument 的测试覆盖。
+ * 写入目标必须是显式物理索引（读别名被拒绝）、资源删除同时按
+ * type 与 id 过滤，且批量失败会归类为临时性或永久性。
+ * 文档形态由 ChunkDocument 的测试覆盖。
  */
 @ExtendWith(MockitoExtension.class)
 class ChunkIndexRepositoryTest {
@@ -64,19 +64,19 @@ class ChunkIndexRepositoryTest {
             ChildChunk.BoundaryType.PARAGRAPH);
 
     private final IndexedVersion version = new IndexedVersion(
-            "PAGE", 7L, 103L, 1L, "parser-1", "chunker-1", "text-embedding-v4", 1,
+            "PAGE", 7L, 103L, 2L, 1L, "parser-1", "chunker-1", "text-embedding-v4", 1,
             List.of(parentChunk), List.of(childChunk), List.of(new float[]{0.1f, 0.2f}));
 
     @Test
-    void upsertUsesChunkKeysAsDeterministicIdsAgainstTheAlias() throws Exception {
+    void upsertUsesChunkKeysAsDeterministicIdsAgainstThePhysicalIndex() throws Exception {
         when(client.bulk(any(BulkRequest.class))).thenReturn(bulkResponse(null));
 
-        repository.upsertChunks(version);
+        repository.upsertChunks(version, "kwiki-chunks-v2");
 
         ArgumentCaptor<BulkRequest> request = ArgumentCaptor.forClass(BulkRequest.class);
         verify(client).bulk(request.capture());
         BulkRequest bulk = request.getValue();
-        assertThat(bulk.index()).isEqualTo("kwiki-chunks");
+        assertThat(bulk.index()).isEqualTo("kwiki-chunks-v2");
         assertThat(bulk.operations()).hasSize(2);
         assertThat(bulk.operations().get(0).index().id()).isEqualTo("PAGE:7:103:P0");
         assertThat(bulk.operations().get(1).index().id()).isEqualTo("PAGE:7:103:P0:C0");
@@ -86,7 +86,7 @@ class ChunkIndexRepositoryTest {
     void transientBulkItemFailureIsRetryable() throws Exception {
         when(client.bulk(any(BulkRequest.class))).thenReturn(bulkResponse(429));
 
-        assertThatThrownBy(() -> repository.upsertChunks(version))
+        assertThatThrownBy(() -> repository.upsertChunks(version, "kwiki-chunks-v2"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("retryable");
     }
@@ -95,7 +95,7 @@ class ChunkIndexRepositoryTest {
     void permanentBulkItemFailureFailsFast() throws Exception {
         when(client.bulk(any(BulkRequest.class))).thenReturn(bulkResponse(400));
 
-        assertThatThrownBy(() -> repository.upsertChunks(version))
+        assertThatThrownBy(() -> repository.upsertChunks(version, "kwiki-chunks-v2"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("permanent");
     }
@@ -116,8 +116,9 @@ class ChunkIndexRepositoryTest {
                     return null;
                 });
 
-        assertThatCode(() -> repository.deleteResourceChunks("PAGE", 7L))
+        assertThatCode(() -> repository.deleteResourceChunks("kwiki-chunks-v1", "PAGE", 7L))
                 .doesNotThrowAnyException();
+        assertThat(captured.get().index()).containsExactly("kwiki-chunks-v1");
 
         List<String> fields = captured.get().query().bool().filter().stream()
                 .map(filter -> filter.term().field())
@@ -130,6 +131,31 @@ class ChunkIndexRepositoryTest {
                         && filter.term().value().isLong()
                         && filter.term().value().longValue() == 7L);
         assertThat(idFilterIsSeven).as("deletes must be scoped to one resource").isTrue();
+    }
+
+    @Test
+    void writeTargetMustBeAnExplicitPhysicalIndexNeverTheAlias() {
+        // 读别名与任意其它名字都被拒绝：队列中的任务无法经别名写入，
+        // 也无法把分块写进名字任意的索引。
+        assertThatThrownBy(() -> repository.upsertChunks(version, "kwiki-chunks"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("explicit physical index name");
+        assertThatThrownBy(() -> repository.upsertChunks(version, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> repository.deleteResourceChunks("kwiki-chunks", "PAGE", 7L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> repository.deleteResourceChunks("other-index", "PAGE", 7L))
+                .isInstanceOf(IllegalArgumentException.class);
+        // 校验先于客户端可用性：离线仓储同样拒绝非物理目标
+        ChunkIndexRepository offline = new ChunkIndexRepository(provider(null));
+        assertThatCode(() -> offline.deleteResourceChunksChecked("kwiki-chunks-v3", "PAGE", 7L))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> offline.deleteKnowledgeBaseChunksChecked("kwiki-chunks-v3", 1L))
+                .doesNotThrowAnyException();
+        assertThat(offline.deleteResourceChunksChecked("kwiki-chunks-v3", "PAGE", 7L).clean())
+                .isTrue();
+        assertThatThrownBy(() -> offline.deleteResourceChunksChecked("kwiki-chunks", "PAGE", 7L))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

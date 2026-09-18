@@ -14,7 +14,14 @@ export interface SseFrame {
   payload: Record<string, unknown>;
 }
 
+export interface RetrievalSource extends CitationEntry {
+  kbId: number;
+}
+
 export interface CitationEntry {
+  citationId?: string;
+  displayName?: string;
+  kbId?: number;
   childChunkKey: string;
   parentChunkKey: string;
   resourceType: string;
@@ -87,6 +94,7 @@ export interface ActivityStep {
   summary?: string;
   metrics?: Record<string, unknown>;
   reasonCode?: string;
+  thinking?: string;
 }
 
 const ACTIVITY_STATUS_PRECEDENCE: Record<ActivityStep['status'], number> = {
@@ -197,6 +205,11 @@ export function reduce(state: StreamState, frame: SseFrame): StreamState {
         return { ...advanced, progress, progressDetails, progressItems };
       }
     case 'reasoning-summary':
+      if (typeof frame.payload.stepId === 'string') {
+        if (frame.sequence > 0 && frame.sequence === state.lastSequence) return state;
+        return { ...advanced, activitySteps: state.activitySteps.map(step => step.stepId === frame.payload.stepId
+          ? { ...step, thinking: ((step.thinking ?? '') + String(frame.payload.text ?? '')).slice(-32000) } : step) };
+      }
       return { ...advanced, reasoning: [...state.reasoning, String(frame.payload.summary ?? frame.payload.text ?? '')].filter(Boolean) };
     case 'token':
       return { ...advanced, answer: state.answer + String(frame.payload.text ?? '') };
@@ -314,6 +327,8 @@ function chatError(code: string): string {
     'qa-unavailable': '质量评审服务暂时不可用，请稍后重试',
     'rewrite-unavailable': '问题改写服务暂时不可用，请稍后重试',
     'answer-provider-failed': '回答模型暂时不可用，请稍后重试',
+    'answer-empty': '模型未返回回答正文，请重试',
+    'answer-token-limit': '模型输出额度已耗尽，未能完成回答，请缩小问题范围或联系管理员提高输出额度',
     'answer-too-long': '候选回答超出长度限制，请换个问法重试',
   };
   return labels[code] || code;
@@ -324,10 +339,10 @@ function chatError(code: string): string {
  * 状态 —— 用于重新打开已结束的对话。没有存储事件的
  * 旧运行只会产生一条空的活动时间线。
  */
-export function replayStoredEvents(events: { seq: number; event_type: string; payload_json: string }[]): StreamState {
+export function replayStoredEvents(events: { seq: number; type?: string; payloadJson?: string; event_type?: string; payload_json?: string }[]): StreamState {
   let state = initialState();
   for (const event of events) {
-    const frame = parseWireFrame(event.event_type, event.payload_json);
+    const frame = parseWireFrame(event.type ?? event.event_type ?? '', event.payloadJson ?? event.payload_json ?? '');
     if (!frame) continue;
     const ordered: SseFrame = { ...frame, sequence: event.seq };
     state = reduce(state, ordered);

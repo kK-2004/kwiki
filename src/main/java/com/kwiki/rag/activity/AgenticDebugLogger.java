@@ -16,7 +16,7 @@ import java.util.Map;
  * 都携带关联标识（traceId/requestId/runId/sessionId，经由 MDC
  * + RunContext）、阶段标识（queryRound/attemptStage/phase）、耗时，
  * 以及有界且已脱敏的负载。RRF 分数与 QA 分数使用各自独立的
- * 字段；模型隐藏的推理过程从不请求、也不记录。当 DEBUG 处于
+ * 字段；模型推理流只发送给当前请求的活动视图，不写入日志。当 DEBUG 处于
  * 禁用状态时，负载构造函数会被完全跳过（基于 supplier），因此
  * 热路径绝不会构造昂贵的 map。
  */

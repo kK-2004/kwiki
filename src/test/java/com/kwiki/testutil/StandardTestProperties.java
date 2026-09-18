@@ -36,6 +36,15 @@ public final class StandardTestProperties {
             "kwiki.answer-llm.api-key=test",
             "kwiki.answer-llm.model=test-model",
             "kwiki.qwen-embedding.api-key=test",
+            "kwiki.qwen-embedding.model=test-model",
+            "kwiki.vision-model.base-url=http://localhost/v1",
+            "kwiki.vision-model.api-key=test",
+            "kwiki.vision-model.model=test-vision-model",
+            "kwiki.multimodal.enabled=false",
+            "kk.common.redis.enabled=false",
+            "kk.common.redisson.enabled=false",
+            "kwiki.indexing.worker.enabled=false",
+            "kwiki.indexing.bootstrap.enabled=false",
             EXCLUDES,
     };
 
@@ -48,6 +57,16 @@ public final class StandardTestProperties {
             @Override
             public T getIfAvailable() {
                 return null;
+            }
+        };
+    }
+
+    /** 携带固定实例的 provider，用于向被测组件注入 mock/fake bean。 */
+    public static <T> org.springframework.beans.factory.ObjectProvider<T> providerOf(T value) {
+        return new org.springframework.beans.factory.ObjectProvider<>() {
+            @Override
+            public T getIfAvailable() {
+                return value;
             }
         };
     }

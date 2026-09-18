@@ -95,7 +95,7 @@ public final class AgenticTestSupportHarness {
         FeedbackRewritePort rewriter = input -> Optional.of("改写后的检索问题");
         return new LangGraphAgenticWorkflow(
                 router, candidates, quality, rewriter, childRetrieval, parentFetch,
-                qaBudgets, scopes, versions, persistence, metrics, AgenticLimits.defaults(),
+                qaBudgets, scopes, versions, persistence, org.mockito.Mockito.mock(com.kwiki.rag.answer.CitationDisplayNameResolver.class), metrics, AgenticLimits.defaults(),
                 new AgenticDebugLogger(), 0.80, Optional.empty(), Optional.empty());
     }
 

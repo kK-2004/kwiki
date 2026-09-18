@@ -12,7 +12,9 @@ import java.util.regex.Pattern;
 /**
  * 单个父分块内的确定性子分块器：段落保持完整，在 128-512 区间内累积；
  * 超长段落优先在句边界切分，仅在不存在句子边界时才在最大尺寸处硬切。
- * 每个子分块都精确引用一个父分块键。
+ * 受保护资源块（KWIKI_META_DATA 标记）是不可切分单元：绝不做句切/
+ * 硬切；单独超过上限时完整发出并计入超限指标。每个子分块都精确
+ * 引用一个父分块键。
  */
 @Component
 public class ChildChunker {
@@ -22,13 +24,20 @@ public class ChildChunker {
             "[。！？!?；;…]+|(?<=[.!?])\\s+");
 
     private final ChunkingConfig config;
+    private final com.kwiki.indexing.multimodal.MultimodalMetrics metrics;
 
     public ChildChunker() {
-        this(ChunkingConfig.defaults());
+        this(ChunkingConfig.defaults(), null);
     }
 
     public ChildChunker(ChunkingConfig config) {
+        this(config, null);
+    }
+
+    public ChildChunker(ChunkingConfig config,
+                        com.kwiki.indexing.multimodal.MultimodalMetrics metrics) {
         this.config = config;
+        this.metrics = metrics;
     }
 
     public List<ChildChunk> chunk(ParentChunk parent, StructuredDocument document) {
@@ -40,6 +49,20 @@ public class ChildChunker {
         for (StructBlock block : blocks) {
             int blockLength = block.text().length();
             if (blockLength > config.childMaxChars()) {
+                if (block.isProtectedResource()) {
+                    // 受保护块单独超限：整体发出，绝不切分协议标记
+                    flush(parent, document, current, children);
+                    current = new ArrayList<>();
+                    currentLength = 0;
+                    if (metrics != null) {
+                        metrics.oversizedProtectedBlock();
+                    }
+                    children.add(new ChildChunk(
+                            parent.parentKey() + ":C" + children.size(), children.size(),
+                            parent.parentKey(), block.charStart(), block.charEnd(),
+                            block.text(), ChildChunk.BoundaryType.PARAGRAPH));
+                    continue;
+                }
                 flush(parent, document, current, children);
                 current = new ArrayList<>();
                 currentLength = 0;

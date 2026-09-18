@@ -1,0 +1,3 @@
+import {createRouter,createWebHistory} from "vue-router";import {useAuth} from "./auth";import LoginView from "./views/LoginView.vue";import IndexManagementView from "./views/IndexManagementView.vue";
+export const router=createRouter({history:createWebHistory("/admin/"),routes:[{path:"/login",component:LoginView,meta:{public:true}},{path:"/",component:IndexManagementView},{path:"/:pathMatch(.*)*",redirect:"/"}]});
+router.beforeEach(async to=>{const auth=useAuth();if(!auth.checked)await auth.load();if(to.meta.public)return auth.user?.admin?"/":true;if(!auth.user)return "/login";if(!auth.user.admin)return {path:"/login",query:{error:"admin_required"}};return true});

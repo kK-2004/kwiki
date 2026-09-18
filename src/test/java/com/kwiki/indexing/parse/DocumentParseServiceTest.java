@@ -2,6 +2,10 @@ package com.kwiki.indexing.parse;
 
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -56,6 +60,29 @@ class DocumentParseServiceTest {
 
         assertThat(headings(document)).containsExactly("部署章节", "备份章节");
         assertThat(document.plainText()).contains("部署说明正文。").contains("备份说明正文。");
+    }
+
+    @Test
+    void textPdfIsAcceptedAndExtracted() throws Exception {
+        byte[] pdf;
+        try (PDDocument document = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+            try (PDPageContentStream stream = new PDPageContentStream(document, page)) {
+                stream.beginText();
+                stream.setFont(PDType1Font.HELVETICA, 12);
+                stream.newLineAtOffset(50, 700);
+                stream.showText("PDF text survives import");
+                stream.endText();
+            }
+            document.save(out);
+            pdf = out.toByteArray();
+        }
+
+        StructuredDocument parsed = service.parse("guide.pdf", "application/pdf",
+                new ByteArrayInputStream(pdf));
+
+        assertThat(parsed.plainText()).contains("PDF text survives import");
     }
 
     @Test

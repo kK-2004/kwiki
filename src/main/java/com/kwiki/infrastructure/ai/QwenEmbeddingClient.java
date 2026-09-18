@@ -29,14 +29,22 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
     private final int batchSize;
     private final int maxRetries;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public QwenEmbeddingClient(
             @Qualifier("kwikiEmbeddingWebClient") WebClient webClient,
             ExternalServicesProperties properties,
             @Value("${kwiki.qwen-embedding.batch-size:25}") int batchSize,
             @Value("${kwiki.qwen-embedding.max-retries:2}") int maxRetries) {
+        this(webClient, properties.qwenEmbedding().model(),
+                properties.qwenEmbedding().dimensions(), batchSize, maxRetries);
+    }
+
+    /** 版本化流水线按 embedding 档案构建独立客户端时使用。 */
+    public QwenEmbeddingClient(WebClient webClient, String model, int dimensions,
+                               int batchSize, int maxRetries) {
         this.webClient = webClient;
-        this.model = properties.qwenEmbedding().model();
-        this.dimensions = properties.qwenEmbedding().dimensions();
+        this.model = model;
+        this.dimensions = dimensions;
         this.batchSize = Math.max(1, batchSize);
         this.maxRetries = Math.max(0, maxRetries);
     }

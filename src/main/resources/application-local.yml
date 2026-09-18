@@ -35,7 +35,7 @@ spring:
     redis:
       # 没有 localhost 兜底：启用 Redis 功能（KK_COMMON_REDIS_ENABLED=true）
       # 时必须显式提供 host，因此启动过程绝不会静默选中 localhost:6379。
-      host: ${KWIKI_REDIS_HOST}
+      host: ${KWIKI_REDIS_HOST:localhost}
       port: ${KWIKI_REDIS_PORT:6379}
       password: ${KWIKI_REDIS_PASSWORD:}
       database: ${KWIKI_REDIS_DATABASE:0}
@@ -67,9 +67,43 @@ kwiki:
   qwen-embedding:
     base-url: ${KWIKI_QWEN_EMBEDDING_BASE_URL:https://llm-svsyrrepiflr3w72.cn-beijing.maas.aliyuncs.com/compatible-mode/v1}
     api-key: ${KWIKI_QWEN_EMBEDDING_API_KEY}
-    model: ${KWIKI_ANSWER_LLM_MODEL:qwen3.7-text-embedding}
+    model: ${KWIKI_QWEN_EMBEDDING_MODEL:qwen3.7-text-embedding}
     dimensions: ${KWIKI_QWEN_EMBEDDING_DIMENSIONS:1024}
     request-timeout: ${KWIKI_QWEN_EMBEDDING_TIMEOUT:30s}
+  vision-model:
+    base-url: ${KWIKI_VISION_BASE_URL:}
+    api-key: ${KWIKI_VISION_API_KEY:}
+    model: ${KWIKI_VISION_MODEL:qwen3.7-flash}
+    connect-timeout: ${KWIKI_VISION_CONNECT_TIMEOUT:5s}
+    request-timeout: ${KWIKI_VISION_TIMEOUT:60s}
+    max-retries: ${KWIKI_VISION_MAX_RETRIES:2}
+    concurrency: ${KWIKI_VISION_CONCURRENCY:4}
+  multimodal:
+    enabled: ${KWIKI_MULTIMODAL_ENABLED:false}
+    prompt-version: ${KWIKI_MULTIMODAL_PROMPT_VERSION:v1}
+    max-images-per-document: ${KWIKI_MULTIMODAL_MAX_IMAGES_PER_DOCUMENT:20}
+    min-image-pixels: ${KWIKI_MULTIMODAL_MIN_IMAGE_PIXELS:1024}
+    max-image-pixels: ${KWIKI_MULTIMODAL_MAX_IMAGE_PIXELS:4194304}
+    max-image-bytes: ${KWIKI_MULTIMODAL_MAX_IMAGE_BYTES:10485760}
+    max-summary-chars: ${KWIKI_MULTIMODAL_MAX_SUMMARY_CHARS:512}
+    max-external-image-bytes: ${KWIKI_MULTIMODAL_MAX_EXTERNAL_IMAGE_BYTES:10485760}
+    external-image-timeout: ${KWIKI_MULTIMODAL_EXTERNAL_IMAGE_TIMEOUT:20s}
+    external-image-max-redirects: ${KWIKI_MULTIMODAL_EXTERNAL_IMAGE_MAX_REDIRECTS:3}
+    external-image-allowed-ports: ${KWIKI_MULTIMODAL_EXTERNAL_IMAGE_ALLOWED_PORTS:443}
+
+# 本地开发与生产一致：Redis/Redisson 默认开启。本地没有 Redis 时
+# 必须显式导出 KK_COMMON_REDIS_ENABLED=false KK_COMMON_REDISSON_ENABLED=false
+# （此时依赖分布式锁的功能失败关闭）；不提供 localhost 兜底。
+kk:
+  common:
+    web:
+      enabled: ${KK_COMMON_WEB_ENABLED:true}
+    exception:
+      enabled: ${KK_COMMON_EXCEPTION_ENABLED:true}
+    redis:
+      enabled: ${KK_COMMON_REDIS_ENABLED:true}
+    redisson:
+      enabled: ${KK_COMMON_REDISSON_ENABLED:true}
 
 management:
   endpoints:

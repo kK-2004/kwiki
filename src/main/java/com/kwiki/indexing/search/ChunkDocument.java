@@ -2,20 +2,29 @@ package com.kwiki.indexing.search;
 
 import com.kwiki.indexing.chunk.ChildChunk;
 import com.kwiki.indexing.chunk.ParentChunk;
+import com.kwiki.indexing.multimodal.ProtectedBlockProtocol;
 import com.kwiki.indexing.pipeline.IndexedVersion;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * 带版本号的 kwiki-chunks 索引的分块文档形态。文档 id 就是
  * 稳定的 chunk key，因此重放会确定性地覆盖。只有 CHILD
- * 文档携带稠密向量。
+ * 文档携带稠密向量。content 是含受保护块的规范原文（资源
+ * 字段的事实来源）；contentIds 由其中通过协议校验的受保护块
+ * 重建——按首次出现去重，不含图片的分块不携带该字段，从而
+ * 与 v1 严格映射（无 contentIds）的物理索引保持写兼容。
  */
 public final class ChunkDocument {
 
     public static final String LEVEL_PARENT = "PARENT";
     public static final String LEVEL_CHILD = "CHILD";
+
+    /** 投影解析用的宽裕协议实例：持久化摘要已在上游受配置上限约束。 */
+    private static final ProtectedBlockProtocol RESOURCE_PROTOCOL =
+            new ProtectedBlockProtocol(8192);
 
     private ChunkDocument() {
     }
@@ -30,6 +39,10 @@ public final class ChunkDocument {
         document.put("charStart", chunk.charStart());
         document.put("charEnd", chunk.charEnd());
         document.put("content", chunk.content());
+        List<Long> contentIds = resourceContentIds(chunk.content());
+        if (!contentIds.isEmpty()) {
+            document.put("contentIds", contentIds);
+        }
         return document;
     }
 
@@ -43,8 +56,23 @@ public final class ChunkDocument {
         document.put("charStart", chunk.charStart());
         document.put("charEnd", chunk.charEnd());
         document.put("content", chunk.content());
+        List<Long> contentIds = resourceContentIds(chunk.content());
+        if (!contentIds.isEmpty()) {
+            document.put("contentIds", contentIds);
+        }
         document.put("vector", vector);
         return document;
+    }
+
+    /** 由规范原文中的受保护块重建去重 contentIds（首现顺序）。 */
+    public static List<Long> resourceContentIds(String chunkContent) {
+        if (chunkContent == null
+                || !chunkContent.contains(ProtectedBlockProtocol.START_PREFIX)) {
+            return List.of();
+        }
+        return RESOURCE_PROTOCOL.resourceRefsDistinct(chunkContent).stream()
+                .map(ProtectedBlockProtocol.ResourceRef::contentId)
+                .toList();
     }
 
     private static Map<String, Object> commonFields(IndexedVersion version) {
@@ -52,6 +80,7 @@ public final class ChunkDocument {
         document.put("resourceType", version.resourceType());
         document.put("resourceId", version.resourceId());
         document.put("revisionId", version.revisionId());
+        document.put("lifecycleVersion", version.lifecycleVersion());
         document.put("kbId", version.kbId());
         document.put("parserVersion", version.parserVersion());
         document.put("chunkerVersion", version.chunkerVersion());

@@ -8,6 +8,7 @@ import com.kwiki.wiki.persistence.KnowledgeBaseMemberRepository;
 import com.kwiki.wiki.persistence.KnowledgeBaseRepository;
 import com.kwiki.wiki.persistence.SourceDocumentRepository;
 import com.kwiki.wiki.persistence.WikiLinkRepository;
+import com.kwiki.wiki.persistence.WikiPageDraftRepository;
 import com.kwiki.wiki.persistence.WikiPageRepository;
 import com.kwiki.wiki.persistence.WikiPageRevisionRepository;
 import com.kwiki.wiki.persistence.WikiPageTagRepository;
@@ -23,6 +24,10 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 @TestConfiguration
 public class WikiMockBeans {
 
+    /** 上下文测试不访问外部 provider；能力探测由专用契约测试覆盖。 */
+    @MockBean
+    public com.kwiki.infrastructure.ai.AnswerModelCapabilities answerModelCapabilities;
+
     @MockBean
     public KnowledgeBaseRepository knowledgeBases;
 
@@ -34,6 +39,9 @@ public class WikiMockBeans {
 
     @MockBean
     public WikiPageRevisionRepository revisions;
+
+    @MockBean
+    public WikiPageDraftRepository drafts;
 
     @MockBean
     public WikiLinkRepository links;

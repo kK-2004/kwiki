@@ -3,7 +3,26 @@ import { api, errorMessage } from '../wiki/api';
 import { initialState, openStream, reduce, replayStoredEvents, type ActivityStep, type StreamState } from '../wiki/sse';
 export type Session = { id: string; title: string; createdAt?: string; updatedAt?: string };
 type Message = { id: number; role: string; content: string; createdAt: string; requestId?: string | null };
-type StoredEvent = { seq: number; event_type: string; payload_json: string };
+type StoredEvent = { seq: number; type: string; payloadJson: string };
+const RUN_CACHE_PREFIX = 'kwiki:conversation-run:v1:';
+const RUN_CACHE_INDEX = `${RUN_CACHE_PREFIX}index`;
+type CachedRun = { activitySteps: ActivityStep[]; citations: import('../wiki/sse').CitationEntry[] };
+
+function runCacheKey(sessionId: string, requestId: string) { return `${RUN_CACHE_PREFIX}${sessionId}:${requestId}`; }
+function readRunCache(sessionId: string, requestId: string): CachedRun | null {
+  try { return JSON.parse(localStorage.getItem(runCacheKey(sessionId, requestId)) || 'null') as CachedRun | null; }
+  catch { return null; }
+}
+function writeRunCache(sessionId: string, requestId: string, value: CachedRun) {
+  try {
+    const key = runCacheKey(sessionId, requestId);
+    localStorage.setItem(key, JSON.stringify(value));
+    const prior = JSON.parse(localStorage.getItem(RUN_CACHE_INDEX) || '[]') as string[];
+    const keys = [key, ...prior.filter(item => item !== key)];
+    for (const expired of keys.slice(50)) localStorage.removeItem(expired);
+    localStorage.setItem(RUN_CACHE_INDEX, JSON.stringify(keys.slice(0, 50)));
+  } catch { /* 隐私模式或存储配额不足时继续使用服务端回放。 */ }
+}
 let disposeStream: (() => void) | null = null;
 let generation = 0;
 let selection = 0;
@@ -11,6 +30,7 @@ export const useConversationStore = defineStore('conversation', {
   state: () => ({ sessions: [] as Session[], history: [] as Message[], state: initialState() as StreamState,
     /** 回放/持久化的活动时间线，以产生它的 run 为键。 */
     runActivities: {} as Record<string, ActivityStep[]>,
+    runCitations: {} as Record<string, import('../wiki/sse').CitationEntry[]>,
     query: '', lastQuery: '', sessionId: '', requestId: '', running: false, minimized: false, floatingOpen: false,
     selectedKnowledgeBaseIds: [] as number[], selectedPageIds: [] as number[],
     loaded: false, loading: false, listError: '', historyError: '', }),
@@ -22,10 +42,18 @@ export const useConversationStore = defineStore('conversation', {
     /** 拉取已存储的运行事件，只保留合并后的活动时间线。 */
     async hydrateRunActivity(requestId: string) {
       if (!this.sessionId || !requestId || this.runActivities[requestId]) return;
+      const cached = readRunCache(this.sessionId, requestId);
+      if (cached) {
+        this.runActivities = { ...this.runActivities, [requestId]: cached.activitySteps ?? [] };
+        this.runCitations = { ...this.runCitations, [requestId]: cached.citations ?? [] };
+        return;
+      }
       try {
         const events = await api.json<StoredEvent[]>(`/chat/sessions/${encodeURIComponent(this.sessionId)}/runs/${encodeURIComponent(requestId)}/events`);
         const replayed = replayStoredEvents(events);
         this.runActivities = { ...this.runActivities, [requestId]: replayed.activitySteps };
+        this.runCitations = { ...this.runCitations, [requestId]: replayed.citations };
+        writeRunCache(this.sessionId, requestId, { activitySteps: replayed.activitySteps, citations: replayed.citations });
       } catch { /* 没有存储事件的旧运行则不显示任何时间线 */ }
     },
     async hydrateHistoryActivities() {
@@ -80,6 +108,12 @@ export const useConversationStore = defineStore('conversation', {
       // 重新加载前，先将实时时间线挂接到已结束的 run 上。
       if (this.requestId && this.state.activitySteps.length) {
         this.runActivities = { ...this.runActivities, [this.requestId]: this.state.activitySteps };
+      }
+      if (this.requestId && this.state.citations.length) {
+        this.runCitations = { ...this.runCitations, [this.requestId]: this.state.citations };
+      }
+      if (id && this.requestId) {
+        writeRunCache(id, this.requestId, { activitySteps: this.state.activitySteps, citations: this.state.citations });
       }
       if (id) {
         try {

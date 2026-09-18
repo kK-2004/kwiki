@@ -190,7 +190,7 @@ public final class AgenticTestSupport {
         try {
             var workflow = new com.kwiki.infrastructure.orchestration.LangGraphAgenticWorkflow(
                     router, candidates, quality, rewriter, childRetrieval, parentFetch,
-                    budgets, scopes, versions, persistence, metrics, AgenticLimits.defaults(),
+                    budgets, scopes, versions, persistence, org.mockito.Mockito.mock(com.kwiki.rag.answer.CitationDisplayNameResolver.class), metrics, AgenticLimits.defaults(),
                     logger, 0.80, Optional.empty(), Optional.empty());
             return new Harness(bm25, vector, parents, answer, quality, rewriter,
                     childRetrieval, parentFetch, budgets, workflow);

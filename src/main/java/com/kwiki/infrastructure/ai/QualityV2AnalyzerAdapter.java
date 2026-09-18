@@ -7,10 +7,21 @@ import com.kwiki.rag.quality.QualityAssessment;
 import com.kwiki.rag.quality.QualityV2AnalyzerPort;
 import com.kwiki.rag.quality.QualityV2Input;
 import com.kwiki.rag.tool.ToolRegistry;
+import com.kwiki.infrastructure.observability.SecretRedaction;
 
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.response.*;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ResponseFormat;
+import dev.langchain4j.model.chat.request.ResponseFormatType;
+import dev.langchain4j.model.chat.request.json.JsonRawSchema;
+import dev.langchain4j.model.chat.request.json.JsonSchema;
+import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import org.springframework.stereotype.Component;
 
@@ -27,12 +38,14 @@ import java.util.Map;
 @Component
 public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(QualityV2AnalyzerAdapter.class);
+
     public static final String QA_V2_UNAVAILABLE = "qa-unavailable";
 
-    private final ChatModel model;
+    private final StreamingChatModel model;
     private final ToolRegistry registry;
 
-    public QualityV2AnalyzerAdapter(ChatModel model, ToolRegistry registry) {
+    public QualityV2AnalyzerAdapter(StreamingChatModel model, ToolRegistry registry) {
         this.model = model;
         this.registry = registry;
     }
@@ -42,7 +55,6 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
         RunContext run = RunContext.current();
         if (run != null) {
             run.authorize();
-            run.modelCall();
         }
         List<Map<String, Object>> evidence = new ArrayList<>();
         for (ParentEvidence parent : effectiveEvidence(input.candidate())) {
@@ -60,7 +72,7 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
         }
         String output;
         try {
-            output = model.chat(List.of(
+            List<ChatMessage> messages = List.of(
                     SystemMessage.from(systemPrompt()),
                     UserMessage.from(ToolRegistry.json(Map.of(
                             "originalQuery", input.originalQuery(),
@@ -68,15 +80,34 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
                             "candidateAnswer", Map.of(
                                     "candidateId", input.candidate().candidateId(),
                                     "text", input.candidate().content()),
-                            "evidence", evidence)))))
-                    .aiMessage()
-                    .text();
+                            "evidence", evidence))));
+            ChatResponse response;
+            try {
+                response = request(messages, qualityResponseFormat(), run);
+            } catch (Exception firstFailure) {
+                if (!hasHttpStatus(firstFailure, 400)) throw firstFailure;
+                log.warn(
+                        "quality-v2 provider rejected json-schema mode; retrying once with json-object mode requestId={}",
+                        run == null ? "-" : run.requestId);
+                response = request(messages, jsonObjectResponseFormat(), run);
+            }
+            if (response.metadata() != null && response.metadata().finishReason() == dev.langchain4j.model.output.FinishReason.LENGTH) {
+                log.warn("quality-v2 response truncated by model token limit");
+                throw new com.kwiki.rag.orchestration.RunFailure(QA_V2_UNAVAILABLE);
+            }
+            if (run != null) run.authorize();
+            output = response.aiMessage().text();
         } catch (Exception e) {
-            if (run != null) run.check();
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            if (run != null) run.authorize();
+            Throwable cause = rootCause(e);
+            log.warn("quality-v2 provider call failed: errorClass={}, error={}",
+                    cause.getClass().getSimpleName(),
+                    SecretRedaction.redact(cause.getMessage()));
             throw new com.kwiki.rag.orchestration.RunFailure(QA_V2_UNAVAILABLE);
         }
         try {
-            var node = registry.validate("quality-v2", output);
+            var node = registry.validate("quality-v2", normalizeOutput(output));
             double relevance = node.path("relevance").asDouble(0);
             double coverage = node.path("coverage").asDouble(0);
             double faithfulness = node.path("faithfulness").asDouble(0);
@@ -90,11 +121,87 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
                     strings(node, "missingAspects"),
                     node.path("reasonCode").asText("invalid"),
                     node.path("reasonSummary").asText(""));
-        } catch (com.kwiki.rag.orchestration.RunFailure e) {
-            throw e;
         } catch (Exception e) {
+            log.warn("quality-v2 response rejected: reason={}, chars={}", e.getMessage(), output == null ? 0 : output.length());
             throw new com.kwiki.rag.orchestration.RunFailure(QA_V2_UNAVAILABLE);
         }
+    }
+
+    static String normalizeOutput(String output) {
+        if (output == null) return null;
+        String value = output.strip();
+        // Accept only a complete JSON code fence, never extract an arbitrary object from prose.
+        if (value.startsWith("```json\n") && value.endsWith("```"))
+            return value.substring(8, value.length() - 3).strip();
+        if (value.startsWith("```\n") && value.endsWith("```"))
+            return value.substring(4, value.length() - 3).strip();
+        return value;
+    }
+
+    /** Provider-side constrained decoding; local schema validation remains mandatory. */
+    private ResponseFormat qualityResponseFormat() {
+        JsonSchema schema = JsonSchema.builder()
+                .name("quality_v2")
+                .rootElement(JsonRawSchema.from(registry.schema("quality-v2")))
+                .build();
+        return ResponseFormat.builder()
+                .type(ResponseFormatType.JSON)
+                .jsonSchema(schema)
+                .build();
+    }
+
+    private ResponseFormat jsonObjectResponseFormat() {
+        return ResponseFormat.builder().type(ResponseFormatType.JSON).build();
+    }
+
+    private ChatResponse request(
+            List<ChatMessage> messages,
+            ResponseFormat responseFormat,
+            RunContext run) throws Exception {
+        if (run != null) {
+            run.authorize();
+            run.modelCall();
+        }
+        var result = new CompletableFuture<ChatResponse>();
+        try {
+            model.chat(ChatRequest.builder().messages(messages)
+                    .parameters(OpenAiChatRequestParameters.builder()
+                            .customParameters(Map.of("enable_thinking", false))
+                            .build())
+                    .responseFormat(responseFormat).build(), new StreamingChatResponseHandler() {
+                @Override public void onPartialThinking(PartialThinking thinking) {
+                    if (run != null && !result.isDone()) run.emitThinking(thinking.text());
+                }
+                @Override public void onCompleteResponse(ChatResponse response) {
+                    result.complete(response);
+                }
+                @Override public void onError(Throwable error) {
+                    result.completeExceptionally(error);
+                }
+            });
+            return result.get(
+                    run == null ? 120_000 : run.remaining().toMillis(), TimeUnit.MILLISECONDS);
+        } finally {
+            result.cancel(false);
+        }
+    }
+
+    private static boolean hasHttpStatus(Throwable error, int statusCode) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            if (current instanceof dev.langchain4j.exception.HttpException http
+                    && http.statusCode() == statusCode) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Throwable rootCause(Throwable error) {
+        Throwable result = error;
+        while (result.getCause() != null && result.getCause() != result) {
+            result = result.getCause();
+        }
+        return result;
     }
 
     private List<ParentEvidence> effectiveEvidence(CandidateAnswer candidate) {

@@ -10,6 +10,7 @@ public record IndexedVersion(
         String resourceType,
         long resourceId,
         Long revisionId,
+        long lifecycleVersion,
         long kbId,
         String parserVersion,
         String chunkerVersion,
