@@ -66,9 +66,9 @@ public class QaParentFetchService {
             hitsByKey.putIfAbsent(child.chunkKey(), toHit(child));
         }
 
-        // QA stages may be configured more generously than the shared assembler.
-        // Bound the request before resolution so a valid expanded stage cannot fail
-        // merely because it found more distinct parents than the assembler accepts.
+        // QA 各阶段可以配置得比共享组装器更宽松。
+        // 在解析之前先给请求设上限，这样合法的扩展阶段就不会仅仅
+        // 因为找到的去重父块数量超过组装器的接受范围而失败。
         int effectiveParentLimit = Math.min(parentLimit, assembler.maxParentCount());
         long effectiveCharBudget = Math.min(parentCharBudget, assembler.maxContextChars());
         var parentChunks = resolver.resolve(fused, hitsByKey, filter, effectiveParentLimit);

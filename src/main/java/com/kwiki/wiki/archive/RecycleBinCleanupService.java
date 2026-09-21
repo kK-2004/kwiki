@@ -1,6 +1,7 @@
 package com.kwiki.wiki.archive;
 
 import com.kwiki.indexing.search.ChunkIndexRepository;
+import com.kwiki.wiki.attach.AttachmentStorage;
 import com.kwiki.wiki.domain.ArchiveBatch;
 import com.kwiki.wiki.domain.ArchiveBatchItem;
 import com.kwiki.wiki.persistence.ArchiveBatchItemRepository;
@@ -30,8 +31,8 @@ import java.util.UUID;
  * 失败按条目隔离：失败的条目保持未清除，由下一次运行重试——批次按 id 遍历，
  * 绝不经由可能跳过的滚动游标。
  *
- * <p>仅本地数据：内容中心文件保留其自身的生命周期（SDK 不提供删除）；
- * 共享附件、实时资源与对话快照均不会被触及。</p>
+ * <p>附件只会在没有任何页面、修订或其他附件引用时才被清除；对应的
+ * 内容中心文件会在同一条清理路径中删除。实时资源与对话快照均不会被触及。</p>
  */
 @Service
 public class RecycleBinCleanupService {
@@ -50,6 +51,7 @@ public class RecycleBinCleanupService {
     private final com.kwiki.indexing.version.IndexWriteTargets writeTargets;
     private final TransactionRunner transactions;
     private final JdbcOperations jdbc;
+    private final AttachmentStorage attachmentStorage;
     private final Clock clock;
     private final int batchSize;
 
@@ -60,8 +62,9 @@ public class RecycleBinCleanupService {
                                     com.kwiki.indexing.version.IndexWriteTargets writeTargets,
                                     TransactionRunner transactions,
                                     ObjectProvider<JdbcOperations> jdbc,
+                                    ObjectProvider<AttachmentStorage> attachmentStorage,
                                     @Value("${kwiki.archive.cleanup-batch-size:200}") int batchSize) {
-        this(batches, batchItems, chunkIndex, writeTargets, transactions, jdbc, batchSize,
+        this(batches, batchItems, chunkIndex, writeTargets, transactions, jdbc, attachmentStorage, batchSize,
                 Clock.systemUTC());
     }
 
@@ -73,12 +76,25 @@ public class RecycleBinCleanupService {
                                     ObjectProvider<JdbcOperations> jdbc,
                                     int batchSize,
                                     Clock clock) {
+        this(batches, batchItems, chunkIndex, writeTargets, transactions, jdbc, null, batchSize, clock);
+    }
+
+    public RecycleBinCleanupService(ArchiveBatchRepository batches,
+                                    ArchiveBatchItemRepository batchItems,
+                                    ObjectProvider<ChunkIndexRepository> chunkIndex,
+                                    com.kwiki.indexing.version.IndexWriteTargets writeTargets,
+                                    TransactionRunner transactions,
+                                    ObjectProvider<JdbcOperations> jdbc,
+                                    ObjectProvider<AttachmentStorage> attachmentStorage,
+                                    int batchSize,
+                                    Clock clock) {
         this.batches = batches;
         this.batchItems = batchItems;
         this.chunkIndex = chunkIndex.getIfAvailable();
         this.writeTargets = writeTargets;
         this.transactions = transactions;
         this.jdbc = jdbc == null ? null : jdbc.getIfAvailable();
+        this.attachmentStorage = attachmentStorage == null ? null : attachmentStorage.getIfAvailable();
         this.batchSize = batchSize;
         this.clock = clock;
     }
@@ -396,7 +412,7 @@ public class RecycleBinCleanupService {
         jdbc.update("DELETE FROM wiki_page WHERE id = ?", pageId);
     }
 
-    /** 只物理删除没有任何其他对象仍引用的附件。 */
+    /** 只物理删除没有任何其他对象仍引用的附件及其内容中心文件。 */
     private void deleteAttachmentIfUnreferenced(long attachmentId) {
         Integer sources = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM source_document WHERE attachment_id = ?",
@@ -407,9 +423,43 @@ public class RecycleBinCleanupService {
         if ((sources != null && sources > 0) || (mediaRefs != null && mediaRefs > 0)) {
             return; // 共享：保留文件/元数据，只有索引被移除
         }
+        Long blobId = jdbc.queryForObject("SELECT blob_id FROM attachment WHERE id = ?",
+                Long.class, attachmentId);
+        Long fileId = jdbc.queryForObject("""
+                SELECT COALESCE(blob.content_center_file_id, attachment.content_center_file_id)
+                FROM attachment
+                LEFT JOIN attachment_blob blob ON blob.id = attachment.blob_id
+                WHERE attachment.id = ?
+                """, Long.class, attachmentId);
+        if (fileId != null && fileId > 0) {
+            // 锁住同一个物理文件的全部元数据行，避免两个并发清理都看到“还有
+            // 一个引用”而同时跳过远端删除，留下内容中心孤儿文件。
+            jdbc.queryForList("""
+                    SELECT id FROM attachment
+                    WHERE content_center_file_id = ?
+                    FOR UPDATE
+                    """, Long.class, fileId);
+            Integer otherReferences = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM attachment
+                    WHERE content_center_file_id = ? AND id <> ?
+                    """, Integer.class, fileId, attachmentId);
+            if (otherReferences == null || otherReferences == 0) {
+                if (attachmentStorage == null) {
+                    throw new IllegalStateException("content-center attachment storage is unavailable");
+                }
+                attachmentStorage.delete(fileId);
+            }
+        }
         jdbc.update("DELETE FROM wiki_import_job WHERE source_attachment_id = ?", attachmentId);
         deleteIndexingJobs("ATTACHMENT", attachmentId);
         jdbc.update("DELETE FROM attachment WHERE id = ?", attachmentId);
+        if (blobId != null) {
+            Integer remainingBlobReferences = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM attachment WHERE blob_id = ?", Integer.class, blobId);
+            if (remainingBlobReferences == null || remainingBlobReferences == 0) {
+                jdbc.update("DELETE FROM attachment_blob WHERE id = ?", blobId);
+            }
+        }
     }
 
     private void deleteKnowledgeBaseRows(long kbId) {
@@ -436,9 +486,9 @@ public class RecycleBinCleanupService {
     }
 
     /**
-     * V23 introduced per-physical-index target rows with a foreign key to the
-     * legacy aggregate job.  Purging the aggregate first therefore fails for
-     * every resource that has already been fanned out to an index version.
+     * V23 引入了按物理索引划分的目标行，并通过外键指向
+     * 旧的聚合任务。因此先清理聚合任务会导致失败，影响
+     * 所有已经扇出到某个索引版本的资源。
      */
     private void deleteIndexingJobs(String resourceType, long resourceId) {
         jdbc.update("""

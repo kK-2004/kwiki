@@ -5,7 +5,7 @@ import com.kwiki.wiki.persistence.KnowledgeBaseRepository;
 import com.kwiki.wiki.persistence.WikiPageRepository;
 import org.springframework.stereotype.Component;
 
-/** Keeps mutable resource names out of model output and resolves them at response time. */
+/*避免把可变的资源名称写入模型输出，改为在响应时解析。 */
 @Component
 public class CitationDisplayNameResolver {
     private final WikiPageRepository pages;

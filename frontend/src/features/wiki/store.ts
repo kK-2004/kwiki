@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { api, type PageDto, type TreeNodeDto } from './api';
+import { api, isNotFoundError, WIKI_DELETED_MESSAGE, type PageDto, type TreeNodeDto } from './api';
 
 let knowledgeBaseController: AbortController | null = null;
 let treeController: AbortController | null = null;
@@ -32,6 +32,7 @@ export const useWikiStore = defineStore('wiki', {
     page: null as PageDto | null,
     pageLoading: false,
     pageError: '' as string,
+    pageErrorStatus: null as number | null,
     middleTab: 'knowledge' as 'knowledge' | 'summary',
     summaryCount: 0,
     summaries: [] as Array<{ pageId: number; title: string; source: string }>,
@@ -65,11 +66,13 @@ export const useWikiStore = defineStore('wiki', {
       this.selectedPageId = pageId;
       this.page = null;
       this.pageError = '';
+      this.pageErrorStatus = null;
     },
     async loadPage(kbId: number, pageId: number) {
       pageController?.abort(); const controller = new AbortController(); pageController = controller;
       this.pageLoading = true;
       this.pageError = '';
+      this.pageErrorStatus = null;
       try {
         const page = await api.json<PageDto>(
           `/knowledge-bases/${kbId}/pages/${pageId}`,
@@ -77,7 +80,14 @@ export const useWikiStore = defineStore('wiki', {
         );
         if (pageController === controller) this.page = page;
       } catch (error) {
-        if (pageController === controller && (error as { name?: string })?.name !== 'AbortError') this.pageError = normalizedError(error);
+        if (pageController === controller && (error as { name?: string })?.name !== 'AbortError') {
+          this.pageErrorStatus = isNotFoundError(error)
+            ? 404
+            : typeof error === 'object' && error !== null && 'status' in error
+              ? Number((error as { status?: unknown }).status) || null
+              : null;
+          this.pageError = normalizedError(error);
+        }
       } finally {
         if (pageController === controller) this.pageLoading = false;
       }
@@ -119,12 +129,14 @@ export function normalizedError(error: unknown): string {
   if (typeof error === 'string') {
     if (error === 'unauthenticated') return '登录状态已失效，请重新登录';
     if (error === 'forbidden') return '你没有查看此页面的权限';
+    if (error === 'not_found' || error === 'http_404') return WIKI_DELETED_MESSAGE;
     return '页面内容暂时无法加载，请稍后重试';
   }
   if (typeof error === 'object' && error !== null && 'code' in error) {
     const code = String((error as { code: string }).code);
     if (code === 'unauthenticated') return '登录状态已失效，请重新登录';
     if (code === 'forbidden') return '你没有查看此页面的权限';
+    if (code === 'not_found' || code === 'http_404') return WIKI_DELETED_MESSAGE;
     return '页面内容暂时无法加载，请稍后重试';
   }
   return '页面内容暂时无法加载，请稍后重试';

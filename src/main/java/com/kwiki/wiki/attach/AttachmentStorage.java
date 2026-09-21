@@ -6,12 +6,10 @@ import java.time.Duration;
 /**
  * 基于内容中心（k-File）的附件存储端口。具体实现持有提供方协议；调用方
  * 仅通过 {@link #store} 返回的持久化内容中心文件 id 来寻址内容。
- * 此处刻意不提供删除操作：内容生命周期由内容中心掌管，因此归档只移除
- * 本地元数据与搜索索引条目。
  */
 public interface AttachmentStorage {
 
-    /** A bounded byte range returned by the backing object store. */
+    /*底层对象存储返回的有界字节区间。 */
     record ContentRange(byte[] bytes, long start, long end, long total) {
         public ContentRange {
             if (bytes == null || start < 0 || end < start || total <= end) {
@@ -26,6 +24,15 @@ public interface AttachmentStorage {
      */
     StoredAttachment store(AttachmentUpload upload);
 
+    /**
+     * 删除一个已不再被任何本地附件引用的内容中心文件。实现必须把已不存在的
+     * 对象视为删除成功，其他失败则抛出脱敏的 {@link AttachmentStorageException}，
+     * 以便回收站在下次任务中重试。
+     */
+    default void delete(long contentCenterFileId) {
+        throw new UnsupportedOperationException("file deletion is unavailable");
+    }
+
     default DirectUpload initiateUpload(String fileName, String contentType, long byteSize) {
         throw new UnsupportedOperationException("direct upload is unavailable");
     }
@@ -38,7 +45,7 @@ public interface AttachmentStorage {
         return completeUpload(storageKey, source, contentType, byteSize);
     }
 
-    /** Bounded range read for media signatures, never a full-file upload relay. */
+    /*为识别媒体签名而做的有界区间读取，绝不整文件中转。 */
     default byte[] readPrefix(long contentCenterFileId, int length) {
         throw new UnsupportedOperationException("range reads are unavailable");
     }
@@ -56,9 +63,9 @@ public interface AttachmentStorage {
     byte[] readContent(long contentCenterFileId);
 
     /**
-     * Reads only the requested inclusive byte range. Providers that do not expose
-     * range reads retain a safe compatibility fallback; the content-center adapter
-     * overrides this with an actual HTTP Range request.
+     * 只读取所请求的闭区间字节范围。对于不暴露
+     * 区间读取能力的服务商保留安全的兼容兜底；内容中心适配器
+     * 会用真正的 HTTP Range 请求覆盖该行为。
      */
     default ContentRange readContentRange(long contentCenterFileId, long start, long end) {
         if (start < 0 || end < start) throw new IllegalArgumentException("invalid content range");

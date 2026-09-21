@@ -25,7 +25,7 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
 }
 
 async function bytesOf(blob: Blob): Promise<ArrayBuffer> {
-  // Response.arrayBuffer also works in older WebViews where jsdom/Blob lacks Blob.arrayBuffer.
+  // 在 jsdom/Blob 缺少 Blob.arrayBuffer 的旧版 WebView 中，用 Response.arrayBuffer 同样可行。
   return new Response(blob).arrayBuffer();
 }
 
@@ -41,7 +41,7 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 }
 
-/** In-memory retry state: a failed completion retries metadata only, never re-PUTs a finished file. */
+/*内存中的重试状态：补传完成响应失败时只重试元数据，绝不重新 PUT 已完成的文件。 */
 export interface UploadAttempt {
   file: File;
   kbId: number;
@@ -85,7 +85,7 @@ export async function uploadDirect(attempt: UploadAttempt, signal?: AbortSignal,
       return attempt.uploaded;
     }
     onStage?.('正在上传文件…');
-    // Do not use the authenticated API client: app tokens/cookies must never reach storage.
+    // 不要使用带鉴权的 API 客户端：应用令牌/Cookie 绝不能到达存储服务。
     const response = await fetch(ticket.putUrl, {
       method: 'PUT', body: attempt.file, headers: ticket.headers, signal,
       credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',

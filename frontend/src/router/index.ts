@@ -25,7 +25,7 @@ const routes = [
   { path: '/me', redirect: '/users/me' },
   { path: '/users/:userId/likes', name: 'profile-likes', component: () => import('../features/workspace/FeaturePage.vue'), meta: { auth: true, title: '我的点赞' } },
   { path: '/users/:userId/favorites', name: 'profile-favorites', component: () => import('../features/workspace/FeaturePage.vue'), meta: { auth: true, title: '我的收藏' } },
-  { path: '/users/:userId?', name: 'profile', component: () => import('../features/workspace/FeaturePage.vue'), meta: { auth: true, title: '个人主页' } },
+  { path: '/users/:userId?', name: 'profile', component: () => import('../features/workspace/ProfilePage.vue'), meta: { auth: true, title: '个人主页' } },
   { path: '/:kbId(\\d+)/:pageId(\\d+)', redirect: (to: any) => `/knowledge-bases/${to.params.kbId}/${to.params.pageId}` },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('../features/workspace/FeaturePage.vue'), meta: { title: '页面不存在' } },
 ];

@@ -163,7 +163,7 @@ public class AttachmentService {
         return attachment;
     }
 
-    /** Metadata gate shared by browser direct uploads; actual media bytes are checked after PUT. */
+    /*浏览器直传共用的元数据闸门；真正的媒体字节在 PUT 之后才校验。 */
     String validateDirectMetadata(String fileName, String contentType, long byteSize) {
         String safeName = AttachmentFileNames.sanitizeFileName(fileName);
         if (safeName.length() > 300 || safeName.chars().anyMatch(Character::isISOControl)) {

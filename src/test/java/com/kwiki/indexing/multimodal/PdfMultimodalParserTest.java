@@ -38,7 +38,7 @@ class PdfMultimodalParserTest {
     private final PdfMultimodalParser parser = new PdfMultimodalParser(
             MIN_PIXELS, MAX_PIXELS, MAX_BYTES, DOC_LIMIT, new MultimodalMetrics(null));
 
-    // ---------- fixtures ----------
+    // ---------- 测试夹具 ----------
 
     private static BufferedImage solidImage(int width, int height, Color color) {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
@@ -98,7 +98,7 @@ class PdfMultimodalParserTest {
         }
     }
 
-    // ---------- tests ----------
+    // ---------- 测试用例 ----------
 
     @Test
     void textOnlyPdfProducesNoImagesAndNoVisionWork() throws Exception {
@@ -290,7 +290,7 @@ class PdfMultimodalParserTest {
                 .hasMessageContaining("limit");
     }
 
-    // ---------- helpers ----------
+    // ---------- 辅助方法 ----------
 
     private static List<String> shapeOf(PdfExtraction extraction) {
         return extraction.items().stream()

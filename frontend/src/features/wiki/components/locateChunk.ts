@@ -34,7 +34,7 @@ function highlightRegistry(): { highlights: HighlightRegistry; Highlight: new (r
   return null;
 }
 
-/** Index offsets refer to plain text; normalize layout whitespace while retaining DOM positions. */
+/*索引偏移量基于纯文本；在保留 DOM 位置的前提下规范化版面空白。 */
 export function locateChunk(container: Element, options: LocateChunkOptions): ChunkLocation {
   const { excerpt, charStart = 0, highlightMs = DEFAULT_HIGHLIGHT_MS } = options;
   activeCleanup?.();

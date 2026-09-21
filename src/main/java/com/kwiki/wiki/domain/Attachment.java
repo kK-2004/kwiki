@@ -131,7 +131,7 @@ public class Attachment {
         this.status = STATUS_STORED;
     }
 
-    /** Attach this user-visible row to a verified shared physical blob. */
+    /*把这个对用户可见的记录挂接到已验证的共享物理 blob 上。 */
     public void markStoredFromBlob(long blobId, long contentCenterFileId) {
         if (blobId <= 0) throw new IllegalArgumentException("blob id must be positive");
         markStored(contentCenterFileId);

@@ -44,6 +44,19 @@ export interface ApiError {
   details?: unknown;
 }
 
+export const WIKI_DELETED_MESSAGE = '该 Wiki 已被删除，无法访问';
+
+export function isNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const value = error as { status?: unknown; code?: unknown };
+  return (
+    Number(value.status) === 404 ||
+    value.code === 'not_found' ||
+    value.code === 'http_404'
+  );
+}
+
 export interface ApiEnvelope<T> {
   code: number;
   success: boolean;

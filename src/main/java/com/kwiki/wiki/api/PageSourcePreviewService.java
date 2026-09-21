@@ -129,9 +129,9 @@ public class PageSourcePreviewService {
     }
 
     /**
-     * Page-scoped byte range for the same-origin PDF.js fallback. Authorization and
-     * source association are checked on every request; the object store does the
-     * actual bounded read instead of the application buffering the whole document.
+     * 用于同源 PDF.js 兜底方案的页面级字节区间。每一次请求都会校验授权
+     * 与来源归属；实际的有界读取由对象存储完成，
+     * 而不是由应用把整份文档缓冲进内存。
      */
     public SourcePreviewRange readPreviewRange(CurrentUser user, long kbId, long pageId,
                                                long start, long end) {

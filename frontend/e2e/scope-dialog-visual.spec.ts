@@ -73,7 +73,7 @@ test('scope dialog footer stays fixed when selection content changes', async ({ 
   const footer = page.locator('.scope-footer');
   const initial = await footer.boundingBox();
   expect(initial).not.toBeNull();
-  // The footer should contain only its buttons and padding, even with short content.
+  // 页脚只应包含它自己的按钮和内边距，即使内容很短也是如此。
   expect(initial!.height).toBeLessThan(80);
   await page.getByRole('checkbox', { name: '整库选择 产品手册 · 联调验收' }).click();
   await expect(page.getByText('整个知识库', { exact: true })).toBeVisible();
@@ -81,7 +81,7 @@ test('scope dialog footer stays fixed when selection content changes', async ({ 
   await page.getByRole('button', { name: '取消整库选择' }).click();
   await expect(page.getByText('请选择需要检索的内容', { exact: true })).toBeVisible();
   expect(await footer.boundingBox()).toEqual(initial);
-  // Long content must scroll within its pane without moving the footer.
+  // 内容较长时必须在自己的面板内滚动，不能挤动页脚。
   await page.getByRole('button', { name: '产品手册 · 联调验收' }).click();
   const content = page.locator('.scope-columns > section').nth(1);
   const bounds = await content.boundingBox();

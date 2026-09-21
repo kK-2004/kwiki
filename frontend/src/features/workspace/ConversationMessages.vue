@@ -14,11 +14,26 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { useConversationStore } from './conversationStore'; import KnowledgeScopeDialog from './KnowledgeScopeDialog.vue'; import { renderMarkdown } from '../wiki/components/render'; import RetrievalActivity from '../wiki/components/RetrievalActivity.vue'; import { useFollowTail } from '../wiki/components/followTail'; import type { CitationEntry } from '../wiki/sse';
+import { useConversationStore } from './conversationStore'; import KnowledgeScopeDialog from './KnowledgeScopeDialog.vue'; import { renderMarkdown } from '../wiki/components/render'; import RetrievalActivity from '../wiki/components/RetrievalActivity.vue'; import { useFollowTail } from '../wiki/components/followTail'; import { api } from '../wiki/api'; import { showMissingWikiToast } from '../wiki/toast'; import type { CitationEntry } from '../wiki/sse';
 const props = defineProps<{ compact?: boolean }>(); const store = useConversationStore(); const router = useRouter(); const scrollArea = ref<HTMLElement>(); const messageList = ref<HTMLElement>(); const tail = useFollowTail(); const scopeOpen = ref(false);
 function numberedCitations(citations: CitationEntry[]) { return citations.map((citation, index) => ({ citation, index })); }
 function renderAnswer(content: string, citations: CitationEntry[]) { const entries = new Map(numberedCitations(citations).map(entry => [entry.citation.citationId ?? `P${entry.index}`, entry])); return renderMarkdown(content, { citationTarget: id => { const entry = entries.get(id); const citation = entry?.citation; return entry && citation?.kbId && citation.resourceType === 'PAGE' ? { label: `[${entry.index}]`, referenceIndex: entry.index, kbId: citation.kbId, pageId: citation.resourceId, chunkKey: citation.childChunkKey } : null; } }); }
-function goToCitation(citation: CitationEntry) { if (citation.kbId && citation.resourceType === 'PAGE') void router.push({ name: 'workspace', params: { kbId: citation.kbId, pageId: citation.resourceId }, query: { chunk: citation.childChunkKey } }); }
+async function goToCitation(citation: CitationEntry) {
+  if (!citation.kbId || citation.resourceType !== 'PAGE') return;
+
+  try {
+    await api.json(`/knowledge-bases/${citation.kbId}/pages/${citation.resourceId}`);
+  } catch {
+    showMissingWikiToast();
+    return;
+  }
+
+  await router.push({
+    name: 'workspace',
+    params: { kbId: citation.kbId, pageId: citation.resourceId },
+    query: { chunk: citation.childChunkKey },
+  });
+}
 function openCitation(event: MouseEvent) { const marker = (event.target as HTMLElement).closest<HTMLElement>('.kwiki-citation[data-reference-index]'); if (!marker) return; const scope = marker.closest('.message-content'); const reference = scope?.querySelector<HTMLElement>(`.citation-list [data-reference-index="${marker.dataset.referenceIndex}"]`); if (!reference) return; reference.scrollIntoView({ behavior: 'smooth', block: 'center' }); reference.classList.remove('citation-flash'); requestAnimationFrame(() => reference.classList.add('citation-flash')); window.setTimeout(() => reference.classList.remove('citation-flash'), 2200); }
 const scopeLabel = computed(() => { const count = store.selectedKnowledgeBaseIds.length + store.selectedPageIds.length; return count ? `已选择 ${count} 项` : '可访问的知识库'; });
 const suggestions = [{ title: '快速了解', subtitle: '概括文档中的关键内容', icon: 'i-lucide-book-open', query: '请概括知识库文档中的关键内容。' }, { title: '找到答案', subtitle: '查找与你的问题相关的信息', icon: 'i-lucide-search', query: '我想了解知识库中关于' }, { title: '梳理步骤', subtitle: '将说明整理成行动清单', icon: 'i-lucide-list-checks', query: '请根据知识库内容，整理一份可执行的操作步骤。' }];

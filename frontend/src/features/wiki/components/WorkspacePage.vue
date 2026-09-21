@@ -43,6 +43,7 @@ import WikiInteractionPanel from './WikiInteractionPanel.vue';
 import ArchiveConfirmDialog from './ArchiveConfirmDialog.vue';
 import { useWikiStore } from '../store';
 import { api } from '../api';
+import { showMissingWikiToast } from '../toast';
 import type { CitationEntry } from '../sse';
 
 const props = defineProps<{ kbId?: string; pageId?: string }>();
@@ -106,6 +107,18 @@ function loadCurrentPage() {
 onMounted(loadCurrentPage);
 // 逐值比较：查询对象整体变化（如消费 ?chunk）不得触发页面重载。
 watch([() => props.kbId, () => props.pageId, () => route.query.anchor], loadCurrentPage);
+watch(() => store.pageErrorStatus, async (status) => {
+  if (status !== 404 || !props.kbId || !props.pageId) return;
+
+  showMissingWikiToast();
+  if (
+    route.name === 'workspace' &&
+    String(route.params.kbId) === String(props.kbId) &&
+    String(route.params.pageId) === String(props.pageId)
+  ) {
+    await router.replace(`/knowledge-bases/${props.kbId}`);
+  }
+});
 
 async function onRestore(revisionNo: number) {
   if (!numericKbId.value || !numericPageId.value) return;

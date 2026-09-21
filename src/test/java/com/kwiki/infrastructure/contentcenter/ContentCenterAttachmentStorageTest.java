@@ -269,6 +269,32 @@ class ContentCenterAttachmentStorageTest {
     }
 
     @Test
+    void deleteRemovesTheContentCenterFileByItsId() throws Exception {
+        server.enqueue(new MockResponse().setBody("""
+                {"deletedFiles":1,"failedObjects":0}
+                """).addHeader("Content-Type", "application/json"));
+
+        storage.delete(42L);
+
+        RecordedRequest request = server.takeRequest();
+        assertThat(request.getPath()).isEqualTo("/api/open/files/batch-delete");
+        assertThat(request.getHeader("Authorization")).isEqualTo("Bearer " + TOKEN);
+        assertThat(request.getBody().readUtf8()).contains("\"fileIds\":[42]");
+    }
+
+    @Test
+    void deleteRejectsAnIncompleteProviderDeletion() {
+        server.enqueue(new MockResponse().setBody("""
+                {"deletedFiles":0,"failedObjects":1}
+                """).addHeader("Content-Type", "application/json"));
+
+        assertThatThrownBy(() -> storage.delete(42L))
+                .isInstanceOf(AttachmentStorageException.class)
+                .hasMessageContaining("deletion was incomplete")
+                .hasMessageNotContaining(TOKEN);
+    }
+
+    @Test
     void readContentFetchesFreshLinkWithBoundedBytes() {
         server.enqueue(new MockResponse().setBody(
                         "{\"url\":\"" + server.url("/content") + "\",\"expiresIn\":120}")

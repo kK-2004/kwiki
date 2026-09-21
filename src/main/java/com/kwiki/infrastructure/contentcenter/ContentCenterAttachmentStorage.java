@@ -17,6 +17,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -73,6 +74,25 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
     }
 
     @Override
+    public void delete(long contentCenterFileId) {
+        if (contentCenterFileId <= 0) {
+            throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                    "attachment has no content-center file id");
+        }
+        try {
+            ContentCenterClient.DeleteFilesResult result = client.deleteFiles(List.of(contentCenterFileId));
+            // 0 删除 + 0 失败说明服务商已经移除了该对象，
+            // 因此该操作对重试的任务仍然安全幂等。
+            if (result == null || result.failedObjects() != 0) {
+                throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                        "content-center file deletion was incomplete");
+            }
+        } catch (ContentCenterException e) {
+            throw translate("delete file", e);
+        }
+    }
+
+    @Override
     public DirectUpload initiateUpload(String fileName, String contentType, long byteSize) {
         var options = ContentCenterClient.UploadOptions.defaults().contentType(contentType);
         if (config.source() != null && !config.source().isBlank()) options = options.source(config.source());
@@ -106,9 +126,9 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
             return requireConsistentResult(new AttachmentUpload("direct-upload", contentType,
                     InputStream.nullInputStream(), byteSize), result);
         } catch (ContentCenterException e) {
-            // SDK 0.1.3 provider consumes its UPLOADING record on completion. Recover only
-            // this specific repeat-completion response, using the server-owned init identity.
-            // Other errors (including auth, object missing and outages) must fail closed.
+            // SDK 0.1.3 的服务商会在完成时消费掉它的 UPLOADING 记录。只针对
+            // 这一种重复完成响应做恢复，并使用服务端持有的 init 身份。
+            // 其他错误（包括鉴权失败、对象缺失和服务不可用）必须快速失败。
             if (fileId != null && fileId > 0 && e.getStatus() == 400 && e.getMessage() != null
                     && e.getMessage().startsWith("未找到上传初始化记录:")) {
                 return recoverCompletedUpload(fileId, contentType, byteSize);
@@ -151,7 +171,7 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
         HttpRequest request = HttpRequest.newBuilder(URI.create(downloadLink(contentCenterFileId, null, presignTtl)))
                 .timeout(config.requestTimeout()).header("Range", "bytes=0-" + (length - 1)).GET().build();
         try {
-            // Limit consumption even if a provider ignores Range; close immediately after the prefix.
+            // 即使服务商忽略 Range 也要限制读取量；读取完前缀后立即关闭。
             var response = fetchClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
             try (InputStream body = response.body()) {
                 if (response.statusCode() != 200 && response.statusCode() != 206) {

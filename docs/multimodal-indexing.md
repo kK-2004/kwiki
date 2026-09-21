@@ -106,11 +106,11 @@ kwiki 在 Java 进程内原生完成 PDF 内嵌图片与发布后 Markdown 图�
 
 ## 6. 派生资源清理的当前限制
 
-kFile SDK 目前**没有按 contentId 删除的 API**，且活跃索引版本仍可能引用
-任意 contentId，因此 kwiki 不做猜测性删除：
+kFile SDK 现已支持按 contentId 删除。回收站在最后一个附件引用被物理清除时
+会同步删除对应文件；但派生图片仍可能被活跃索引版本引用，因此该清理器不做
+猜测性删除：
 
 - `DerivedImageCleanupService` 只把"源已消失"（附件归档/删除、修订消失）
   的资产行标记为 `ORPHAN_CANDIDATE` 并计入
   `kwiki_multimodal_cleanup_candidates_total`，供审计。
-- 后续 SDK 提供安全删除能力时，再实施尊重附件/修订引用与活跃索引
-  版本的回收任务；在此之前孤儿对象保留在内容中心。
+- 后续实现需在确认没有任何活跃索引版本引用后，再删除派生图片文件。

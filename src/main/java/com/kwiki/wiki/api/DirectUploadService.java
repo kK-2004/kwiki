@@ -19,7 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-/** File bytes travel from the browser to storage. Sessions bind provider locators to an owner and KB. */
+/*文件字节由浏览器直接送往存储。会话把服务商定位符绑定到归属人和知识库。 */
 @Service
 public class DirectUploadService {
     private final AttachmentRepository attachments;
@@ -40,7 +40,7 @@ public class DirectUploadService {
 
     public record Request(String fileName, String contentType, long byteSize, String purpose,
                           String hashVersion, String prefixSha256, String fullSha256) {
-        /** Compatibility constructor for old non-deduplicated callers. */
+        /*面向旧的未去重调用方的兼容构造函数。 */
         public Request(String fileName, String contentType, long byteSize, String purpose) {
             this(fileName, contentType, byteSize, purpose, null, null, null);
         }
@@ -123,7 +123,7 @@ public class DirectUploadService {
             jdbc.update("UPDATE attachment SET blob_id = ? WHERE id = ?", blobId, attachment.getId());
         }
         var upload = storage.initiateUpload(name, type, request.byteSize());
-        // Allow a PUT started before URL expiry to finish and retry a lost completion response.
+        // 允许在 URL 过期前发起的 PUT 正常完成，并重试丢失的完成响应。
         Instant expiresAt = Instant.now().plusSeconds(Math.min(upload.expiresIn(), 86400) + 3600);
         jdbc.update("INSERT INTO attachment_upload_session (attachment_id, storage_key, source, expires_at, provider_file_id) VALUES (?, ?, ?, ?, ?)",
                 attachment.getId(), upload.storageKey(), upload.source(), Timestamp.from(expiresAt), upload.fileId());
@@ -134,7 +134,7 @@ public class DirectUploadService {
     public Attachment complete(CurrentUser user, long kbId, String uuid) {
         authorization.require(user, kbId, WikiAction.UPLOAD_ATTACHMENT);
         requireDb();
-        // Serialize repeats across instances so indexing and the STORED transition happen once.
+        // 在多个实例之间串行化重复请求，确保索引和 STORED 状态流转只发生一次。
         Attachment attachment = attachments.findByUuidForUpdate(uuid)
                 .filter(a -> a.getKbId() == kbId && a.getUploadedBy() == user.id())
                 .orElseThrow(() -> new NotFoundException("upload session not found"));

@@ -193,8 +193,8 @@ class SafeExternalImageDownloaderTest {
                 "https://100.64.0.7/img.png",                  // CGNAT
                 "https://198.18.0.5/img.png",                  // benchmark 网段
                 "https://240.0.0.1/img.png",                   // 保留
-                "https://[::1]/img.png",                       // IPv6 loopback
-                "https://[fe80::1]/img.png",                   // IPv6 link-local
+                "https://[::1]/img.png",                       // IPv6 环回地址
+                "https://[fe80::1]/img.png",                   // IPv6 链路本地地址
                 "https://[fd12::1]/img.png" }) {               // IPv6 ULA
             assertThatThrownBy(() -> strict.download(URI.create(url)))
                     .as(url)

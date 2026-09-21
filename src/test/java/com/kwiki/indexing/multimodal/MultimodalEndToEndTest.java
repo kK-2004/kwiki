@@ -278,7 +278,7 @@ class MultimodalEndToEndTest {
         assertThat(vision.calls.get()).isZero(); // 摘要不是 OCR
     }
 
-    // ---------- fixtures ----------
+    // ---------- 测试夹具 ----------
 
     private void registerUploadedImageAttachment(String uuid, long contentCenterFileId) {
         com.kwiki.wiki.domain.Attachment attachment =

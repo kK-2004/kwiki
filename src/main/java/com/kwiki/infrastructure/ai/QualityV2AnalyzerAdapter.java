@@ -130,7 +130,7 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
     static String normalizeOutput(String output) {
         if (output == null) return null;
         String value = output.strip();
-        // Accept only a complete JSON code fence, never extract an arbitrary object from prose.
+        // 只接受完整的 JSON 代码围栏，绝不从散文里抽取任意对象。
         if (value.startsWith("```json\n") && value.endsWith("```"))
             return value.substring(8, value.length() - 3).strip();
         if (value.startsWith("```\n") && value.endsWith("```"))
@@ -138,7 +138,7 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
         return value;
     }
 
-    /** Provider-side constrained decoding; local schema validation remains mandatory. */
+    /*服务商侧的受约束解码；本地 schema 校验仍然必需。 */
     private ResponseFormat qualityResponseFormat() {
         JsonSchema schema = JsonSchema.builder()
                 .name("quality_v2")

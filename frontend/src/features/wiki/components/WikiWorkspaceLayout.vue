@@ -19,7 +19,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink, RouterView, useRouter } from 'vue-router';
 import WikiSearch from './WikiSearch.vue'; import WikiSummaryPanel from './WikiSummaryPanel.vue'; import PageHeaderActions from './PageHeaderActions.vue';
-import { useWikiStore } from '../store'; import { api, errorMessage, type TreeNodeDto } from '../api';
+import { useWikiStore } from '../store'; import { api, errorMessage, type TreeNodeDto } from '../api'; import { showMissingWikiToast } from '../toast';
 const props = defineProps<{ kbId?: string; pageId?: string }>(); const store = useWikiStore(); const router = useRouter();
 type PageActionTarget = { toggleEdit?: () => void; toggleHistory?: () => void; openArchive?: () => void };
 const pageComponent = ref<PageActionTarget | null>(null);
@@ -53,7 +53,7 @@ async function loadImports() {
   } catch (e) { if ((e as { name?: string })?.name !== 'AbortError') importError.value = errorMessage(e, '导入状态加载失败'); }
   finally { scheduleImportPoll(); }
 }
-async function load() { const current = ++version; stopImportPoll(); loading.value = true; treeError.value = ''; importError.value = ''; importJobs.value = []; base.value = undefined; store.tree = []; store.selectPage(null); try { const [value] = await Promise.all([api.json<NonNullable<typeof base.value>>(`/knowledge-bases/${props.kbId}`), store.loadTree(Number(props.kbId))]); if (current === version) { base.value = value; await loadImports(); } } catch (e) { if (current === version) treeError.value = errorMessage(e, '知识库加载失败'); } finally { if (current === version) loading.value = false; } }
+async function load() { const current = ++version; stopImportPoll(); loading.value = true; treeError.value = ''; importError.value = ''; importJobs.value = []; base.value = undefined; store.tree = []; store.selectPage(null); try { const [value] = await Promise.all([api.json<NonNullable<typeof base.value>>(`/knowledge-bases/${props.kbId}`), store.loadTree(Number(props.kbId))]); if (current === version) { base.value = value; await loadImports(); if (props.pageId && !treeContainsPage(store.tree, Number(props.pageId))) { showMissingWikiToast(); await router.replace(`/knowledge-bases/${props.kbId}`); } } } catch (e) { if (current === version) treeError.value = errorMessage(e, '知识库加载失败'); } finally { if (current === version) loading.value = false; } }
 watch(() => props.kbId, load, { immediate: true }); watch(() => props.pageId, () => { treeOpen.value = false; });
 onBeforeUnmount(stopImportPoll);
 const creating = ref(false); const nodeType = ref<'PAGE' | 'FOLDER'>('PAGE'); const title = ref(''); const createError = ref(''); const saving = ref(false);

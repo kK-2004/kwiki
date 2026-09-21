@@ -126,8 +126,8 @@ class V4MigrationContractTest {
                     "first.docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     10, 1001L);
-            // V27 removes the old one-to-one file-id constraint so a verified
-            // physical blob can be referenced by more than one user row.
+            // V27 移除了旧的一对一 file-id 约束，使一个已验证的
+            // 物理 blob 可以被多条用户记录引用。
             insert(c, insert, java.util.UUID.randomUUID().toString(), kb, creator,
                     "second.docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

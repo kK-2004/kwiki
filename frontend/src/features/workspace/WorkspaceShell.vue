@@ -27,7 +27,7 @@
           </li>
         </ol>
       </section>
-      <RouterLink to="/me" class="account"><span class="avatar">{{ (auth.user?.username || '?').slice(0, 1).toUpperCase() }}</span><span v-if="!collapsed"><strong>{{ auth.user?.displayName || auth.user?.username }}</strong><small>个人空间</small></span><i v-if="!collapsed" class="i-lucide-chevron-right" /></RouterLink>
+      <RouterLink to="/users/me" class="account"><span class="avatar">{{ (auth.user?.username || '?').slice(0, 1).toUpperCase() }}</span><span v-if="!collapsed"><strong>{{ auth.user?.displayName || auth.user?.username }}</strong><small>个人空间</small></span><i v-if="!collapsed" class="i-lucide-chevron-right" /></RouterLink>
     </aside>
     <div v-if="mobileOpen" class="nav-backdrop" @click="mobileOpen = false" />
     <div class="workspace-body"><slot /></div>

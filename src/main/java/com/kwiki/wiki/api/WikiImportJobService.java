@@ -45,7 +45,7 @@ public class WikiImportJobService {
         this.importer = importer;
     }
 
-    /** Queue a completed browser upload. Parsing runs in the existing durable worker. */
+    /*把已完成的浏览器上传加入队列。解析在现有的持久化工作线程中执行。 */
     @org.springframework.transaction.annotation.Transactional
     public ImportJobView submitStored(CurrentUser user, long kbId, Long parentId, String attachmentUuid,
                                       String audienceMode, List<ResourceAudienceService.Member> audienceMembers,
@@ -56,7 +56,7 @@ public class WikiImportJobService {
                 .filter(a -> a.getKbId() == kbId && a.getUploadedBy() == user.id()
                         && a.isStored() && Attachment.PURPOSE_WIKI_IMPORT_SOURCE.equals(a.getPurpose()))
                 .orElseThrow(() -> new IllegalArgumentException("completed import attachment not found"));
-        // One uploaded source cannot accidentally produce two pages after a lost response.
+        // 在响应丢失的情况下，同一次上传的来源也不会意外产生两个页面。
         List<Long> existingJobs = jdbc.query("SELECT id FROM wiki_import_job WHERE source_attachment_id = ? ORDER BY id LIMIT 1",
                 (rs, n) -> rs.getLong(1), attachment.getId());
         if (!existingJobs.isEmpty()) return detail(user, existingJobs.getFirst());

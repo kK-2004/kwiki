@@ -27,7 +27,7 @@ const emit = defineEmits<{ (e: 'update:expanded', value: boolean): void }>();
 const timelineId = useId();
 const expanded = ref(props.running ? true : (props.expandedInitial ?? false));
 
-// A new run opens the process chain; reaching a terminal state closes it.
+// 新的一轮运行会展开处理链路；进入终态后收起。
 watch(
   () => props.running,
   running => { expanded.value = running; },

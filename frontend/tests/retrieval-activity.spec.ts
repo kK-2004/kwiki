@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render } from '@testing-library/vue';
 import { nextTick } from 'vue';
+import { createMemoryHistory, createRouter } from 'vue-router';
 import RetrievalActivity from '../src/features/wiki/components/RetrievalActivity.vue';
 import ThinkingStream from '../src/features/wiki/components/ThinkingStream.vue';
 import { initialState, reduce, type ActivityStep } from '../src/features/wiki/sse';
@@ -65,14 +66,17 @@ describe('retrieval activity', () => {
   });
 });
 
-it('previews full chunks and links to the wiki chunk target with the wiki title', async () => {
+it('previews full chunks and provides a controlled wiki navigation action with the wiki title', async () => {
   const { api } = await import('../src/features/wiki/api');
   const { default: ChunkPreview } = await import('../src/features/wiki/components/ChunkPreview.vue');
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] });
+  await router.push('/');
+  await router.isReady();
   const fetch = vi.spyOn(api, 'json').mockResolvedValue({ title: '部署指南' });
-  const view = render(ChunkPreview, { props: { source: { childChunkKey: 'C/1', parentChunkKey: 'P1', kbId: 2, resourceId: 7, resourceType: 'PAGE', revisionId: 1, headingPath: '', charStart: 10, charEnd: 20, excerpt: '这是一段完整的命中内容，用来预览。' } } });
+  const view = render(ChunkPreview, { props: { source: { childChunkKey: 'C/1', parentChunkKey: 'P1', kbId: 2, resourceId: 7, resourceType: 'PAGE', revisionId: 1, headingPath: '', charStart: 10, charEnd: 20, excerpt: '这是一段完整的命中内容，用来预览。' } }, global: { plugins: [router] } });
   await nextTick(); await nextTick();
   await fireEvent.click(view.getByRole('button', { name: /部署指南：这是一段完整/ }));
   expect(view.getByText('这是一段完整的命中内容，用来预览。')).toBeTruthy();
-  expect(view.getByRole('link').getAttribute('href')).toBe('#/knowledge-bases/2/7?chunk=C%2F1');
+  expect(view.getByRole('button', { name: '跳转至 Wiki 并定位片段 ↗' })).toBeTruthy();
   view.unmount(); fetch.mockRestore();
 });

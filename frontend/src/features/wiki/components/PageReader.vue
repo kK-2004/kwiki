@@ -52,8 +52,8 @@
       </div>
     </footer>
   </article>
-  <p v-else-if="error" class="state" data-testid="page-error">{{ errorText }}</p>
-  <p v-else class="state" data-testid="page-empty">请选择左侧页面</p>
+  <p v-else-if="error && store.pageErrorStatus !== 404" class="state" data-testid="page-error">{{ errorText }}</p>
+  <p v-else-if="!error" class="state" data-testid="page-empty">请选择左侧页面</p>
 </template>
 
 <script setup lang="ts">

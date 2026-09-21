@@ -38,9 +38,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class MultimodalIndexingServiceTest {
 
-    // ---------- fakes ----------
+    // ---------- 测试替身 ----------
 
-    // ---------- setup ----------
+    // ---------- 前置准备 ----------
 
     private static final long KB = 7L;
     private static final long PAGE = 11L;
@@ -107,7 +107,7 @@ class MultimodalIndexingServiceTest {
                 1_000_000, Duration.ofSeconds(20), 3, java.util.Set.of(443));
     }
 
-    // ---------- tests ----------
+    // ---------- 测试用例 ----------
 
     @Test
     void uploadedImageReusesAttachmentContentIdWithoutReupload() {
