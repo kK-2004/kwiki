@@ -45,9 +45,9 @@
 
 新增领域端口建议为 `EntityRelationExtractionPort`、`KnowledgeGraphStore`、`CommunityDetectionPort`、`CommunitySummaryPort`、`CommunitySearchPort` 和 `GraphSnapshotRegistry`；名称是模块边界建议，不是现在需要创建的类。ArcadeDB HTTP/JSON 细节、RID、SQL/Cypher 仅位于基础设施适配器。
 
-ArcadeDB 由用户单独部署，本项目负责连接配置、健康/能力探测、客户端、受控 schema 初始化和任务调度，不生成或启动 ArcadeDB 部署。在线只读身份和建图/临时库管理身份分离；命令固定模板并参数化，数据库名由服务端生成。模型、浏览器和用户均不能提交任意图查询。
+ArcadeDB 由用户单独部署，本项目负责连接配置、健康/能力探测、客户端、受控 schema 初始化和任务调度，不生成或启动 ArcadeDB 部署。认证使用单一 token（Bearer），该 token 需同时具备在线读与建库/临时库权限，不细分读/构建两组凭据；命令固定模板并参数化，数据库名由服务端生成。模型、浏览器和用户均不能提交任意图查询。
 
-配置契约使用 `kwiki.graph.enabled` 和 `kwiki.external.arcadedb.*`，覆盖 endpoint、database、query/build 两组 username/password、connectTimeout、queryTimeout、buildTimeout、连接并发、TLS 校验和临时库前缀。环境变量使用 `KWIKI_ARCADEDB_*`，密码仅从环境/密钥配置读取，不通过后台返回。默认连接超时 3s，在线查询上限 1.5s（同时受 run deadline 限制）；算法构建调用独立上限 15min，普通批写上限 30s。后台展示连接状态、脱敏 endpoint、服务版本及能力错误。建库权限不足时构建失败，不能改在包含全部业务顶点的正式库运行 Leiden。
+配置契约使用 `kwiki.graph.enabled` 和 `kwiki.external.arcadedb.*`，覆盖 endpoint、database、单一 token、connectTimeout、queryTimeout、buildTimeout、连接并发、TLS 校验和临时库前缀。环境变量使用 `KWIKI_ARCADEDB_*`（token 为 `KWIKI_ARCADEDB_TOKEN`），token 仅从环境/密钥配置读取，不通过后台返回。默认连接超时 3s，在线查询上限 1.5s（同时受 run deadline 限制）；算法构建调用独立上限 15min，普通批写上限 30s。后台展示连接状态、脱敏 endpoint、服务版本及能力错误。建库权限不足时构建失败，不能改在包含全部业务顶点的正式库运行 Leiden。
 
 替代方案：嵌入式 ArcadeDB 会把存储生命周期绑到应用实例，不适合当前多实例与运维边界；另起 Python 服务首版收益不足。
 

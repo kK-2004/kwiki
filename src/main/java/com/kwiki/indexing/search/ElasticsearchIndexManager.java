@@ -67,10 +67,18 @@ public class ElasticsearchIndexManager {
      * 同名但映射冲突（例如维度不同）直接拒绝，绝不在冲突索引上继续。
      */
     public String createVersionedIndex(String indexName, int embeddingDimensions) throws Exception {
+        return createVersionedIndex(indexName, embeddingDimensions,
+                ChunkMappingBuilder.MAPPING_SCHEMA_MULTIMODAL);
+    }
+
+    /** 按版本配置创建严格 mapping；实体代际必须使用新的物理索引。 */
+    public String createVersionedIndex(String indexName, int embeddingDimensions,
+                                       int mappingSchemaVersion) throws Exception {
         if (client == null) {
             return indexName;
         }
-        Map<String, Object> body = mappingBuilder.buildMapping(embeddingDimensions);
+        Map<String, Object> body = mappingBuilder.buildMapping(embeddingDimensions,
+                mappingSchemaVersion);
         String json;
         try {
             json = mapper.writeValueAsString(body);
@@ -83,7 +91,9 @@ public class ElasticsearchIndexManager {
             if (!"resource_already_exists_exception".equals(alreadyExists.error().type())) {
                 throw alreadyExists;
             }
-            String conflict = validateIndex(indexName, embeddingDimensions);
+            String conflict = mappingSchemaVersion == ChunkMappingBuilder.MAPPING_SCHEMA_MULTIMODAL
+                    ? validateIndex(indexName, embeddingDimensions)
+                    : validateIndex(indexName, embeddingDimensions, mappingSchemaVersion);
             if (conflict != null) {
                 throw new IllegalStateException(
                         "existing index " + indexName + " conflicts with the requested mapping: "
@@ -95,6 +105,13 @@ public class ElasticsearchIndexManager {
 
     /** 手动重建专用：只允许精确托管名称，且绝不删除当前别名目标。 */
     public void recreateOfflineVersion(String indexName, int embeddingDimensions) throws Exception {
+        recreateOfflineVersion(indexName, embeddingDimensions,
+                ChunkMappingBuilder.MAPPING_SCHEMA_MULTIMODAL);
+    }
+
+    /** 按版本配置重建离线物理索引。 */
+    public void recreateOfflineVersion(String indexName, int embeddingDimensions,
+                                       int mappingSchemaVersion) throws Exception {
         if (!indexName.matches(PHYSICAL_NAME_PATTERN)) {
             throw new IllegalArgumentException("refusing to recreate unmanaged index: " + indexName);
         }
@@ -104,7 +121,7 @@ public class ElasticsearchIndexManager {
         if (client != null && client.indices().exists(request -> request.index(indexName)).value()) {
             client.indices().delete(request -> request.index(indexName));
         }
-        createVersionedIndex(indexName, embeddingDimensions);
+        createVersionedIndex(indexName, embeddingDimensions, mappingSchemaVersion);
     }
 
     /** 删除一个精确托管物理索引；提交前再次以 ES 别名事实关闭竞态窗口。 */

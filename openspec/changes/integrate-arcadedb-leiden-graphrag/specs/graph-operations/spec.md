@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Optional graph integration and verified deployment capability
-ArcadeDB SHALL 由用户独立部署，本项目 SHALL 提供 endpoint、数据库、读/构建身份、连接/查询/批写/算法超时、TLS、并发和临时库前缀配置，以及健康/能力探测；MUST NOT 自动部署或启动数据库服务。图功能 SHALL 默认关闭，关闭时不建立 ArcadeDB 连接且现有内容/检索链路可用。开启时 MUST 显式提供服务连接、受控数据库目标与凭据，并验证已锁定引擎版本、Leiden 契约及图 schema；MUST NOT 静默连接默认 localhost、采用默认密码或替代算法。后台 MUST NOT 回显密码。
+ArcadeDB SHALL 由用户独立部署，本项目 SHALL 提供 endpoint、数据库、单一访问 token、连接/查询/批写/算法超时、TLS、并发和临时库前缀配置，以及健康/能力探测；MUST NOT 自动部署或启动数据库服务。图功能 SHALL 默认关闭，关闭时不建立 ArcadeDB 连接且现有内容/检索链路可用。开启时 MUST 显式提供服务连接、受控数据库目标与凭据，并验证已锁定引擎版本、Leiden 契约及图 schema；MUST NOT 静默连接默认 localhost、采用默认密码或替代算法。后台 MUST NOT 回显 token。
 
 #### Scenario: Graph feature is disabled
 - **WHEN** 应用在未配置 ArcadeDB 的既有环境启动且 graph.enabled=false

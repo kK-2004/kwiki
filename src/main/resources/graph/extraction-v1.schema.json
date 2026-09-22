@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entities", "relations"],
+  "properties": {
+    "entities": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["canonicalName", "entityType", "aliases"],
+        "properties": {
+          "entityId": {"type": ["string", "null"], "maxLength": 160},
+          "canonicalName": {"type": "string", "minLength": 1, "maxLength": 500},
+          "entityType": {
+            "enum": ["PERSON", "ORGANIZATION", "PRODUCT", "TECHNOLOGY", "CONCEPT", "LOCATION", "EVENT", "OTHER"]
+          },
+          "aliases": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "maxLength": 200}}
+        }
+      }
+    },
+    "relations": {
+      "type": "array",
+      "maxItems": 300,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relationId", "sourceEntityId", "predicate", "targetEntityId", "confidence", "sourceRefs"],
+        "properties": {
+          "relationId": {"type": "string", "minLength": 1, "maxLength": 160},
+          "sourceEntityId": {"type": "string", "minLength": 1, "maxLength": 160},
+          "predicate": {"enum": ["USES", "DEPENDS_ON", "PART_OF", "IMPLEMENTS", "BASED_ON", "RELATED_TO"]},
+          "targetEntityId": {"type": "string", "minLength": 1, "maxLength": 160},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "sourceRefs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sourceChunkId", "startOffset", "endOffset"],
+              "properties": {
+                "sourceChunkId": {"type": "string", "minLength": 1, "maxLength": 80},
+                "startOffset": {"type": "integer", "minimum": 0},
+                "endOffset": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

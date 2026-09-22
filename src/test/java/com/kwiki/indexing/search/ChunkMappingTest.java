@@ -117,4 +117,20 @@ class ChunkMappingTest {
 
         assertThat(MappingValidator.validate(mapping, 1024)).contains("not indexed");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void entitySchemaUsesASeparateStrictMappingGeneration() {
+        Map<String, Object> mapping = builder.buildMapping(1024,
+                ChunkMappingBuilder.MAPPING_SCHEMA_ENTITY_LINKING);
+        Map<String, Object> properties = (Map<String, Object>) ((Map<String, Object>)
+                mapping.get("mappings")).get("properties");
+
+        assertThat(properties).containsKeys("sourceChunkId", "entityIds",
+                "entityLinkingVersion", "entityLinkingStatus");
+        assertThat(MappingValidator.validate(mapping, 1024,
+                ChunkMappingBuilder.MAPPING_SCHEMA_ENTITY_LINKING)).isNull();
+        assertThat(MappingValidator.validate(builder.buildMapping(1024), 1024, 3))
+                .contains("sourceChunkId");
+    }
 }

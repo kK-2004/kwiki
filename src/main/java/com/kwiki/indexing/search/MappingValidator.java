@@ -10,8 +10,8 @@ import java.util.Map;
  * 依据 kwiki 契约对已有索引映射做纯校验：
  * 向量维度必须与配置值一致，且每一个必需的
  * 溯源/作用域字段都必须存在。否则拒绝切换别名。
- * mapping schema v2+（多模态）额外要求 contentIds
- * 资源字段；v1 物理索引保持 17 字段契约不变。
+ * mapping schema v2+（多模态）额外要求 contentIds 资源字段；v3
+ * 还要求 CHILD 实体映射字段；旧物理索引保持可检索。
  */
 public final class MappingValidator {
 
@@ -24,6 +24,13 @@ public final class MappingValidator {
             "chunkLevel", "chunkKey", "parentChunkKey", "resourceType", "resourceId",
             "revisionId", "lifecycleVersion", "kbId", "headingPath", "charStart", "charEnd",
             "content", "contentIds", "parserVersion", "chunkerVersion", "embeddingModel",
+            "indexVersion", "vector");
+
+    private static final List<String> REQUIRED_FIELDS_V3 = List.of(
+            "chunkLevel", "chunkKey", "parentChunkKey", "resourceType", "resourceId",
+            "revisionId", "lifecycleVersion", "kbId", "headingPath", "charStart", "charEnd",
+            "content", "contentIds", "sourceChunkId", "entityIds", "entityLinkingVersion",
+            "entityLinkingStatus", "parserVersion", "chunkerVersion", "embeddingModel",
             "indexVersion", "vector");
 
     private MappingValidator() {
@@ -101,6 +108,9 @@ public final class MappingValidator {
     }
 
     private static List<String> requiredFields(int mappingSchemaVersion) {
+        if (mappingSchemaVersion >= 3) {
+            return REQUIRED_FIELDS_V3;
+        }
         return mappingSchemaVersion >= 2 ? REQUIRED_FIELDS_V2 : REQUIRED_FIELDS;
     }
 }

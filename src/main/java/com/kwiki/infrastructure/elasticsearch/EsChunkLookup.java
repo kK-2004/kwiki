@@ -2,6 +2,7 @@ package com.kwiki.infrastructure.elasticsearch;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.kwiki.rag.retrieval.ChunkHit;
+import com.kwiki.rag.retrieval.EntityLinkingStatus;
 import com.kwiki.wiki.api.CitationService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -49,7 +50,11 @@ public class EsChunkLookup implements CitationService.ChunkLookup {
                     (int) longValue(source.get("charStart")),
                     (int) longValue(source.get("charEnd")),
                     String.valueOf(source.get("content")),
-                    contentIds(source)));
+                    contentIds(source),
+                    optionalText(source.get("sourceChunkId")),
+                    entityIds(source),
+                    optionalText(source.get("entityLinkingVersion")),
+                    entityStatus(source)));
         } catch (Exception e) {
             return Optional.empty();
         }
@@ -66,6 +71,32 @@ public class EsChunkLookup implements CitationService.ChunkLookup {
                     .toList();
         }
         return List.of();
+    }
+
+    private static List<String> entityIds(Map<?, ?> source) {
+        Object value = source.get("entityIds");
+        if (value instanceof List<?> list) {
+            return list.stream().filter(java.util.Objects::nonNull)
+                    .map(String::valueOf).distinct().sorted().toList();
+        }
+        return List.of();
+    }
+
+    private static EntityLinkingStatus entityStatus(Map<?, ?> source) {
+        Object value = source.get("entityLinkingStatus");
+        if (value == null) {
+            return EntityLinkingStatus.MISSING;
+        }
+        try {
+            return EntityLinkingStatus.valueOf(String.valueOf(value).toUpperCase(
+                    java.util.Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return EntityLinkingStatus.FAILED;
+        }
+    }
+
+    private static String optionalText(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     private static long longValue(Object value) {

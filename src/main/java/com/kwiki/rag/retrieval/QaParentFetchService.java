@@ -104,7 +104,9 @@ public class QaParentFetchService {
         return new ChunkHit(
                 child.chunkKey(), child.parentChunkKey(), child.kbId(),
                 child.resourceType(), child.resourceId(), child.revisionId(),
-                child.headingPath(), child.charStart(), child.charEnd(), child.content());
+                child.headingPath(), child.charStart(), child.charEnd(), child.content(),
+                List.of(), child.sourceChunkId(), child.entityIds(),
+                child.entityLinkingVersion(), child.entityLinkingStatus());
     }
 
     private void authorize(AuthorizationScope scope) {

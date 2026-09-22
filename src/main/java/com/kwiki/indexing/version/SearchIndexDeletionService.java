@@ -1,10 +1,13 @@
 package com.kwiki.indexing.version;
 
+import com.kwiki.graph.persistence.GraphBuildRepository;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.lang.Nullable;
 
 import java.util.List;
 
@@ -22,6 +25,7 @@ public class SearchIndexDeletionService {
     private final SearchIndexAuditRepository audits;
     private final ElasticsearchIndexManager indexes;
     private final JdbcOperations jdbc;
+    private final GraphBuildRepository graphBuilds;
 
     public SearchIndexDeletionService(SearchIndexVersionRepository versions,
                                       SearchIndexRebuildRunRepository runs,
@@ -29,12 +33,24 @@ public class SearchIndexDeletionService {
                                       SearchIndexAuditRepository audits,
                                       ElasticsearchIndexManager indexes,
                                       JdbcOperations jdbc) {
+        this(versions, runs, idempotency, audits, indexes, jdbc, null);
+    }
+
+    @Autowired
+    public SearchIndexDeletionService(SearchIndexVersionRepository versions,
+                                      SearchIndexRebuildRunRepository runs,
+                                      SearchIndexIdempotencyRepository idempotency,
+                                      SearchIndexAuditRepository audits,
+                                      ElasticsearchIndexManager indexes,
+                                      JdbcOperations jdbc,
+                                      @Nullable GraphBuildRepository graphBuilds) {
         this.versions = versions;
         this.runs = runs;
         this.idempotency = idempotency;
         this.audits = audits;
         this.indexes = indexes;
         this.jdbc = jdbc;
+        this.graphBuilds = graphBuilds;
     }
 
     @Transactional(noRollbackFor = IndexDeletionException.class)
@@ -92,6 +108,10 @@ public class SearchIndexDeletionService {
                 || runs.existsByVersionNumberAndSwitchState(version.getVersionNumber(),
                 IndexSwitchState.PREPARING.name())) {
             throw new IllegalStateException("version has an active rebuild or catch-up");
+        }
+        if (graphBuilds != null
+                && graphBuilds.hasActiveRunReferencingChunkIndex(version.getVersionNumber())) {
+            throw new IllegalStateException("version is referenced by an active graph build");
         }
         Long activeJobs = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM indexing_job_target

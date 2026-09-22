@@ -14,19 +14,27 @@ import java.util.Map;
 /**
  * 带版本号分块索引的映射构建器。单一配置的向量嵌入
  * 维度驱动 dense_vector 字段，因此请求校验与映射
- * 永远不会彼此漂移。多模态映射（schema v2+）额外携带
- * 去重的 contentIds 数组——由受保护块重建的资源引用。
+ * 永远不会彼此漂移。多模态映射（schema v2+）额外携带去重的
+ * contentIds 数组；图增强映射（schema v3）再增加实体来源字段。
  */
 @Component
 public class ChunkMappingBuilder {
 
     /** 引入 contentIds 资源字段的映射结构代（多模态解析代）。 */
     public static final int MAPPING_SCHEMA_MULTIMODAL = 2;
+    /** 引入 CHILD 实体映射字段的结构代。 */
+    public static final int MAPPING_SCHEMA_ENTITY_LINKING = 3;
 
     private final ObjectMapper canonicalMapper = new ObjectMapper()
             .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
 
     public Map<String, Object> buildMapping(int embeddingDimensions) {
+        return buildMapping(embeddingDimensions, MAPPING_SCHEMA_MULTIMODAL);
+    }
+
+    /** 按物理索引配置构建严格 mapping；新字段只进入对应的新代索引。 */
+    public Map<String, Object> buildMapping(int embeddingDimensions,
+                                            int mappingSchemaVersion) {
         Map<String, Object> properties = new LinkedHashMap<>();
 
         properties.put("chunkLevel", keyword());
@@ -43,7 +51,15 @@ public class ChunkMappingBuilder {
         properties.put("charStart", Map.of("type", "integer"));
         properties.put("charEnd", Map.of("type", "integer"));
         properties.put("content", Map.of("type", "text"));
-        properties.put("contentIds", Map.of("type", "long"));
+        if (mappingSchemaVersion >= MAPPING_SCHEMA_MULTIMODAL) {
+            properties.put("contentIds", Map.of("type", "long"));
+        }
+        if (mappingSchemaVersion >= MAPPING_SCHEMA_ENTITY_LINKING) {
+            properties.put("sourceChunkId", keyword());
+            properties.put("entityIds", keyword());
+            properties.put("entityLinkingVersion", keyword());
+            properties.put("entityLinkingStatus", keyword());
+        }
         properties.put("parserVersion", keyword());
         properties.put("chunkerVersion", keyword());
         properties.put("embeddingModel", keyword());
@@ -65,9 +81,14 @@ public class ChunkMappingBuilder {
      * 比较——比对永远基于本规范化形式）。
      */
     public String mappingHash(int embeddingDimensions) {
+        return mappingHash(embeddingDimensions, MAPPING_SCHEMA_MULTIMODAL);
+    }
+
+    /** 版本化 mapping 的规范化哈希。 */
+    public String mappingHash(int embeddingDimensions, int mappingSchemaVersion) {
         try {
             String canonical = canonicalMapper.writeValueAsString(
-                    buildMapping(embeddingDimensions));
+                    buildMapping(embeddingDimensions, mappingSchemaVersion));
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(canonical.getBytes(StandardCharsets.UTF_8)));
         } catch (Exception failure) {

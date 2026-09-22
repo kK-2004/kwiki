@@ -36,6 +36,7 @@ public class VersionedIndexingPipelineRegistry {
             com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION;
     public static final String SUPPORTED_CHUNKER_VERSION =
             com.kwiki.indexing.job.IndexingWorker.CHUNKER_VERSION;
+    public static final String ENTITY_LINKING_VERSION = "entity-linking-v1";
 
     /** 一个受支持结构代的具体执行流水线。 */
     public record ResolvedPipeline(
@@ -47,7 +48,9 @@ public class VersionedIndexingPipelineRegistry {
             ChildChunker childChunker,
             ChunkEmbeddingPort embeddings,
             String embeddingModel,
-            int embeddingDimensions) {
+            int embeddingDimensions,
+            int mappingSchemaVersion,
+            String entityLinkingVersion) {
     }
 
     private final IndexingProperties indexingProperties;
@@ -90,6 +93,13 @@ public class VersionedIndexingPipelineRegistry {
     /** 目标 built 配置能否由当前部署执行。 */
     public boolean supports(EditableIndexConfig config) {
         return resolve(config).isPresent();
+    }
+
+    /** 只有 v3 严格 mapping 才能作为图增强的 Chunk 目标。 */
+    public boolean supportsEntityLinking(EditableIndexConfig config) {
+        return config.mappingSchemaVersion() >= 3 && resolve(config)
+                .map(pipeline -> pipeline.entityLinkingVersion() != null)
+                .orElse(false);
     }
 
     /** 多模态解析代（kwiki-parse-2）只有在功能开启时受支持。 */
@@ -149,7 +159,9 @@ public class VersionedIndexingPipelineRegistry {
                             multimodalMetrics()),
                     embeddings,
                     manifest.embeddingModel(),
-                    manifest.dimensions()));
+                    manifest.dimensions(),
+                    manifest.mappingSchemaVersion(),
+                    manifest.mappingSchemaVersion() >= 3 ? ENTITY_LINKING_VERSION : null));
         }
         return Optional.empty();
     }

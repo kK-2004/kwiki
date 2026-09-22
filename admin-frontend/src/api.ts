@@ -14,11 +14,29 @@ async function request<T>(path:string,init:RequestInit={}):Promise<T>{
   if(!response.ok||!body||body.code>=400)throw new ApiError(response.status,body?.message||"request_failed");return body.data;
 }
 const key=()=>crypto.randomUUID();
+const graphCommand=<T>(path:string,body?:unknown)=>request<T>(`/admin/knowledge-graphs${path}`,{method:"POST",headers:{"Idempotency-Key":key()},body:body===undefined?undefined:JSON.stringify(body)});
+export interface CommunityVersion{versionNumber:number;batchId:number|null;mappingSchemaVersion:number;configRevision:number;state:string;createdAt:string;physicalIndexes:{kbId:number;communityPhysicalIndex:string;graphVersion:number;state:string}[]}
+export interface GraphBatch{id:number;scopeKind:string;chunkIndexVersion:number;communityIndexVersion:number;state:string;autoPublish:boolean;requestedBy:string;scheduleDate:string|null;failureSummary:string|null;createdAt:string}
+export interface GraphRun{id:number;kbId:number;chunkIndexVersion:number;communityIndexVersion:number;communityPhysicalIndex:string;graphVersion:number;state:string;stage:string;entityCount:number;relationCount:number;sourceCount:number;communityCount:number;errorCode?:string;errorSummary?:string;startedAt?:string;completedAt?:string}
+export interface GraphPublication{kbId:number;chunkIndexVersion:number;activeSnapshotId:number|null;graphVersion?:number;communityIndexVersion?:number;communityPhysicalIndex?:string;snapshotState?:string;publishedAt?:string}
+export interface GraphSchedule{scheduleDate:string;status:string;linkedBatchId:number|null;createdAt:string}
+export interface GraphSnapshotRow{id:number;kbId:number;graphVersion:number;chunkIndexVersion:number;communityIndexVersion:number;communityPhysicalIndex:string;state:string;entityCount:number;relationCount:number;communityCount:number;sealedAt?:string;retiredAt?:string;createdAt:string}
+export interface GraphServiceStatus{enabled:boolean;algorithmMode:string;scheduleCron:string;scheduleZone:string;autoPublish:boolean;capacity:Record<string,number>;activeBatchId:number}
 export const api={
   login:(username:string,password:string)=>request<{accessToken:string}>("/auth/login",{method:"POST",body:JSON.stringify({username,password})}),
   me:()=>request<{id:number;username:string;admin:boolean}>("/auth/me"),
   versions:()=>request<Version[]>("/admin/search-indexes/versions"),alias:()=>request<{alias:string;targets:string[]}>("/admin/search-indexes/alias"),
   runs:()=>request<Run[]>("/admin/search-indexes/runs"),validations:()=>request<Validation[]>("/admin/search-indexes/validations"),audits:()=>request<Audit[]>("/admin/search-indexes/audits"),stats:()=>request<Record<string,unknown>[]>("/admin/search-indexes/write-statistics"),
   command:<T>(path:string,method="POST",body?:unknown)=>request<T>(`/admin/search-indexes${path}`,{method,headers:{"Idempotency-Key":key()},body:body===undefined?undefined:JSON.stringify(body)}),
-  deleteVersion:(version:number,name:string)=>request<{outcome:string}>(`/admin/search-indexes/versions/${version}`,{method:"DELETE",headers:{"Idempotency-Key":key()},body:JSON.stringify({confirmPhysicalName:name})})
+  deleteVersion:(version:number,name:string)=>request<{outcome:string}>(`/admin/search-indexes/versions/${version}`,{method:"DELETE",headers:{"Idempotency-Key":key()},body:JSON.stringify({confirmPhysicalName:name})}),
+  graphBatches:()=>request<GraphBatch[]>("/admin/knowledge-graphs/batches"),
+  graphRuns:(batchId:number)=>request<GraphRun[]>(`/admin/knowledge-graphs/batches/${batchId}/runs`),
+  graphSchedule:()=>request<GraphSchedule[]>("/admin/knowledge-graphs/schedule"),
+  graphPublications:()=>request<GraphPublication[]>("/admin/knowledge-graphs/publications"),
+  graphSnapshots:()=>request<GraphSnapshotRow[]>("/admin/knowledge-graphs/snapshots"),
+  communityVersions:()=>request<CommunityVersion[]>("/admin/knowledge-graphs/community-versions"),
+  graphAudits:()=>request<Record<string,unknown>[]>("/admin/knowledge-graphs/audits"),
+  graphServiceStatus:()=>request<GraphServiceStatus>("/admin/knowledge-graphs/service-status"),
+  graphCommand,
+  graphSubmit:(payload:Record<string,unknown>)=>graphCommand<{batchId:number;communityIndexVersion:number;runIds:number[];replayed:boolean}>("/batches",payload)
 };

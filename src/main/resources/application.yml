@@ -53,6 +53,44 @@ logging:
 kwiki:
   time:
     display-zone: ${KWIKI_TIME_DISPLAY_ZONE:Asia/Shanghai}
+  graph:
+    enabled: ${KWIKI_GRAPH_ENABLED:false}
+    algorithm-mode: ${KWIKI_GRAPH_ALGORITHM_MODE:ARCADEDB_NATIVE_UNWEIGHTED}
+    schedule-cron: ${KWIKI_GRAPH_SCHEDULE_CRON:0 0 2 * * *}
+    schedule-zone: ${KWIKI_GRAPH_SCHEDULE_ZONE:Asia/Shanghai}
+    auto-publish: ${KWIKI_GRAPH_AUTO_PUBLISH:false}
+    read-lease-duration: ${KWIKI_GRAPH_READ_LEASE_DURATION:10m}
+    retention-min-snapshots: ${KWIKI_GRAPH_RETENTION_MIN_SNAPSHOTS:2}
+    retirement-grace: ${KWIKI_GRAPH_RETIREMENT_GRACE:30m}
+    capacity:
+      max-entities: ${KWIKI_GRAPH_MAX_ENTITIES:50000}
+      max-relations: ${KWIKI_GRAPH_MAX_RELATIONS:250000}
+      max-relation-sources: ${KWIKI_GRAPH_MAX_RELATION_SOURCES:1000000}
+      max-communities: ${KWIKI_GRAPH_MAX_COMMUNITIES:5000}
+      warn-entities: ${KWIKI_GRAPH_WARN_ENTITIES:20000}
+      warn-relations: ${KWIKI_GRAPH_WARN_RELATIONS:100000}
+      max-hops: ${KWIKI_GRAPH_MAX_HOPS:2}
+      max-edges-per-node: ${KWIKI_GRAPH_MAX_EDGES_PER_NODE:50}
+      max-edges-total: ${KWIKI_GRAPH_MAX_EDGES_TOTAL:500}
+    offline:
+      max-concurrency: ${KWIKI_GRAPH_OFFLINE_MAX_CONCURRENCY:2}
+      min-interval: ${KWIKI_GRAPH_OFFLINE_MIN_INTERVAL:1s}
+      max-attempts: ${KWIKI_GRAPH_OFFLINE_MAX_ATTEMPTS:3}
+  external:
+    arcadedb:
+      endpoint: ${KWIKI_ARCADEDB_ENDPOINT:}
+      database: ${KWIKI_ARCADEDB_DATABASE:kwiki}
+      token: ${KWIKI_ARCADEDB_TOKEN:}
+      connect-timeout: ${KWIKI_ARCADEDB_CONNECT_TIMEOUT:3s}
+      query-timeout: ${KWIKI_ARCADEDB_QUERY_TIMEOUT:1500ms}
+      batch-write-timeout: ${KWIKI_ARCADEDB_BATCH_WRITE_TIMEOUT:30s}
+      algorithm-timeout: ${KWIKI_ARCADEDB_ALGORITHM_TIMEOUT:15m}
+      max-connections: ${KWIKI_ARCADEDB_MAX_CONNECTIONS:8}
+      tls:
+        enabled: ${KWIKI_ARCADEDB_TLS_ENABLED:false}
+        verify-certificate: ${KWIKI_ARCADEDB_TLS_VERIFY:true}
+      temporary-database-prefix: ${KWIKI_ARCADEDB_TEMPORARY_DATABASE_PREFIX:kwiki_leiden_}
+      required-server-version: ${KWIKI_ARCADEDB_REQUIRED_SERVER_VERSION:}
   security:
     jwt-secret: ${KWIKI_JWT_SECRET}
     token-ttl: ${KWIKI_JWT_TTL:7d}

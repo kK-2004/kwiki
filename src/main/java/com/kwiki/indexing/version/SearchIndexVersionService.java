@@ -51,7 +51,8 @@ public class SearchIndexVersionService {
             try {
                 return registry.save(new SearchIndexVersion(next,
                         "kwiki-chunks-v" + next, config,
-                        mappingBuilder.mappingHash(config.embeddingDimensions())));
+                        mappingBuilder.mappingHash(config.embeddingDimensions(),
+                                config.mappingSchemaVersion())));
             } catch (DataIntegrityViolationException raced) {
                 lastContention = raced;
             }
@@ -68,7 +69,8 @@ public class SearchIndexVersionService {
                         "unknown index version: " + versionNumber));
         IndexVersionStatusPolicy.editConfig(version.toSnapshot(false, false), null);
         version.applyConfigEdit(config,
-                mappingBuilder.mappingHash(config.embeddingDimensions()));
+                mappingBuilder.mappingHash(config.embeddingDimensions(),
+                        config.mappingSchemaVersion()));
         return registry().save(version);
     }
 }

@@ -7,6 +7,7 @@ import co.elastic.clients.elasticsearch.core.search.Hit;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.rag.retrieval.ChildRecallPort;
+import com.kwiki.rag.retrieval.EntityLinkingStatus;
 import com.kwiki.rag.retrieval.ScopeFilter;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -75,7 +76,11 @@ public class Bm25RecallAdapter implements ChildRecallPort {
                     (int) number(source.get("charStart")),
                     (int) number(source.get("charEnd")),
                     text(source.get("content")),
-                    contentIds(source)));
+                    contentIds(source),
+                    optionalText(source.get("sourceChunkId")),
+                    entityIds(source),
+                    optionalText(source.get("entityLinkingVersion")),
+                    entityStatus(source)));
         }
         return mapped;
     }
@@ -93,8 +98,34 @@ public class Bm25RecallAdapter implements ChildRecallPort {
         return java.util.List.of();
     }
 
+    static List<String> entityIds(Map<?, ?> source) {
+        Object value = source.get("entityIds");
+        if (value instanceof List<?> list) {
+            return list.stream().filter(java.util.Objects::nonNull)
+                    .map(String::valueOf).distinct().sorted().toList();
+        }
+        return List.of();
+    }
+
+    static EntityLinkingStatus entityStatus(Map<?, ?> source) {
+        Object value = source.get("entityLinkingStatus");
+        if (value == null) {
+            return EntityLinkingStatus.MISSING;
+        }
+        try {
+            return EntityLinkingStatus.valueOf(String.valueOf(value).toUpperCase(
+                    java.util.Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return EntityLinkingStatus.FAILED;
+        }
+    }
+
     private static String text(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private static String optionalText(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     private static long number(Object value) {

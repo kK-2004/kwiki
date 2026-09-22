@@ -419,7 +419,8 @@ public class IndexingWorker {
         IndexedVersion version = new IndexedVersion(resourceType, resourceId, revisionId,
                 lifecycleVersion, kbId,
                 pipeline.parserVersion(), pipeline.chunkerVersion(), pipeline.embeddingModel(),
-                indexVersion, parents, children, vectors);
+                indexVersion, parents, children, vectors, pipeline.mappingSchemaVersion(),
+                pipeline.entityLinkingVersion());
         index.upsertChunks(version, physicalIndex);
         // 写入后：文档身份再次核对（IndexedVersion 携带流水线身份）。
         if (!version.parserVersion().equals(pipeline.parserVersion())

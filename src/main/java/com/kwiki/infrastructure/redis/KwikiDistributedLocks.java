@@ -58,6 +58,20 @@ public class KwikiDistributedLocks {
         }
     }
 
+    /** 锁保护下的有返回值执行；未获取锁返回 null，调用方按 BUSY/跳过处理。 */
+    public <T> T tryRunReturning(String purposeWithResource, Duration wait,
+                                 java.util.function.Supplier<T> body) {
+        AutoCloseable held = acquire(purposeWithResource, wait);
+        if (held == null) {
+            return null;
+        }
+        try {
+            return body.get();
+        } finally {
+            closeQuietly(held);
+        }
+    }
+
     /**
      * 显式临界区：返回的句柄必须在 finally 中关闭（仅当前线程持有
      * 时解锁）。返回 null 表示未获取，调用方按 BUSY/跳过处理。

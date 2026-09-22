@@ -1,7 +1,10 @@
 package com.kwiki.indexing.version;
 
+import com.kwiki.graph.persistence.GraphBuildRepository;
 import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 
@@ -14,17 +17,29 @@ public class ManualIndexRebuildService {
     private final ElasticsearchIndexManager indexes;
     private final FixedRangeRebuildScanner scanner;
     private final IndexingProperties properties;
+    private final GraphBuildRepository graphBuilds;
 
     public ManualIndexRebuildService(SearchIndexVersionRepository versions,
                                      VersionRebuildCoordinator coordinator,
                                      ElasticsearchIndexManager indexes,
                                      FixedRangeRebuildScanner scanner,
                                      IndexingProperties properties) {
+        this(versions, coordinator, indexes, scanner, properties, null);
+    }
+
+    @Autowired
+    public ManualIndexRebuildService(SearchIndexVersionRepository versions,
+                                     VersionRebuildCoordinator coordinator,
+                                     ElasticsearchIndexManager indexes,
+                                     FixedRangeRebuildScanner scanner,
+                                     IndexingProperties properties,
+                                     @Nullable GraphBuildRepository graphBuilds) {
         this.versions = versions;
         this.coordinator = coordinator;
         this.indexes = indexes;
         this.scanner = scanner;
         this.properties = properties;
+        this.graphBuilds = graphBuilds;
     }
 
     public VersionRebuildCoordinator.StartResult rebuild(int versionNumber, String requestedBy) {
@@ -37,8 +52,14 @@ public class ManualIndexRebuildService {
             if (admitted.getConfigRevision() != run.getConfigRevision()) {
                 throw new IllegalStateException("version configuration changed after run admission");
             }
-            indexes.recreateOfflineVersion(admitted.getPhysicalName(),
-                    admitted.editableConfig().embeddingDimensions());
+            if (admitted.editableConfig().mappingSchemaVersion() >= 3) {
+                indexes.recreateOfflineVersion(admitted.getPhysicalName(),
+                        admitted.editableConfig().embeddingDimensions(),
+                        admitted.editableConfig().mappingSchemaVersion());
+            } else {
+                indexes.recreateOfflineVersion(admitted.getPhysicalName(),
+                        admitted.editableConfig().embeddingDimensions());
+            }
             scanner.scan(run);
         });
     }
@@ -49,7 +70,7 @@ public class ManualIndexRebuildService {
                         "unknown index version: " + versionNumber));
     }
 
-    private static void requireEligible(SearchIndexVersion version, boolean admitted) {
+    private void requireEligible(SearchIndexVersion version, boolean admitted) {
         if (version.getDeletedAt() != null) {
             throw new IllegalStateException("deleted version cannot be rebuilt");
         }
@@ -61,6 +82,10 @@ public class ManualIndexRebuildService {
         }
         if (!version.isPipelineSupported()) {
             throw new IllegalStateException("version pipeline is unsupported by this deployment");
+        }
+        if (graphBuilds != null
+                && graphBuilds.hasActiveRunReferencingChunkIndex(version.getVersionNumber())) {
+            throw new IllegalStateException("version is referenced by an active graph build");
         }
         if (!admitted) {
             IndexVersionStatusPolicy.startBuild(version.toSnapshot(false, false));

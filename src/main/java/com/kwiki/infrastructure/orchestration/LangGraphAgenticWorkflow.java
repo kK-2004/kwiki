@@ -19,6 +19,7 @@ import io.micrometer.tracing.propagation.Propagator;
 
 import org.bsc.langgraph4j.*;
 import org.bsc.langgraph4j.state.AgentState;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -62,6 +63,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     private final Optional<Propagator> propagator;
     private final CompiledGraph<AgentState> graph;
     private final Semaphore permits;
+    /** 图增强仅在 kwiki.graph.enabled 时由装配注入；默认关闭，保持原检索路径。 */
+    private volatile com.kwiki.rag.retrieval.GraphRetrievalEnhancer graphEnhancer;
     private final ScheduledExecutorService timer =
             Executors.newSingleThreadScheduledExecutor(
                     Thread.ofPlatform().daemon().name("agentic-deadline").factory());
@@ -104,8 +107,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         this.debug = debug;
         this.qaThreshold = qaThreshold;
         this.tracer = tracer;
-        this.propagator = propagator;
-        permits = new Semaphore(limits.concurrentRuns());
+        this.propagator = propagator;        permits = new Semaphore(limits.concurrentRuns());
         var g = new StateGraph<AgentState>(AgentState::new);
         Map<String, Consumer<Session>> nodes = new LinkedHashMap<>();
         nodes.put("route", this::route);
@@ -161,6 +163,13 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             case "route" -> java.time.Duration.ofSeconds(10);
             default -> java.time.Duration.ofSeconds(30);
         };
+    }
+
+    /** 图功能启用时由 Spring 装配注入；不存在时增强整体跳过。 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void configureGraphEnhancement(
+            ObjectProvider<com.kwiki.rag.retrieval.GraphRetrievalEnhancer> enhancer) {
+        this.graphEnhancer = enhancer.getIfAvailable();
     }
 
     @Override
@@ -247,7 +256,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                                                 s =
                                                                         new Session(
                                                                                 run, user, query,
-                                                                                conversationHistory, sink, persistConversation);
+                                                                                conversationHistory, sink, persistConversation,
+                                                                                kbIds, pageIds);
                                                                 reference.set(s);
                                                                 s.debugStage("workflow", "start", 0, () -> Map.of(
                                                                         "query", AgenticDebugLogger.boundedQuery(query),
@@ -465,6 +475,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.lastDegradations = outcome.degradations();
         s.children = trimToBudget(outcome.children(), budget.childCharBudget());
         s.parentEvidence = List.of();
+        applyGraphEnhancement(s, budget);
         Map<String, Object> metrics = new LinkedHashMap<>();
         metrics.put("branchTopK", budget.branchTopK());
         metrics.put("finalTopK", budget.finalTopK());
@@ -524,9 +535,45 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.next = "generate";
     }
 
+    /**
+     * retrieveChildren 阶段的确定性图增强：图禁用（未注入）或无 Chunk 命中时
+     * 是无操作；图分支失败保留 Chunk 证据继续原流程。所有轮共享 run 级
+     * 增强预算，DIRECT 路径不查图。
+     */
+    private void applyGraphEnhancement(Session s, QaRetrievalBudgets.StageBudget budget) {
+        if (graphEnhancer == null || s.children.isEmpty()) {
+            return;
+        }
+        boolean direct = s.route != null && !s.route.needsRetrieval();
+        var selection = s.selectedPageIds.isEmpty()
+                ? com.kwiki.graph.GraphSelectionScope.all()
+                : com.kwiki.graph.GraphSelectionScope.of(s.selectedPageIds.stream()
+                        .map(com.kwiki.graph.GraphResourceId::page)
+                        .toArray(com.kwiki.graph.GraphResourceId[]::new));
+        var enhancement = graphEnhancer.enhance(
+                s.run.scope.userId(), s.run.scope.superuser(),
+                s.children, s.currentQuery, selection, s.embeddingCache,
+                s.graphBudget, direct);
+        if (enhancement.enhanced()) {
+            s.children = trimToBudget(enhancement.mergedChildren(), budget.childCharBudget());
+        }
+        if (!enhancement.degradations().isEmpty()) {
+            var combined = new ArrayList<>(s.lastDegradations);
+            combined.addAll(enhancement.degradations());
+            s.lastDegradations = List.copyOf(combined);
+        }
+        if (enhancement.enhanced() || !enhancement.degradations().isEmpty()) {
+            s.debugStage("retrieval", "graph-enhancement", 0, () -> Map.of(
+                    "enhanced", enhancement.enhanced(),
+                    "communities", enhancement.communitiesUsed().size(),
+                    "graphChildrenAdded", s.graphBudget.childrenAdded(),
+                    "graphEdgeChecks", s.graphBudget.edgeChecks(),
+                    "graphElapsedMs", s.graphBudget.usedMs()));
+        }
+    }
+
     private void retrieveParents(Session s) {
-        s.run.authorize();
-        s.parentFetchUsed++;
+        s.run.authorize();        s.parentFetchUsed++;
         if (s.parentFetchUsed > limits.parentFetches()) {
             throw new RunFailure("parent-budget-exhausted");
         }
@@ -903,8 +950,13 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 message = AgenticErrorCodes.INSUFFICIENT_MESSAGE;
         int queryRound = 1, rewritesUsed, hybridRetrievalUsed, parentFetchUsed,
                 generationsUsed, qualityUsed, citationCount;
+        final java.util.Set<Long> selectedKbIds;
+        final java.util.Set<Long> selectedPageIds;
+        final com.kwiki.rag.retrieval.GraphRetrievalEnhancer.SharedBudget graphBudget =
+                new com.kwiki.rag.retrieval.GraphRetrievalEnhancer.SharedBudget();
 
-        Session(RunContext run, CurrentUser user, String query, List<ChatTurn> conversationHistory, FluxSink<ChatStreamEvent> sink, boolean persistConversation) {
+        Session(RunContext run, CurrentUser user, String query, List<ChatTurn> conversationHistory, FluxSink<ChatStreamEvent> sink, boolean persistConversation,
+                java.util.Set<Long> selectedKbIds, java.util.Set<Long> selectedPageIds) {
             this.persistConversation = persistConversation;
             this.run = run;
             this.user = user;
@@ -912,6 +964,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             this.conversationHistory = conversationHistory == null ? List.of() : List.copyOf(conversationHistory);
             this.currentQuery = query == null ? "" : query;
             this.sink = sink;
+            this.selectedKbIds = selectedKbIds == null ? java.util.Set.of() : selectedKbIds;
+            this.selectedPageIds = selectedPageIds == null ? java.util.Set.of() : selectedPageIds;
         }
 
         synchronized void emit(String type, Map<String, Object> payload) {

@@ -174,6 +174,24 @@ class ChunkIndexRepositoryTest {
         assertThat(child.get("embeddingModel")).hasToString("text-embedding-v4");
     }
 
+    @Test
+    void entityEnabledChildStartsPendingWithoutAddingFieldsToParent() {
+        IndexedVersion graphVersion = new IndexedVersion(
+                "PAGE", 7L, 103L, 2L, 1L, "parser-1", "chunker-1",
+                "text-embedding-v4", 3, List.of(parentChunk), List.of(childChunk),
+                List.of(new float[]{0.1f, 0.2f}), 3, "entity-linking-v1");
+
+        Map<String, Object> parent = ChunkDocument.parent(parentChunk, graphVersion);
+        Map<String, Object> child = ChunkDocument.child(childChunk,
+                graphVersion.childVectors().get(0), graphVersion);
+
+        assertThat(parent).doesNotContainKey("entityIds");
+        assertThat(child.get("sourceChunkId")).asString().startsWith("sc_");
+        assertThat(child.get("entityIds")).isEqualTo(List.of());
+        assertThat(child.get("entityLinkingVersion")).isEqualTo("entity-linking-v1");
+        assertThat(child.get("entityLinkingStatus")).isEqualTo("PENDING");
+    }
+
     private static BulkResponse bulkResponse(Integer errorStatus) {
         BulkResponseItem item = BulkResponseItem.of(builder -> {
             builder.operationType(co.elastic.clients.elasticsearch.core.bulk.OperationType.Index);

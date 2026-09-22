@@ -77,7 +77,7 @@ class NoMinioCouplingAuditTest {
                 .as("pom must declare the content-center SDK")
                 .contains("<groupId>com.kk</groupId>")
                 .contains("<artifactId>content-center-sdk</artifactId>")
-                .contains("<content-center-sdk.version>0.1.3</content-center-sdk.version>");
+                .contains("<content-center-sdk.version>0.1.4</content-center-sdk.version>");
         assertThat(pom).doesNotContain("io.minio");
     }
 
