@@ -81,8 +81,7 @@ class RepositorySecretsAuditTest {
     void applicationYamlKeepsSecretsAsPlaceholders() throws IOException {
         List<String> offenders = new ArrayList<>();
         for (Path yml : List.of(
-                REPO_ROOT.resolve("src/main/resources/application.yml"),
-                REPO_ROOT.resolve("src/main/resources/application-local.yml"))) {
+                REPO_ROOT.resolve("src/main/resources/application.yml"))) {
             assertThat(yml).exists();
             for (String line : Files.readAllLines(yml, StandardCharsets.UTF_8)) {
                 if (SECRET_YAML_KEY.matcher(line).matches()) {

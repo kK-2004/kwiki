@@ -28,7 +28,24 @@
     <langchain4j.version>1.20.0</langchain4j.version>
     <langgraph4j.version>1.8.20</langgraph4j.version>
     <json-schema-validator.version>2.0.0</json-schema-validator.version>
+    <!-- Spring Cloud Alibaba：仅用于 Nacos 配置中心（spring.config.import 方式，
+         无 bootstrap.yml）。2025.0.x 线匹配 Spring Boot 3.5.x / Spring Cloud
+         2025.0.x；注意 2025.1.x 线面向 Spring Boot 4，与本项目不兼容。 -->
+    <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
   </properties>
+
+  <!-- 统一由 BOM 托管 SCA 与传递的 nacos-client 版本，避免手工对齐版本冲突。 -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.alibaba.cloud</groupId>
+        <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+        <version>${spring-cloud-alibaba.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
   <!-- 私有 GitHub Packages 仓库。认证来自 Maven settings：
        id 与下方仓库 id 相匹配的 <server>，并配以具备
@@ -100,6 +117,13 @@
     <dependency>
       <groupId>io.micrometer</groupId>
       <artifactId>micrometer-tracing-bridge-brave</artifactId>
+    </dependency>
+    <!-- Nacos 配置中心客户端：通过 spring.config.import 拉取远程配置
+         （Data ID kwiki.yaml），optional 前缀保证 Nacos 不可达时启动不受影响。
+         版本由上方 BOM 托管；不引入 nacos-discovery（单体应用无服务注册需求）。 -->
+    <dependency>
+      <groupId>com.alibaba.cloud</groupId>
+      <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
     </dependency>
     <dependency>
       <groupId>com.mysql</groupId>
