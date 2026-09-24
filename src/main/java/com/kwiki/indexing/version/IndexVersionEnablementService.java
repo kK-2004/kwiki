@@ -2,13 +2,11 @@ package com.kwiki.indexing.version;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 
 import java.util.List;
 
 /** 管理员显式控制版本是否继续承接未来索引事件。 */
 @Service
-@ConditionalOnBean(SearchIndexVersionRepository.class)
 public class IndexVersionEnablementService {
 
     private static final List<String> ACTIVE_RUN_STATES = List.of(

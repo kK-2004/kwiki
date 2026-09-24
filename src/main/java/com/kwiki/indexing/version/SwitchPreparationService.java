@@ -1,7 +1,7 @@
 package com.kwiki.indexing.version;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -10,7 +10,6 @@ import java.util.List;
 
 /** 建立切换补齐边界；不修改读别名，也不在此处执行实际补齐。 */
 @Service
-@ConditionalOnBean(JdbcTemplate.class)
 public class SwitchPreparationService {
 
     private final SearchIndexVersionRepository versions;
@@ -19,6 +18,7 @@ public class SwitchPreparationService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
+    @Autowired
     public SwitchPreparationService(SearchIndexVersionRepository versions,
                                     SearchIndexRebuildRunRepository runs,
                                     SearchIndexRebuildRangeRepository ranges,

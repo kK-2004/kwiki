@@ -1,7 +1,7 @@
 package com.kwiki.indexing.version;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -11,7 +11,6 @@ import java.util.List;
 
 /** 固化最终事件屏障，并在屏障内全部目标操作收敛后把补齐标记为 READY。 */
 @Service
-@ConditionalOnBean(JdbcTemplate.class)
 public class SwitchPreparationBarrierService {
     private final SearchIndexVersionRepository versions;
     private final SearchIndexRebuildRunRepository runs;
@@ -20,6 +19,7 @@ public class SwitchPreparationBarrierService {
     private final TransactionTemplate transactions;
     private final Clock clock;
 
+    @Autowired
     public SwitchPreparationBarrierService(SearchIndexVersionRepository versions,
                                            SearchIndexRebuildRunRepository runs,
                                            SearchIndexRebuildRangeRepository ranges,

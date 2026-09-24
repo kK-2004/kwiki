@@ -229,8 +229,20 @@ public class WikiInteractionService {
         return currentStatsVersion(pageId);
     }
     private long currentStatsVersion(long pageId) {
-        Long value = jdbc.queryForObject("SELECT version FROM stats_revision WHERE page_id = ?", Long.class, pageId);
-        return value == null ? 1L : value;
+        try {
+            Long value = jdbc.queryForObject(
+                    "SELECT version FROM stats_revision WHERE page_id = ?", Long.class, pageId);
+            return value == null ? 1L : value;
+        } catch (EmptyResultDataAccessException missingRevision) {
+            Integer activePage = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM wiki_page WHERE id = ? AND status = 'ACTIVE'",
+                    Integer.class, pageId);
+            if (activePage == null || activePage == 0) {
+                throw new com.kk2004.common.exception.NotFoundException("wiki不存在");
+            }
+            // V13 前创建或异常修复中的有效页面可能尚无版本行；读取仍按初始版本兼容。
+            return 1L;
+        }
     }
     private boolean exists(String sql, Object... args) { Integer value = jdbc.queryForObject(sql, Integer.class, args); return value != null; }
     private static long number(Object value) { return value instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(value)); }

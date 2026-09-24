@@ -28,6 +28,47 @@ public class WikiMockBeans {
     @MockBean
     public com.kwiki.infrastructure.ai.AnswerModelCapabilities answerModelCapabilities;
 
+    /**
+     * 搜索索引与图构建的持久化支撑层在此一并模拟：这些 bean 现已随应用
+     * 无条件装配（此前的 @ConditionalOnBean 评估时机错误导致从未生效），
+     * 无数据库的上下文需要以下替身才能完整启动。
+     */
+    @MockBean
+    public org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    @MockBean
+    public org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    /** 真实注册表而非 mock：MeterRegistry 的接口默认方法被 actuator 依赖，mock 会返回 null。 */
+    @org.springframework.context.annotation.Bean
+    public io.micrometer.core.instrument.MeterRegistry meterRegistry() {
+        return new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+    }
+
+    @MockBean
+    public com.kwiki.indexing.search.ElasticsearchIndexManager elasticsearchIndexManager;
+
+    @MockBean
+    public com.kwiki.infrastructure.redis.KwikiDistributedLocks distributedLocks;
+
+    @MockBean
+    public com.kwiki.indexing.version.SearchIndexVersionRepository searchIndexVersions;
+
+    @MockBean
+    public com.kwiki.indexing.version.SearchIndexRebuildRunRepository searchIndexRebuildRuns;
+
+    @MockBean
+    public com.kwiki.indexing.version.SearchIndexRebuildRangeRepository searchIndexRebuildRanges;
+
+    @MockBean
+    public com.kwiki.indexing.version.SearchIndexValidationReportRepository searchIndexValidationReports;
+
+    @MockBean
+    public com.kwiki.indexing.version.SearchIndexAuditRepository searchIndexAudits;
+
+    @MockBean
+    public com.kwiki.indexing.version.SearchIndexIdempotencyRepository searchIndexIdempotency;
+
     @MockBean
     public KnowledgeBaseRepository knowledgeBases;
 

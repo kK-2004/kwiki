@@ -1,6 +1,5 @@
 package com.kwiki.graph.persistence;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import com.kwiki.infrastructure.observability.SecretRedaction;
 import org.springframework.stereotype.Repository;
@@ -13,7 +12,6 @@ import java.util.Optional;
 
 /** 图写入和 ES 回填目标分别租约、重试和完成，单目标失败不回滚另一目标。 */
 @Repository
-@ConditionalOnBean(JdbcTemplate.class)
 public class GraphExtractionTargetRepository {
 
     private final JdbcTemplate jdbc;

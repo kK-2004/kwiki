@@ -1,6 +1,5 @@
 package com.kwiki.graph.persistence;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -10,7 +9,6 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
-@ConditionalOnBean(GraphBuildRepository.class)
 public class GraphSnapshotSealingService {
 
     private final GraphBuildRepository repository;

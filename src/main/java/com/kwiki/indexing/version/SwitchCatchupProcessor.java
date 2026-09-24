@@ -1,7 +1,6 @@
 package com.kwiki.indexing.version;
 
 import com.kwiki.indexing.config.IndexingProperties;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -11,7 +10,6 @@ import java.util.List;
 
 /** 可恢复的切换补齐：每次只推进一个有界批次，任务入队与游标同事务提交。 */
 @Service
-@ConditionalOnBean(JdbcTemplate.class)
 public class SwitchCatchupProcessor {
 
     private final SearchIndexRebuildRunRepository runs;

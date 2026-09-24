@@ -2,14 +2,12 @@ package com.kwiki.indexing.version;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /** 周期恢复所有已建立双写水位、尚未进入最终屏障的切换准备。 */
 @Component
-@ConditionalOnBean(JdbcTemplate.class)
 class SwitchCatchupScheduler {
     private static final Logger log = LoggerFactory.getLogger(SwitchCatchupScheduler.class);
     private final SearchIndexRebuildRunRepository runs;

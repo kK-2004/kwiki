@@ -1,7 +1,6 @@
 package com.kwiki.graph.persistence;
 
 import com.kwiki.graph.GraphSourceChunk;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,7 +12,6 @@ import java.util.Optional;
  * 已发布身份时才入队；ArcadeDB 与 Elasticsearch 目标分别持久化，互不回滚。
  */
 @Repository
-@ConditionalOnBean(JdbcTemplate.class)
 public class GraphExtractionJobPlanner {
 
     private final JdbcTemplate jdbc;

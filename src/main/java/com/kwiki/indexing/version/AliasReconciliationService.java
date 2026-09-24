@@ -6,12 +6,10 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import java.time.Duration;
 
 /** ES 别名是读目标事实源；修复 ES 已提交但数据库未提交的崩溃窗口。 */
 @Service
-@ConditionalOnBean(SearchIndexVersionRepository.class)
 public class AliasReconciliationService implements ApplicationRunner {
     private final KwikiDistributedLocks locks; private final ElasticsearchIndexManager indexes;
     private final SearchIndexVersionRepository versions; private final SearchIndexSelectionRegistry selection;

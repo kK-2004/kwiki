@@ -13,7 +13,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,7 +36,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/admin/knowledge-graphs")
 @PreAuthorize("hasRole('ADMIN')")
-@ConditionalOnBean(GraphBuildBatchService.class)
+@ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
 public class GraphBuildAdminController {
 
     private final GraphBuildBatchService batches;

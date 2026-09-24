@@ -7,7 +7,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Duration;
@@ -23,7 +22,6 @@ import java.util.concurrent.Semaphore;
 
 /** 同一版本的首次构建与手动重建共用的长任务互斥入口。 */
 @Service
-@ConditionalOnBean(JdbcTemplate.class)
 public class VersionRebuildCoordinator {
 
     private static final Logger log = LoggerFactory.getLogger(VersionRebuildCoordinator.class);

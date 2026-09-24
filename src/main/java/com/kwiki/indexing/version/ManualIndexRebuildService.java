@@ -6,11 +6,9 @@ import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 
 /** 管理员手动重建：资格预检后进入与首次构建完全相同的版本级协调锁。 */
 @Service
-@ConditionalOnBean(SearchIndexVersionRepository.class)
 public class ManualIndexRebuildService {
     private final SearchIndexVersionRepository versions;
     private final VersionRebuildCoordinator coordinator;

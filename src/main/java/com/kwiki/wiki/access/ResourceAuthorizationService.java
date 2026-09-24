@@ -73,7 +73,14 @@ public class ResourceAuthorizationService {
 
     public void requireInKnowledgeBase(CurrentUser user, long kbId, long pageId, ResourceAction action) {
         if (jdbc == null) throw new AccessDeniedException("resource access denied");
-        Long actual = jdbc.queryForObject("SELECT kb_id FROM wiki_page WHERE id = ? AND status = 'ACTIVE'", Long.class, pageId);
+        Long actual;
+        try {
+            actual = jdbc.queryForObject(
+                    "SELECT kb_id FROM wiki_page WHERE id = ? AND status = 'ACTIVE'",
+                    Long.class, pageId);
+        } catch (EmptyResultDataAccessException missing) {
+            throw new com.kk2004.common.exception.NotFoundException("wiki不存在");
+        }
         if (actual == null || actual != kbId) throw new AccessDeniedException("resource access denied");
         require(user, pageId, action);
     }

@@ -2,7 +2,6 @@ package com.kwiki.indexing.version;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -12,7 +11,6 @@ import java.util.Set;
 
 /** 只计算人工清理建议；不会创建定时任务，也不会删除数据库或 ES 数据。 */
 @Service
-@ConditionalOnBean(SearchIndexVersionRepository.class)
 public class IndexVersionRetentionAdvisor {
 
     private static final int DEFAULT_RETAINED_VERSIONS = 2;

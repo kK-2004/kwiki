@@ -4,12 +4,10 @@ import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
 import org.springframework.stereotype.Service;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import java.time.Duration;
 
 /** 管理员原子选择/回滚入口；Redis 不可用或锁竞争时失败关闭。 */
 @Service
-@ConditionalOnBean(SearchIndexVersionRepository.class)
 public class AliasSwitchService {
     private static final Duration LOCK_WAIT=Duration.ofSeconds(2);
     private static final Duration LOCK_LEASE=Duration.ofSeconds(30);

@@ -1,7 +1,6 @@
 package com.kwiki.graph.persistence;
 
 import com.kwiki.graph.GraphSnapshot;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -14,7 +13,6 @@ import java.util.function.Supplier;
  */
 @Service
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
-@ConditionalOnBean(GraphBuildRepository.class)
 public class GraphAdminCommandService {
 
     private final GraphBuildRepository repository;

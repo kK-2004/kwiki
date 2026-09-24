@@ -1,8 +1,8 @@
 package com.kwiki.graph.persistence;
 
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.util.ArrayList;
@@ -15,7 +15,6 @@ import java.util.List;
  */
 @Service
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
-@ConditionalOnBean(GraphBuildRepository.class)
 public class GraphBuildBatchService {
 
     private final GraphBuildRepository repository;
@@ -25,7 +24,7 @@ public class GraphBuildBatchService {
         this(repository, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public GraphBuildBatchService(GraphBuildRepository repository,
                                   GraphSourceEpochService epochs) {
         this.repository = repository;

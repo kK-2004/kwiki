@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,7 +27,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/admin/search-indexes")
 @PreAuthorize("hasRole('ADMIN')")
-@ConditionalOnBean(SearchIndexVersionRepository.class)
 public class SearchIndexAdminController {
     private final SearchIndexAdminQueryService queries;
     private final SearchIndexAdminService admin;

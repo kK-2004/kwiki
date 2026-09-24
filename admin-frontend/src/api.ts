@@ -1,4 +1,4 @@
-export interface Envelope<T>{code:number;message?:string;data:T}
+export interface Envelope<T>{code:number;success?:boolean;message?:string;data:T}
 export interface Config{parserVersion:string;chunkerVersion:string;embeddingProvider:string;embeddingModel:string;embeddingDimensions:number;mappingSchemaVersion:number}
 export interface Version{versionNumber:number;physicalName:string;configuration:Config;configRevision:number;builtConfigRevision:number|null;dirty:boolean;displayStatus:"PENDING_REBUILD"|"REBUILDING"|"REBUILT"|"CATCHING_UP"|"PUBLISHED"|"NEEDS_ATTENTION";buildState:string;catchupStatus:string;writeEnabled:boolean;adminDisabled:boolean;selected:boolean;pipelineSupported:boolean;healthSummary?:string;attentionReason?:string;lastValidationAt?:string;validationSummary?:string;cleanupCandidate:boolean;allowedActions:Record<string,boolean>}
 export interface Range{resourceType:string;minId:number;maxId:number;lastSeenId:number;tailLastSeenId:number;tailMaxId:number|null;scanned:number;succeeded:number;skipped:number;failed:number}
@@ -11,7 +11,7 @@ export class ApiError extends Error{constructor(public status:number,public code
 async function request<T>(path:string,init:RequestInit={}):Promise<T>{
   const headers=new Headers(init.headers);headers.set("Content-Type","application/json");const jwt=token.get();if(jwt)headers.set("Authorization",`Bearer ${jwt}`);
   const response=await fetch(`/api/v1${path}`,{...init,headers});let body:Envelope<T>|undefined;try{body=await response.json()}catch{throw new ApiError(response.status,"invalid_response")}
-  if(!response.ok||!body||body.code>=400)throw new ApiError(response.status,body?.message||"request_failed");return body.data;
+  if(!response.ok||!body||body.code>=400||body.success===false)throw new ApiError(response.status,body?.message||"request_failed");return body.data;
 }
 const key=()=>crypto.randomUUID();
 const graphCommand=<T>(path:string,body?:unknown)=>request<T>(`/admin/knowledge-graphs${path}`,{method:"POST",headers:{"Idempotency-Key":key()},body:body===undefined?undefined:JSON.stringify(body)});
@@ -23,8 +23,9 @@ export interface GraphSchedule{scheduleDate:string;status:string;linkedBatchId:n
 export interface GraphSnapshotRow{id:number;kbId:number;graphVersion:number;chunkIndexVersion:number;communityIndexVersion:number;communityPhysicalIndex:string;state:string;entityCount:number;relationCount:number;communityCount:number;sealedAt?:string;retiredAt?:string;createdAt:string}
 export interface GraphServiceStatus{enabled:boolean;algorithmMode:string;scheduleCron:string;scheduleZone:string;autoPublish:boolean;capacity:Record<string,number>;activeBatchId:number}
 export const api={
-  login:(username:string,password:string)=>request<{accessToken:string}>("/auth/login",{method:"POST",body:JSON.stringify({username,password})}),
+  login:(username:string,password:string)=>request<{token:string;tokenType:string;expiresInSeconds:number;user:{id:number;username:string;admin:boolean}}>("/auth/login",{method:"POST",body:JSON.stringify({username,password})}),
   me:()=>request<{id:number;username:string;admin:boolean}>("/auth/me"),
+  adminKnowledgeBases:()=>request<{id:number;name:string}[]>("/admin/knowledge-bases"),
   versions:()=>request<Version[]>("/admin/search-indexes/versions"),alias:()=>request<{alias:string;targets:string[]}>("/admin/search-indexes/alias"),
   runs:()=>request<Run[]>("/admin/search-indexes/runs"),validations:()=>request<Validation[]>("/admin/search-indexes/validations"),audits:()=>request<Audit[]>("/admin/search-indexes/audits"),stats:()=>request<Record<string,unknown>[]>("/admin/search-indexes/write-statistics"),
   command:<T>(path:string,method="POST",body?:unknown)=>request<T>(`/admin/search-indexes${path}`,{method,headers:{"Idempotency-Key":key()},body:body===undefined?undefined:JSON.stringify(body)}),

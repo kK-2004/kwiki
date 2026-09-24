@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kwiki.wiki.api.ConflictException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
@@ -13,7 +12,6 @@ import java.util.function.Supplier;
 
 /** 管理命令的数据库幂等门；响应只持久化净化后的标量摘要。 */
 @Service
-@ConditionalOnBean(SearchIndexIdempotencyRepository.class)
 public class AdminCommandIdempotency {
     private final SearchIndexIdempotencyRepository rows;
     private final ObjectMapper json;

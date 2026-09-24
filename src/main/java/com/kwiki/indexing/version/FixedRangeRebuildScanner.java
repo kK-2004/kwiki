@@ -1,7 +1,6 @@
 package com.kwiki.indexing.version;
 
 import com.kwiki.indexing.config.IndexingProperties;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -12,7 +11,6 @@ import java.util.Map;
 
 /** 按持久化 ID 上界扫描有效资源；每批游标、计数和目标任务在同一事务提交。 */
 @Service
-@ConditionalOnBean(JdbcTemplate.class)
 public class FixedRangeRebuildScanner {
     private final SearchIndexRebuildRunRepository runs;
     private final SearchIndexRebuildRangeRepository ranges;

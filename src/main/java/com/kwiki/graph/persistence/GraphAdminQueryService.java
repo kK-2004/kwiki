@@ -1,6 +1,5 @@
 package com.kwiki.graph.persistence;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.stereotype.Service;
 
@@ -13,7 +12,6 @@ import java.util.Map;
  * 只暴露允许披露的字段；不回显凭据、正文或隐私实体名。
  */
 @Service
-@ConditionalOnBean(JdbcOperations.class)
 public class GraphAdminQueryService {
 
     private final JdbcOperations jdbc;

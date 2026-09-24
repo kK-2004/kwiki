@@ -1,13 +1,11 @@
 package com.kwiki.graph.persistence;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 内容和安全变化的单调 epoch，作为旧图任务和摘要的生命周期 fencing。 */
 @Service
-@ConditionalOnBean(JdbcTemplate.class)
 public class GraphSourceEpochService {
 
     private final JdbcTemplate jdbc;

@@ -1,6 +1,5 @@
 package com.kwiki.graph.persistence;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -18,7 +17,6 @@ import java.util.Optional;
 
 /** 使用 MySQL 行锁、条件更新和唯一键实现图任务的幂等与 fencing。 */
 @Repository
-@ConditionalOnBean(JdbcTemplate.class)
 public class JdbcGraphBuildRepository implements GraphBuildRepository {
 
     private static final List<String> ACTIVE_STATES = List.of(

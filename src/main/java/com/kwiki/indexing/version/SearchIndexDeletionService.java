@@ -6,14 +6,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.lang.Nullable;
 
 import java.util.List;
 
 /** 物理索引人工清理入口；没有调度器，删除只能由显式管理命令触发。 */
 @Service
-@ConditionalOnBean(SearchIndexVersionRepository.class)
 public class SearchIndexDeletionService {
     private static final String ACTION = "DELETE_PHYSICAL_INDEX";
     private static final List<String> ACTIVE_RUN_STATES = List.of(

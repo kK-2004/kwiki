@@ -3,7 +3,6 @@ package com.kwiki.graph.persistence;
 import com.kwiki.graph.GraphSnapshotPin;
 import com.kwiki.graph.GraphSnapshotPinGuard;
 import com.kwiki.graph.config.GraphProperties;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -19,7 +18,6 @@ import java.util.Optional;
  */
 @Service
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
-@ConditionalOnBean(GraphBuildRepository.class)
 public class GraphSnapshotReadService {
 
     private final GraphBuildRepository repository;

@@ -1,18 +1,18 @@
 package com.kwiki.indexing.version;
 
 import org.springframework.stereotype.Service;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 
 /** 持久化暂停/恢复/取消意图，worker 在批次边界协作响应。 */
 @Service
-@ConditionalOnBean(SearchIndexRebuildRunRepository.class)
 public class RebuildRunControlService {
     private final SearchIndexRebuildRunRepository runs;
     private final Clock clock;
 
+    @Autowired
     public RebuildRunControlService(SearchIndexRebuildRunRepository runs) {
         this(runs, Clock.systemUTC());
     }

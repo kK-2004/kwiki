@@ -1,12 +1,10 @@
 package com.kwiki.indexing.version;
 
 import org.springframework.stereotype.Service;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /** ES 提交成功后的数据库收敛；全部非停用版本继续作为写目标。 */
 @Service
-@ConditionalOnBean(SearchIndexVersionRepository.class)
 public class SearchIndexSelectionRegistry {
     private final SearchIndexVersionRepository versions;
     public SearchIndexSelectionRegistry(SearchIndexVersionRepository versions){this.versions=versions;}

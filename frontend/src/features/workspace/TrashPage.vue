@@ -32,7 +32,8 @@ const error = ref('');
 const notice = ref('');
 const restoringId = ref<number | null>(null);
 const deletingId = ref<number | null>(null);
-const deleteTarget = ref<TrashItem | null>(null);
+const selectedIds = ref(new Set<number>());
+const deleteTargets = ref<TrashItem[]>([]);
 const deleteError = ref('');
 
 const kbId = computed(() => {
@@ -41,6 +42,11 @@ const kbId = computed(() => {
 });
 
 const heading = computed(() => (kbId.value ? '知识库回收站' : '回收站'));
+const selectedItems = computed(() => items.value.filter(item => selectedIds.value.has(item.batchId)));
+const allVisibleSelected = computed(() => items.value.length > 0
+  && items.value.every(item => selectedIds.value.has(item.batchId)));
+const deleteTarget = computed(() => deleteTargets.value.length === 1 ? deleteTargets.value[0] : null);
+const deleting = computed(() => deletingId.value != null);
 
 async function load(reset = true) {
   loading.value = true;
@@ -51,6 +57,7 @@ async function load(reset = true) {
     if (!reset && nextCursor.value) query.set('cursor', String(nextCursor.value));
     const page = await api.json<{ items: TrashItem[]; nextCursor: number | null }>(`/trash?${query}`);
     items.value = reset ? page.items : [...items.value, ...page.items];
+    if (reset) selectedIds.value = new Set();
     nextCursor.value = page.nextCursor;
   } catch (e) {
     error.value = errorMessage(e, '回收站加载失败，请重试');
@@ -76,34 +83,60 @@ async function restore(item: TrashItem) {
 }
 
 function requestDelete(item: TrashItem) {
-  if (deletingId.value != null) return;
+  if (deleting.value) return;
   deleteError.value = '';
-  deleteTarget.value = item;
+  deleteTargets.value = [item];
+}
+
+function requestBatchDelete() {
+  if (deleting.value || !selectedItems.value.length) return;
+  deleteError.value = '';
+  deleteTargets.value = [...selectedItems.value];
 }
 
 function cancelDelete() {
-  if (deletingId.value != null) return;
-  deleteTarget.value = null;
+  if (deleting.value) return;
+  deleteTargets.value = [];
   deleteError.value = '';
 }
 
 async function confirmDelete() {
-  const item = deleteTarget.value;
-  if (!item || deletingId.value != null) return;
-  deletingId.value = item.batchId;
+  const targets = [...deleteTargets.value];
+  if (!targets.length || deleting.value) return;
+  deletingId.value = targets.length === 1 ? targets[0].batchId : -1;
   deleteError.value = '';
   notice.value = '';
   error.value = '';
   try {
-    const result = await api.delete<{ message?: string }>(`/trash/${item.batchId}`);
+    const result = targets.length === 1
+      ? await api.delete<{ message?: string }>(`/trash/${targets[0].batchId}`)
+      : await api.post<{ message?: string }>('/trash/batch-delete', {
+          batchIds: targets.map(item => item.batchId),
+        });
     notice.value = result?.message || '已永久删除，内容不可恢复';
-    deleteTarget.value = null;
+    deleteTargets.value = [];
     await load(true);
   } catch (e) {
     deleteError.value = errorMessage(e, '永久删除失败，请稍后重试');
   } finally {
     deletingId.value = null;
   }
+}
+
+function toggleSelected(batchId: number, checked: boolean) {
+  const next = new Set(selectedIds.value);
+  if (checked) next.add(batchId);
+  else next.delete(batchId);
+  selectedIds.value = next;
+}
+
+function toggleAllVisible(checked: boolean) {
+  const next = new Set(selectedIds.value);
+  for (const item of items.value) {
+    if (checked) next.add(item.batchId);
+    else next.delete(item.batchId);
+  }
+  selectedIds.value = next;
 }
 
 function formatTime(value: string): string {
@@ -135,11 +168,32 @@ watch(kbId, () => void load(true));
     </header>
     <p v-if="notice" class="ui-notice" role="status">{{ notice }}</p>
     <p v-if="error" class="ui-error" role="alert">{{ error }}</p>
+    <div v-if="items.length" class="bulk-actions">
+      <span>已选择 {{ selectedItems.length }} 项</span>
+      <button
+        type="button"
+        class="ui-button danger"
+        data-testid="trash-batch-delete"
+        :disabled="!selectedItems.length || deleting || restoringId != null"
+        @click="requestBatchDelete"
+      >
+        批量永久删除
+      </button>
+    </div>
     <div v-if="loading && !items.length" class="loading">正在加载回收站…</div>
     <p v-else-if="!items.length" class="empty">回收站为空</p>
     <table v-else class="trash-table">
       <thead>
         <tr>
+          <th class="select-cell">
+            <input
+              type="checkbox"
+              aria-label="选择全部回收站项目"
+              :checked="allVisibleSelected"
+              :disabled="deleting || restoringId != null"
+              @change="toggleAllVisible(($event.target as HTMLInputElement).checked)"
+            >
+          </th>
           <th>名称</th>
           <th>类型</th>
           <th>归档者</th>
@@ -151,6 +205,15 @@ watch(kbId, () => void load(true));
       </thead>
       <tbody>
         <tr v-for="item in items" :key="item.batchId">
+          <td class="select-cell">
+            <input
+              type="checkbox"
+              :aria-label="`选择 ${item.title}`"
+              :checked="selectedIds.has(item.batchId)"
+              :disabled="deleting || restoringId != null"
+              @change="toggleSelected(item.batchId, ($event.target as HTMLInputElement).checked)"
+            >
+          </td>
           <td class="title" :title="item.title">{{ item.title }}</td>
           <td>{{ item.resourceType === 'KNOWLEDGE_BASE' ? '知识库' : '页面' }}</td>
           <td>{{ item.operatorName }}</td>
@@ -190,10 +253,12 @@ watch(kbId, () => void load(true));
     </footer>
     <RouterLink v-if="kbId" class="back" :to="`/knowledge-bases/${kbId}`">返回工作区</RouterLink>
 
-    <div v-if="deleteTarget" class="confirm-overlay" data-testid="trash-delete-confirm">
+    <div v-if="deleteTargets.length" class="confirm-overlay" data-testid="trash-delete-confirm">
       <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="trash-delete-title">
-        <h2 id="trash-delete-title">永久删除「{{ deleteTarget.title }}」？</h2>
-        <p>该操作会立即删除归档内容及其索引，且无法恢复。确定继续吗？</p>
+        <h2 id="trash-delete-title">
+          {{ deleteTarget ? `永久删除「${deleteTarget.title}」？` : `永久删除选中的 ${deleteTargets.length} 项？` }}
+        </h2>
+        <p>该操作会立即删除所选归档内容、下级页面、附件及其索引，且无法恢复。确定继续吗？</p>
         <p v-if="deleteError" class="ui-error" role="alert">{{ deleteError }}</p>
         <footer>
           <button type="button" class="ui-button" :disabled="deletingId != null" @click="cancelDelete">取消</button>
@@ -238,6 +303,25 @@ watch(kbId, () => void load(true));
   font-size: 13px;
   padding: 30px 0;
   text-align: center;
+}
+.bulk-actions {
+  min-height: 42px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e7ede8;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #718278;
+  font-size: 12px;
+}
+.select-cell {
+  width: 34px;
+  text-align: center !important;
+}
+.select-cell input {
+  accent-color: #43885a;
 }
 .trash-table {
   width: 100%;

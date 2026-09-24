@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kwiki.indexing.search.ChunkMappingBuilder;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import org.springframework.stereotype.Service;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import java.time.Instant;
@@ -19,7 +18,6 @@ import java.util.Optional;
 
 /** 持久化结构门禁；摘要不包含凭据、原文或堆栈。 */
 @Service
-@ConditionalOnBean(SearchIndexVersionRepository.class)
 public class SearchIndexValidationService {
     private final SearchIndexVersionRepository versions;
     private final SearchIndexRebuildRunRepository runs;

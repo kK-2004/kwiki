@@ -31,7 +31,9 @@ public final class StandardTestProperties {
             "kwiki.security.token-ttl=1h",
             "kwiki.content-center.base-url=http://localhost:8080",
             "kwiki.content-center.app-token=kapp-test-token",
-            "kwiki.elasticsearch.uris=http://localhost:9200",
+            // ES 客户端地址由 spring.elasticsearch.* 承载；此处只需满足
+            // ExternalServicesProperties.Elasticsearch(apiKey/username/password) 的绑定。
+            "kwiki.elasticsearch.api-key=test-es",
             "kwiki.answer-llm.base-url=http://localhost/v1",
             "kwiki.answer-llm.api-key=test",
             "kwiki.answer-llm.model=test-model",

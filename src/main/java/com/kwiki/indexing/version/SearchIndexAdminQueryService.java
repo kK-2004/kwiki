@@ -4,7 +4,6 @@ import com.kwiki.indexing.job.IndexingJobTargetStore;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import io.micrometer.core.instrument.MeterRegistry;
 
 import java.time.Instant;
@@ -15,7 +14,6 @@ import java.util.Set;
 
 /** 管理端只读投影；不暴露构建 manifest、凭据、原文或堆栈。 */
 @Service
-@ConditionalOnBean(SearchIndexVersionRepository.class)
 public class SearchIndexAdminQueryService {
     private final SearchIndexVersionRepository versions;
     private final SearchIndexRebuildRunRepository runs;

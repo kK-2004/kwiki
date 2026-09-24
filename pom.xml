@@ -21,7 +21,7 @@
     <java.version>21</java.version>
     <jjwt.version>0.11.5</jjwt.version>
     <content-center-sdk.version>0.1.4</content-center-sdk.version>
-    <kk-common.version>0.1.2</kk-common.version>
+    <kk-common.version>0.1.4</kk-common.version>
     <tika.version>2.9.1</tika.version>
     <commonmark.version>0.24.0</commonmark.version>
     <archunit.version>1.3.0</archunit.version>

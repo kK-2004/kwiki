@@ -1,8 +1,9 @@
 package com.kwiki.graph.persistence;
 
 import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -19,9 +20,8 @@ import java.util.regex.Pattern;
  * 先恢复该批次并记录 SKIPPED_ACTIVE 及关联任务，不创建重复批次。默认不
  * 开启变化阈值触发。
  */
+@ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
 @Component
-@ConditionalOnBean({GraphBuildBatchService.class, GraphScheduledBatchFactory.class,
-        GraphBuildRepository.class})
 public class GraphBuildScheduler {
 
     public enum Outcome {TRIGGERED, CATCH_UP, SKIPPED_ACTIVE, ALREADY_DONE, LOCK_NOT_ACQUIRED}
@@ -37,6 +37,7 @@ public class GraphBuildScheduler {
     private final ZoneId scheduleZone;
     private final Clock clock;
 
+    @Autowired
     public GraphBuildScheduler(GraphBuildBatchService batches,
                                GraphBuildRepository repository,
                                GraphScheduledBatchFactory factory,

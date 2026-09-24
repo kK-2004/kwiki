@@ -354,6 +354,7 @@ public class RecycleBinCleanupService {
 
     /** 外键/逻辑依赖顺序（见 implementation-notes.md §1.3）。 */
     private void deletePageRows(long pageId) {
+        deleteResourceAccessRows("PAGE", pageId);
         // 先解除尚未归档的外部引用，避免自引用外键阻止物理删除。
         jdbc.update("UPDATE wiki_page SET parent_id = NULL WHERE parent_id = ? AND status = 'ARCHIVED'",
                 pageId);
@@ -426,22 +427,27 @@ public class RecycleBinCleanupService {
         Long blobId = jdbc.queryForObject("SELECT blob_id FROM attachment WHERE id = ?",
                 Long.class, attachmentId);
         Long fileId = jdbc.queryForObject("""
-                SELECT COALESCE(blob.content_center_file_id, attachment.content_center_file_id)
+                SELECT COALESCE(ab.content_center_file_id, attachment.content_center_file_id)
                 FROM attachment
-                LEFT JOIN attachment_blob blob ON blob.id = attachment.blob_id
+                LEFT JOIN attachment_blob ab ON ab.id = attachment.blob_id
                 WHERE attachment.id = ?
                 """, Long.class, attachmentId);
         if (fileId != null && fileId > 0) {
             // 锁住同一个物理文件的全部元数据行，避免两个并发清理都看到“还有
             // 一个引用”而同时跳过远端删除，留下内容中心孤儿文件。
             jdbc.queryForList("""
-                    SELECT id FROM attachment
-                    WHERE content_center_file_id = ?
+                    SELECT attachment.id FROM attachment
+                    LEFT JOIN attachment_blob ab ON ab.id = attachment.blob_id
+                    WHERE COALESCE(ab.content_center_file_id,
+                                   attachment.content_center_file_id) = ?
                     FOR UPDATE
                     """, Long.class, fileId);
             Integer otherReferences = jdbc.queryForObject("""
                     SELECT COUNT(*) FROM attachment
-                    WHERE content_center_file_id = ? AND id <> ?
+                    LEFT JOIN attachment_blob ab ON ab.id = attachment.blob_id
+                    WHERE COALESCE(ab.content_center_file_id,
+                                   attachment.content_center_file_id) = ?
+                      AND attachment.id <> ?
                     """, Integer.class, fileId, attachmentId);
             if (otherReferences == null || otherReferences == 0) {
                 if (attachmentStorage == null) {
@@ -463,12 +469,24 @@ public class RecycleBinCleanupService {
     }
 
     private void deleteKnowledgeBaseRows(long kbId) {
-        // 该知识库的页面/附件本就是各自的批次项；这里只
-        // 移除知识库级的关系与那一行本身。
-        jdbc.update("DELETE FROM resource_invitation WHERE kb_id = ?", kbId);
-        jdbc.update("DELETE FROM resource_join_request WHERE kb_id = ?", kbId);
-        jdbc.update("DELETE FROM ownership_transfer WHERE kb_id = ?", kbId);
+        // 正常归档会为当时 ACTIVE/STORED 的页面和附件建立独立批次项。
+        // 这里仍以数据库当前内容为准递归兜底，覆盖更早单独归档的页面、
+        // ARCHIVED/PENDING 附件，以及旧数据缺少批次项的情况。
         jdbc.update("DELETE FROM wiki_import_job WHERE kb_id = ?", kbId);
+        jdbc.update("UPDATE wiki_page SET parent_id = NULL WHERE kb_id = ?", kbId);
+        for (Long pageId : jdbc.queryForList(
+                "SELECT id FROM wiki_page WHERE kb_id = ? ORDER BY id DESC",
+                Long.class, kbId)) {
+            deletePageRows(pageId);
+        }
+        for (Long attachmentId : jdbc.queryForList(
+                "SELECT id FROM attachment WHERE kb_id = ? ORDER BY id DESC",
+                Long.class, kbId)) {
+            deleteAttachmentIfUnreferenced(attachmentId);
+        }
+
+        deleteDerivedImageRows(kbId);
+        deleteResourceAccessRows("KB", kbId);
         jdbc.update("DELETE FROM knowledge_base_member WHERE kb_id = ?", kbId);
         jdbc.update("DELETE FROM wiki_page_audience_member WHERE source_kb_id = ?", kbId);
         jdbc.update("""
@@ -483,6 +501,59 @@ public class RecycleBinCleanupService {
         deleteIndexingJobs("KNOWLEDGE_BASE", kbId);
         jdbc.update("DELETE FROM scope_version WHERE kb_id = ?", kbId);
         jdbc.update("DELETE FROM knowledge_base WHERE id = ?", kbId);
+    }
+
+    /** 删除通用资源授权表中的行；这些表使用 resource_type/resource_id，而非 kb_id。 */
+    private void deleteResourceAccessRows(String resourceType, long resourceId) {
+        // join request 对 invitation 有外键，因此必须先删；同时按自身资源字段
+        // 与 invitation 归属双重匹配，兼容历史上可能存在的不一致数据。
+        jdbc.update("""
+                DELETE FROM resource_join_request
+                WHERE (resource_type = ? AND resource_id = ?)
+                   OR invitation_id IN (
+                       SELECT id FROM resource_invitation
+                       WHERE resource_type = ? AND resource_id = ?
+                   )
+                """, resourceType, resourceId, resourceType, resourceId);
+        jdbc.update("DELETE FROM resource_invitation WHERE resource_type = ? AND resource_id = ?",
+                resourceType, resourceId);
+        jdbc.update("DELETE FROM ownership_transfer WHERE resource_type = ? AND resource_id = ?",
+                resourceType, resourceId);
+    }
+
+    /** 清除知识库派生图片元数据，并删除已不再被其他本地资源引用的内容中心文件。 */
+    private void deleteDerivedImageRows(long kbId) {
+        List<Long> fileIds = jdbc.queryForList("""
+                SELECT DISTINCT content_id FROM derived_image_asset
+                WHERE source_kb_id = ? AND content_id IS NOT NULL
+                """, Long.class, kbId);
+        for (Long fileId : fileIds) {
+            if (fileId == null || fileId <= 0) continue;
+            Integer attachmentReferences = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM attachment
+                    LEFT JOIN attachment_blob ab ON ab.id = attachment.blob_id
+                    WHERE COALESCE(ab.content_center_file_id,
+                                   attachment.content_center_file_id) = ?
+                    """, Integer.class, fileId);
+            Integer otherDerivedReferences = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM derived_image_asset
+                    WHERE content_id = ? AND source_kb_id <> ?
+                    """, Integer.class, fileId, kbId);
+            if ((attachmentReferences == null || attachmentReferences == 0)
+                    && (otherDerivedReferences == null || otherDerivedReferences == 0)) {
+                if (attachmentStorage == null) {
+                    throw new IllegalStateException("content-center attachment storage is unavailable");
+                }
+                attachmentStorage.delete(fileId);
+            }
+        }
+        jdbc.update("""
+                DELETE FROM derived_image_summary
+                WHERE asset_id IN (
+                    SELECT id FROM derived_image_asset WHERE source_kb_id = ?
+                )
+                """, kbId);
+        jdbc.update("DELETE FROM derived_image_asset WHERE source_kb_id = ?", kbId);
     }
 
     /**

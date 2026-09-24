@@ -1,7 +1,6 @@
 package com.kwiki.graph.persistence;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -9,7 +8,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /** 图离线/在线流程的低基数指标；不把实体、正文、知识库内容或凭据写入 tag。 */
 @Component
-@ConditionalOnBean(MeterRegistry.class)
 public class GraphBuildMetrics {
 
     private final MeterRegistry registry;

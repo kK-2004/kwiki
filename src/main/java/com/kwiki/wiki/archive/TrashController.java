@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
+import java.util.List;
 
 /**
  * 回收站接口：可恢复的归档批次分页列表、恢复和用户主动永久删除动作。
@@ -23,6 +24,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/trash")
 public class TrashController {
+
+    public record BatchDeleteRequest(List<Long> batchIds) {}
 
     private final TrashQueryService trash;
     private final ResourceArchiveService archive;
@@ -64,6 +67,22 @@ public class TrashController {
                                          @PathVariable long batchId) {
         try {
             return ResponseEntity.ok(purge.purge(user, batchId));
+        } catch (ResourceArchiveService.ExpiredBatchException e) {
+            return ResponseEntity.status(HttpStatus.GONE)
+                    .body(Map.of("error", "trash-expired", "message", e.getMessage()));
+        } catch (ResourceArchiveService.BatchConflictException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "trash-conflict", "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/batch-delete")
+    public ResponseEntity<Object> batchDelete(@AuthenticationPrincipal CurrentUser user,
+                                              @org.springframework.web.bind.annotation.RequestBody
+                                              BatchDeleteRequest request) {
+        try {
+            return ResponseEntity.ok(purge.purgeAll(
+                    user, request == null ? null : request.batchIds()));
         } catch (ResourceArchiveService.ExpiredBatchException e) {
             return ResponseEntity.status(HttpStatus.GONE)
                     .body(Map.of("error", "trash-expired", "message", e.getMessage()));

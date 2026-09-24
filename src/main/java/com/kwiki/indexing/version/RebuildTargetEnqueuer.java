@@ -2,11 +2,9 @@ package com.kwiki.indexing.version;
 
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.stereotype.Repository;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 
 /** 基线重建专用的单目标入队器；不会读取或改变实时 writeEnabled 集合。 */
 @Repository
-@ConditionalOnBean(JdbcOperations.class)
 class RebuildTargetEnqueuer {
     private final JdbcOperations jdbc;
 
