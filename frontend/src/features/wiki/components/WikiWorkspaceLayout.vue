@@ -116,7 +116,7 @@ async function retryImport(job: ImportJob) {
 .import-link:hover { color: var(--k-ink); background: var(--k-surface-hover); }
 .wiki-content { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--k-canvas); }
 /* 面包屑栏：48px 高，细线分隔 */
-.workspace-head { height: 48px; flex: none; padding: 0 32px; border-bottom: 1px solid var(--k-line); display: flex; align-items: center; gap: 12px; color: var(--k-muted); font-size: 13px; }
+.workspace-head { min-height: 48px; flex: none; padding: 6px 32px; border-bottom: 1px solid var(--k-line); display: flex; align-items: center; gap: 12px; color: var(--k-muted); font-size: 13px; }
 .crumbs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; font-size: 13px; color: var(--k-muted); }
 .crumbs span { color: var(--k-faint); }
 .crumbs a { text-decoration: none; color: var(--k-muted); }
@@ -166,7 +166,7 @@ h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.8px; line-height: 1.2
   .tree-column { display: none; }
   .tree-column.mobile-open { display: flex; position: absolute; inset: 0 auto 0 0; width: 280px; background: var(--k-surface); z-index: 30; box-shadow: var(--k-shadow-float); }
   .mobile-tree { display: inline-grid; }
-  .workspace-head { padding: 0 16px; }
+  .workspace-head { padding: 6px 16px; }
   .document { padding: 20px; }
   .overview { margin: 10px auto; }
   h1 { font-size: 25px; }

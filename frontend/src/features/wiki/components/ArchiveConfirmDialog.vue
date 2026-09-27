@@ -114,7 +114,7 @@ function confirmArchive() {
   background: var(--k-danger);
   border-color: var(--k-danger);
 }
-.ui-button.danger:hover {
+.ui-button.danger:hover:not(:disabled) {
   color: var(--k-canvas);
   background: color-mix(in srgb, var(--k-danger) 88%, var(--k-ink));
   border-color: color-mix(in srgb, var(--k-danger) 88%, var(--k-ink));

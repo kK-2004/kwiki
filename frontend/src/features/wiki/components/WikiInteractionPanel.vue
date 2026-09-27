@@ -131,7 +131,8 @@ const CommentItem = defineComponent({
 </script>
 
 <style scoped>
-.interactions { margin:44px auto 0; padding-top:30px; border-top:1px solid var(--kwiki-line); }
+/* 与正文 760px 窄栏对齐 */
+.interactions { max-width:760px; margin:44px auto 0; padding-top:30px; border-top:1px solid var(--k-line); }
 .interaction-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
 .interaction-heading h3 { margin:0; color:#55625b; font-size:14px; font-weight:600; }
 .interaction-heading span { color:#99a29d; font-size:12px; }

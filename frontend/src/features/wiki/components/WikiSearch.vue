@@ -99,7 +99,8 @@ function clear() {
 .clear {
   position: absolute;
   right: 7px;
-  top: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 24px;
   height: 24px;
   display: none;

@@ -307,23 +307,36 @@ onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort();
 /* 引用高亮：用警示色混入透明，两种主题下都能看清且不遮挡文字颜色 */
 :global(::highlight(kwiki-citation)) { background: color-mix(in srgb, var(--k-warn) 32%, transparent); color: inherit; }
 :global(mark[data-kwiki-citation]) { background: color-mix(in srgb, var(--k-warn) 32%, transparent); color: inherit; border-radius: 2px; }
-.source-tabs { display: inline-flex; gap: 2px; margin: 20px 0 4px; padding: 3px; border: 1px solid var(--k-line); border-radius: var(--k-r); background: var(--k-surface); }
+.source-tabs { display: flex; width: fit-content; gap: 2px; margin: 20px 0 4px; padding: 3px; border: 1px solid var(--k-line); border-radius: var(--k-r); background: var(--k-surface); }
 .source-tab { height: 30px; border: 0; border-radius: var(--k-r-sm); padding: 0 14px; background: none; font: inherit; font-size: 13px; color: var(--k-muted); cursor: pointer; }
 .source-tab:hover { color: var(--k-ink); }
 .source-tab[aria-selected='true'] { background: var(--k-canvas); color: var(--k-ink); font-weight: 500; box-shadow: var(--k-shadow-sm); }
 .source-preview-area { margin: 8px 0 18px; min-height: 60vh; display: flex; }
-/* 阅读区：居中窄栏 */
+/* 阅读区：外层占满 .document 宽度（源文件预览需要全宽），左右留白由 .document 提供 */
 .reader {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 40px 32px 96px;
+  padding: 12px 0 0;
   color: var(--k-ink);
 }
-.anchor-notice { display:flex; gap:8px; align-items:baseline; margin:18px 0 10px; padding:10px 12px; border:1px solid color-mix(in srgb, var(--k-green) 30%, transparent); border-radius:var(--k-r); background:var(--k-green-soft); color:var(--k-green-deep); font-size:13px; }
+/* 文字部分限制在 760px 居中窄栏 */
+.title-row,
+.anchor-notice,
+.selection-notice,
+.markdown.article,
+.provenance {
+  max-width: 760px;
+  margin-inline: auto;
+}
+/* 行内宽度的元素（返回链接、视图切换）与窄栏左边缘对齐 */
+.back,
+.source-tabs {
+  margin-left: max(0px, calc((100% - 760px) / 2));
+}
+.anchor-notice { display:flex; gap:8px; align-items:baseline; margin-block:18px 10px; padding:10px 12px; border:1px solid color-mix(in srgb, var(--k-green) 30%, transparent); border-radius:var(--k-r); background:var(--k-green-soft); color:var(--k-green-deep); font-size:13px; }
 .anchor-notice.warning { border-color:color-mix(in srgb, var(--k-warn) 30%, transparent); background:var(--k-warn-soft); color:var(--k-warn); }
-.selection-notice { margin:10px 0; padding:9px 12px; border-radius:var(--k-r); background:var(--k-warn-soft); color:var(--k-warn); font-size:13px; }
+.selection-notice { margin-block:10px; padding:9px 12px; border-radius:var(--k-r); background:var(--k-warn-soft); color:var(--k-warn); font-size:13px; }
 .back {
-  display: inline-flex;
+  display: flex;
+  width: fit-content;
   align-items: center;
   gap: 5px;
   margin-bottom: 12px;
@@ -450,9 +463,6 @@ onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort();
 .selection-actions button:disabled { opacity:.5; }
 .selection-answer { margin-top:16px; padding-top:14px; border-top:1px solid var(--k-line); color:var(--k-ink-2); line-height:1.75; white-space:pre-wrap; }
 @media (max-width: 640px) {
-  .reader {
-    padding: 24px 16px 64px;
-  }
   .title-row {
     display: block;
   }
