@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /** 管理 API 错误只返回可操作的稳定代码，不回传异常类型、堆栈或下游正文。 */
-@RestControllerAdvice(assignableTypes = SearchIndexAdminController.class)
+@RestControllerAdvice(assignableTypes = {SearchIndexAdminController.class, SearchIndexGrayReleaseController.class})
 public class SearchIndexAdminExceptionAdvice {
     private static final Logger log = LoggerFactory.getLogger(SearchIndexAdminExceptionAdvice.class);
 
