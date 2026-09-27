@@ -5,6 +5,9 @@ import com.kwiki.indexing.gray.GrayReleaseService;
 import com.kwiki.indexing.gray.GrayReleaseStatus;
 import com.kwiki.indexing.gray.ParserCatalog;
 import com.kwiki.indexing.version.AdminCommandIdempotency;
+import com.kwiki.indexing.version.IndexSwitchState;
+import com.kwiki.indexing.version.RebuildRunState;
+import com.kwiki.indexing.version.SearchIndexRebuildRun;
 import com.kwiki.indexing.version.SearchIndexRebuildRunRepository;
 import com.kwiki.security.CurrentUser;
 import org.junit.jupiter.api.Test;
@@ -35,8 +38,7 @@ class SearchIndexGrayReleaseControllerTest {
     private final CurrentUser admin = new CurrentUser(1L, "admin", true);
 
     private GrayRelease release(GrayReleaseStatus status) {
-        return new GrayRelease(1, "pdfbox-v2 灰度 #1", "kwiki-parse-2", 4, status, null, "admin",
-                Instant.EPOCH, null, null, List.of(new GrayRelease.Kb(7, "产品文档")));
+        return release(status, null);
     }
 
     /** 让幂等执行器直接运行命令体，以便验证命令内部的异常映射。 */
@@ -59,14 +61,55 @@ class SearchIndexGrayReleaseControllerTest {
                 .containsEntry("sync", false).containsEntry("end", true);
     }
 
+    private GrayRelease release(GrayReleaseStatus status, String lastError) {
+        return new GrayRelease(1, "pdfbox-v2 灰度 #1", "kwiki-parse-2", 4, status, lastError, "admin",
+                Instant.EPOCH, null, null, List.of(new GrayRelease.Kb(7, "产品文档")));
+    }
+
+    private SearchIndexRebuildRun run(RebuildRunState state, IndexSwitchState switchState) {
+        SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
+        when(run.state()).thenReturn(state);
+        when(run.switchState()).thenReturn(switchState);
+        return run;
+    }
+
     @Test
     void 已切换时只能切回或结束() {
-        var actions = SearchIndexGrayReleaseController.actions(GrayReleaseStatus.SWITCHED);
+        var actions = SearchIndexGrayReleaseController.actions(release(GrayReleaseStatus.SWITCHED), null);
         assertThat(actions).isEqualTo(Map.of("sync", false, "switch", false, "switchBack", true, "end", true));
-        assertThat(SearchIndexGrayReleaseController.actions(GrayReleaseStatus.ENDED))
+        assertThat(SearchIndexGrayReleaseController.actions(release(GrayReleaseStatus.ENDED), null))
                 .isEqualTo(Map.of("sync", false, "switch", false, "switchBack", false, "end", false));
-        assertThat(SearchIndexGrayReleaseController.actions(GrayReleaseStatus.CREATED))
+        assertThat(SearchIndexGrayReleaseController.actions(release(GrayReleaseStatus.CREATED), null))
                 .containsEntry("sync", true).containsEntry("end", true);
+    }
+
+    @Test
+    void 同步中仅在出错后允许重新同步() {
+        assertThat(SearchIndexGrayReleaseController.actions(release(GrayReleaseStatus.SYNCING), null))
+                .containsEntry("sync", false);
+        assertThat(SearchIndexGrayReleaseController.actions(release(GrayReleaseStatus.SYNCING, "重建失败"), null))
+                .containsEntry("sync", true);
+    }
+
+    @Test
+    void 重建运行活跃或切换准备中不允许结束() {
+        var syncing = release(GrayReleaseStatus.SYNCING);
+        assertThat(SearchIndexGrayReleaseController.actions(syncing,
+                run(RebuildRunState.RUNNING, IndexSwitchState.NONE))).containsEntry("end", false);
+        assertThat(SearchIndexGrayReleaseController.actions(syncing,
+                run(RebuildRunState.COMPLETED, IndexSwitchState.PREPARING))).containsEntry("end", false);
+        assertThat(SearchIndexGrayReleaseController.actions(syncing,
+                run(RebuildRunState.COMPLETED, IndexSwitchState.READY))).containsEntry("end", true);
+    }
+
+    @Test
+    void 列表视图按最近运行计算结束操作() {
+        when(service.list()).thenReturn(List.of(release(GrayReleaseStatus.SYNCING)));
+        var active = run(RebuildRunState.RUNNING, IndexSwitchState.NONE);
+        when(runs.findFirstByVersionNumberOrderByIdDesc(4)).thenReturn(Optional.of(active));
+        var view = controller.list().getData().get(0);
+        assertThat(view.progress().runState()).isEqualTo("RUNNING");
+        assertThat(view.allowedActions()).containsEntry("end", false).containsEntry("sync", false);
     }
 
     @Test

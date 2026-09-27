@@ -6,6 +6,7 @@ import com.kwiki.indexing.gray.GrayReleaseService;
 import com.kwiki.indexing.gray.GrayReleaseStatus;
 import com.kwiki.indexing.gray.ParserCatalog;
 import com.kwiki.indexing.version.AdminCommandIdempotency;
+import com.kwiki.indexing.version.IndexSwitchState;
 import com.kwiki.indexing.version.SearchIndexRebuildRun;
 import com.kwiki.indexing.version.SearchIndexRebuildRunRepository;
 import com.kwiki.security.CurrentUser;
@@ -109,13 +110,20 @@ public class SearchIndexGrayReleaseController {
         return command(user, id, key, "GRAY_END", service::end);
     }
 
-    /** 服务端按状态计算可执行操作，前端只按此显示按钮。 */
-    static Map<String, Boolean> actions(GrayReleaseStatus status) {
+    /**
+     * 服务端按状态计算可执行操作，前端只按此显示按钮；与 GrayReleaseService 的守卫保持一致：
+     * 同步中只有出错后才允许重新同步，重建运行活跃或切换准备中不允许结束。
+     */
+    static Map<String, Boolean> actions(GrayRelease release, SearchIndexRebuildRun run) {
+        GrayReleaseStatus status = release.status();
+        boolean runBusy = run != null
+                && (run.state().active() || run.switchState() == IndexSwitchState.PREPARING);
         return Map.of(
-                "sync", status == GrayReleaseStatus.CREATED || status == GrayReleaseStatus.SYNCING,
+                "sync", status == GrayReleaseStatus.CREATED
+                        || (status == GrayReleaseStatus.SYNCING && release.lastError() != null),
                 "switch", status == GrayReleaseStatus.SYNCED,
                 "switchBack", status == GrayReleaseStatus.SWITCHED,
-                "end", status != GrayReleaseStatus.ENDED);
+                "end", status != GrayReleaseStatus.ENDED && !runBusy);
     }
 
     private TransDTO<Map<String, Object>> command(CurrentUser user, long id, String key, String action,
@@ -134,7 +142,7 @@ public class SearchIndexGrayReleaseController {
             return operation.get();
         } catch (IllegalStateException | IllegalArgumentException failure) {
             log.warn("gray release command rejected by lower layer type={} message={}",
-                    failure.getClass().getSimpleName(), failure.getMessage());
+                    failure.getClass().getSimpleName(), failure.getMessage(), failure);
             throw new ConflictException(chineseMessage(failure.getMessage()));
         }
     }
@@ -171,6 +179,6 @@ public class SearchIndexGrayReleaseController {
         return new GrayReleaseView(release.id(), release.name(), release.parserVersion(),
                 ParserCatalog.label(release.parserVersion()), version, "kwiki-chunks-v" + version,
                 release.status().name(), release.lastError(), release.createdBy(), release.createdAt(),
-                release.switchedAt(), release.endedAt(), release.kbs(), progress, actions(release.status()));
+                release.switchedAt(), release.endedAt(), release.kbs(), progress, actions(release, run));
     }
 }
