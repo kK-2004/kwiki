@@ -21,6 +21,8 @@ public interface SearchIndexRebuildRunRepository
             + " where r.versionNumber = :version")
     long findMaxBuildGeneration(@Param("version") int version);
 
+    Optional<SearchIndexRebuildRun> findFirstByVersionNumberOrderByIdDesc(int versionNumber);
+
     Optional<SearchIndexRebuildRun> findByIdAndLeaseOwner(long id, String leaseOwner);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
