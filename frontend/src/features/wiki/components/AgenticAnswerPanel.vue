@@ -173,10 +173,10 @@ const emit = defineEmits<{ citation: [citation: CitationEntry] }>();
   max-height: min(60vh, 520px);
   overflow: auto;
   padding: 14px;
-  border: 1px solid var(--kwiki-line);
-  border-radius: 12px;
-  background: var(--kwiki-panel);
-  box-shadow: 0 12px 40px rgba(28, 47, 38, 0.18);
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-lg);
+  background: var(--k-canvas);
+  box-shadow: var(--k-shadow-float);
 }
 .panel-head {
   display: flex;
@@ -195,13 +195,14 @@ const emit = defineEmits<{ citation: [citation: CitationEntry] }>();
   place-items: center;
   border: 0;
   background: none;
-  border-radius: 6px;
-  color: #737a7a;
+  border-radius: var(--k-r-sm);
+  color: var(--k-muted);
   cursor: pointer;
   font-size: 15px;
 }
 .icon:hover {
-  background: #eef1ef;
+  background: var(--k-surface-hover);
+  color: var(--k-ink);
 }
 form {
   display: flex;
@@ -212,24 +213,32 @@ input {
   min-width: 0;
   height: 34px;
   padding: 0 10px;
-  border: 1px solid #dfe3e2;
-  border-radius: 6px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-sm);
+  background: var(--k-canvas);
+  color: var(--k-ink);
   outline: none;
   font: inherit;
 }
+input:hover {
+  border-color: var(--k-line-strong);
+}
 input:focus {
-  border-color: #82dcb0;
-  box-shadow: 0 0 0 3px rgba(24, 188, 114, 0.08);
+  border-color: var(--k-green);
+  box-shadow: var(--k-focus-ring);
 }
 form button[type='submit'] {
   height: 34px;
   padding: 0 13px;
   border: 0;
-  border-radius: 6px;
-  background: var(--kwiki-green);
-  color: #fff;
-  font-weight: 600;
+  border-radius: var(--k-r-sm);
+  background: var(--k-primary);
+  color: var(--k-on-primary);
+  font-weight: 500;
   cursor: pointer;
+}
+form button[type='submit']:hover:not(:disabled) {
+  background: var(--k-primary-hover);
 }
 form button[type='submit']:disabled {
   opacity: 0.55;
@@ -239,7 +248,7 @@ ol,
 ul {
   margin: 10px 0 0;
   padding-left: 20px;
-  color: #52605a;
+  color: var(--k-ink-2);
   font-size: 13px;
 }
 ol li {
@@ -253,15 +262,15 @@ ol li {
 }
 .progress-main span,
 ol li small {
-  color: #7a877f;
+  color: var(--k-muted);
   font-size: 11px;
 }
-.status-succeeded { color: #227c4d; }
-.status-failed { color: #ad4c4c; }
-.status-cancelled { color: #8a6c42; }
+.status-succeeded { color: var(--k-green-deep); }
+.status-failed { color: var(--k-danger); }
+.status-cancelled { color: var(--k-warn); }
 .reasoning {
   margin-top: 10px;
-  color: #66756d;
+  color: var(--k-muted);
   font-size: 12px;
 }
 .reasoning-scroll {
@@ -282,10 +291,10 @@ ol li small {
 }
 .agentic-no-evidence,
 .agentic-error {
-  color: var(--kwiki-muted);
+  color: var(--k-muted);
 }
 .agentic-error {
-  color: var(--kwiki-danger);
+  color: var(--k-danger);
 }
 .follow-tail {
   position: sticky;
@@ -293,10 +302,11 @@ ol li small {
   display: block;
   margin: 10px auto 0;
   padding: 6px 10px;
-  border: 1px solid #b8dfc8;
-  border-radius: 99px;
-  background: #f0faf4;
-  color: #187b4a;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-pill);
+  background: var(--k-canvas);
+  color: var(--k-ink-2);
+  box-shadow: var(--k-shadow-sm);
   cursor: pointer;
   font-size: 12px;
 }
@@ -304,9 +314,9 @@ ol li small {
   border: 0;
   background: none;
   padding: 0;
-  color: var(--kwiki-green-dark);
+  color: var(--k-green-deep);
   cursor: pointer;
-  border-bottom: 1px dashed #5ed19a;
+  border-bottom: 1px dashed color-mix(in srgb, var(--k-green-deep) 50%, transparent);
   font: inherit;
 }
 .ask {
@@ -319,16 +329,18 @@ ol li small {
   align-items: center;
   gap: 8px;
   padding: 0 16px;
-  border: 0;
-  border-radius: 22px;
-  background: #26332d;
-  color: #fff;
-  box-shadow: 0 8px 24px rgba(28, 47, 38, 0.2);
-  font-weight: 650;
+  border: 1px solid var(--k-primary);
+  border-radius: var(--k-r-pill);
+  background: var(--k-primary);
+  color: var(--k-on-primary);
+  box-shadow: var(--k-shadow-float);
+  font-weight: 500;
   cursor: pointer;
+}
+.ask:hover {
+  background: var(--k-primary-hover);
 }
 .ask i {
   font-size: 16px;
-  color: var(--kwiki-green);
 }
 </style>

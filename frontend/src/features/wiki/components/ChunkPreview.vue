@@ -53,5 +53,5 @@ async function openWiki(event: MouseEvent) {
   </NModal>
 </template>
 <style scoped>
-.source{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#eaf8f1;color:#0e9858;border:0;border-radius:4px;padding:1px 6px;font:inherit;cursor:pointer}.chunk-content{height:320px;max-height:55vh;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8}.wiki-jump{padding:0;border:0;background:none;color:#0e9858;font:inherit;cursor:pointer}
+.source{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--k-green-soft);color:var(--k-green-deep);border:0;border-radius:var(--k-r-sm);padding:1px 6px;font:inherit;cursor:pointer}.chunk-content{height:320px;max-height:55vh;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8;color:var(--k-ink-2)}.wiki-jump{padding:0;border:0;background:none;color:var(--k-green-deep);font:inherit;cursor:pointer}.wiki-jump:hover{text-decoration:underline;text-underline-offset:3px}
 </style>

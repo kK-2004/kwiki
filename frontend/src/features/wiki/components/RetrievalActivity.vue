@@ -227,11 +227,11 @@ function degraded(step: ActivityStep): boolean {
 
 <style scoped>
 .retrieval-activity {
-  border: 1px solid #e7eae9;
-  border-radius: 8px;
-  background: #fbfcfc;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r);
+  background: var(--k-surface);
   font-size: 12px;
-  color: #252a2a;
+  color: var(--k-ink);
 }
 .summary-row {
   display: flex;
@@ -247,22 +247,22 @@ function degraded(step: ActivityStep): boolean {
   text-align: left;
 }
 .summary-row:focus-visible {
-  outline: 2px solid #18bc72;
+  outline: 2px solid var(--k-green);
   outline-offset: 1px;
 }
 .icon {
-  color: #18bc72;
+  color: var(--k-green);
   font-size: 13px;
 }
 .status {
   font-weight: 500;
 }
 .meta {
-  color: #858c8c;
+  color: var(--k-muted);
 }
-.marker.failed { color: #ad4c4c; }
-.marker.running { color: #8a6c42; }
-.marker:not(.failed):not(.running) { color: #0e9858; }
+.marker.failed { color: var(--k-danger); }
+.marker.running { color: var(--k-warn); }
+.marker:not(.failed):not(.running) { color: var(--k-green-deep); }
 .marker {
   display: inline-flex;
   font-size: 13px;
@@ -271,7 +271,7 @@ function degraded(step: ActivityStep): boolean {
 @keyframes marker-spin { to { transform: rotate(360deg); } }
 .chevron {
   margin-left: auto;
-  color: #858c8c;
+  color: var(--k-muted);
   transition: transform 0.15s ease;
 }
 .chevron.open { transform: rotate(90deg); }
@@ -279,22 +279,22 @@ function degraded(step: ActivityStep): boolean {
   list-style: none;
   margin: 0;
   padding: 4px 10px 10px 14px;
-  border-top: 1px dashed #e7eae9;
+  border-top: 1px dashed var(--k-line);
 }
 .round + .round { margin-top: 8px; }
 .round-title {
-  color: #858c8c;
+  color: var(--k-muted);
   margin: 6px 0 2px;
 }
 .stage-title {
-  color: #858c8c;
+  color: var(--k-muted);
   margin: 6px 0 2px;
 }
 .steps {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-left: 1px solid #e7eae9;
+  border-left: 1px solid var(--k-line);
 }
 .step {
   position: relative;
@@ -309,30 +309,30 @@ function degraded(step: ActivityStep): boolean {
   width: 13px;
   height: 13px;
   border-radius: 50%;
-  background: #fff;
-  border: 1px solid #e7eae9;
-  color: #858c8c;
+  background: var(--k-canvas);
+  border: 1px solid var(--k-line);
+  color: var(--k-muted);
   font-size: 9px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.step.status-completed .dot { color: #0e9858; border-color: #bfe8d5; }
-.step.status-failed .dot { color: #ad4c4c; border-color: #e7c4c4; }
+.step.status-completed .dot { color: var(--k-green); border-color: var(--k-green); }
+.step.status-failed .dot { color: var(--k-danger); border-color: var(--k-danger-line); }
 .body { min-width: 0; flex: 1; }
 .line { display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
-.phase { color: #858c8c; }
-.summary { color: #252a2a; }
-.reason { color: #8a6c42; margin-top: 1px; }
+.phase { color: var(--k-muted); }
+.summary { color: var(--k-ink); }
+.reason { color: var(--k-warn); margin-top: 1px; }
 .facts {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  color: #858c8c;
+  color: var(--k-muted);
   margin-top: 2px;
 }
-.fact.state { color: #252a2a; }
-.fact.degraded { color: #8a6c42; }
+.fact.state { color: var(--k-ink); }
+.fact.degraded { color: var(--k-warn); }
 .sources {
   display: flex;
   gap: 6px;
@@ -344,9 +344,9 @@ function degraded(step: ActivityStep): boolean {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: #eaf8f1;
-  color: #0e9858;
-  border-radius: 4px;
+  background: var(--k-green-soft);
+  color: var(--k-green-deep);
+  border-radius: var(--k-r-sm);
   padding: 1px 6px;
 }
 @media (max-width: 640px) {
