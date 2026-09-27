@@ -4,7 +4,10 @@
       <div class="brand"><span class="logo">k</span><strong>KWiki</strong><small>管理后台</small></div>
       <nav>
         <RouterLink to="/" class="nav-item" exact-active-class="active">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" /></svg>索引管理
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" /></svg>全局索引
+        </RouterLink>
+        <RouterLink to="/gray-releases" class="nav-item" active-class="active">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h4v-6H4zM10 18h4V6h-4zM16 18h4v-9h-4z" /></svg>灰度发布
         </RouterLink>
         <RouterLink to="/knowledge-graphs" class="nav-item" active-class="active">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6a2 2 0 1 0 0 .01M18 6a2 2 0 1 0 0 .01M12 18a2 2 0 1 0 0 .01M7.5 7.5l3.5 8.5M16.5 7.5 13 16M8 6h8" /></svg>知识图谱

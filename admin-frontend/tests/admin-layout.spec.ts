@@ -9,16 +9,17 @@ vi.mock("../src/auth", () => ({ useAuth: () => ({ user: { username: "root", admi
 
 async function mount() {
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: { template: "<div/>" } }, { path: "/knowledge-graphs", component: { template: "<div/>" } }, { path: "/login", component: { template: "<div/>" } }] });
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: { template: "<div/>" } }, { path: "/gray-releases", component: { template: "<div/>" } }, { path: "/knowledge-graphs", component: { template: "<div/>" } }, { path: "/login", component: { template: "<div/>" } }] });
   await router.push("/knowledge-graphs");
   render(AdminLayout, { slots: { default: "<p>页面内容</p>" }, global: { plugins: [createPinia(), router] } });
   return router;
 }
 
 describe("AdminLayout", () => {
-  it("渲染两个导航入口并高亮当前页", async () => {
+  it("渲染三个导航入口并高亮当前页", async () => {
     await mount();
-    expect(screen.getByRole("link", { name: /索引管理/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /全局索引/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /灰度发布/ }).getAttribute("href")).toContain("/gray-releases");
     expect(screen.getByRole("link", { name: /知识图谱/ }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByText("页面内容")).toBeTruthy();
   });

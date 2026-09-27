@@ -23,6 +23,9 @@ export interface GraphPublication{kbId:number;chunkIndexVersion:number;activeSna
 export interface GraphSchedule{scheduleDate:string;status:string;linkedBatchId:number|null;createdAt:string}
 export interface GraphSnapshotRow{id:number;kbId:number;graphVersion:number;chunkIndexVersion:number;communityIndexVersion:number;communityPhysicalIndex:string;state:string;entityCount:number;relationCount:number;communityCount:number;sealedAt?:string;retiredAt?:string;createdAt:string}
 export interface GraphServiceStatus{enabled:boolean;algorithmMode:string;scheduleCron:string;scheduleZone:string;autoPublish:boolean;capacity:Record<string,number>;activeBatchId:number}
+export interface ParserOption{id:string;label:string;available:boolean;unavailableReason:string|null}
+export interface GrayProgress{runId:number|null;runState:string|null;switchState:string|null;scanned:number;succeeded:number;failed:number;pendingTargets:number}
+export interface GrayRelease{id:number;name:string;parserVersion:string;parserLabel:string;indexVersionNumber:number;physicalName:string;status:"CREATED"|"SYNCING"|"SYNCED"|"SWITCHED"|"ENDED";lastError:string|null;createdBy:string;createdAt:string;switchedAt:string|null;endedAt:string|null;kbs:{kbId:number;name:string}[];progress:GrayProgress;allowedActions:{sync:boolean;switch:boolean;switchBack:boolean;end:boolean}}
 export const api={
   login:(username:string,password:string)=>request<{token:string;tokenType:string;expiresInSeconds:number;user:{id:number;username:string;admin:boolean}}>("/auth/login",{method:"POST",body:JSON.stringify({username,password})}),
   me:()=>request<{id:number;username:string;admin:boolean}>("/auth/me"),
@@ -32,6 +35,10 @@ export const api={
   runs:()=>request<Run[]>("/admin/search-indexes/runs"),validations:()=>request<Validation[]>("/admin/search-indexes/validations"),audits:()=>request<Audit[]>("/admin/search-indexes/audits"),stats:()=>request<Record<string,unknown>[]>("/admin/search-indexes/write-statistics"),
   command:<T>(path:string,method="POST",body?:unknown)=>request<T>(`/admin/search-indexes${path}`,{method,headers:{"Idempotency-Key":key()},body:body===undefined?undefined:JSON.stringify(body)}),
   deleteVersion:(version:number,name:string)=>request<{outcome:string}>(`/admin/search-indexes/versions/${version}`,{method:"DELETE",headers:{"Idempotency-Key":key()},body:JSON.stringify({confirmPhysicalName:name})}),
+  parsers:()=>request<ParserOption[]>("/admin/search-indexes/parsers"),
+  grayReleases:()=>request<GrayRelease[]>("/admin/search-indexes/gray-releases"),
+  createGrayRelease:(body:{name?:string;parserVersion:string;kbIds:number[]})=>request<{id:number;status:string}>("/admin/search-indexes/gray-releases",{method:"POST",headers:{"Idempotency-Key":key()},body:JSON.stringify(body)}),
+  grayCommand:(id:number,action:"sync"|"switch"|"switch-back"|"end")=>request<{id:number;status:string}>(`/admin/search-indexes/gray-releases/${id}/${action}`,{method:"POST",headers:{"Idempotency-Key":key()}}),
   graphBatches:()=>request<GraphBatch[]>("/admin/knowledge-graphs/batches"),
   graphRuns:(batchId:number)=>request<GraphRun[]>(`/admin/knowledge-graphs/batches/${batchId}/runs`),
   graphSchedule:()=>request<GraphSchedule[]>("/admin/knowledge-graphs/schedule"),
