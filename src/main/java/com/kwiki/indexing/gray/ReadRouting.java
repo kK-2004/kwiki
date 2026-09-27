@@ -8,7 +8,9 @@ import java.util.stream.Collectors;
 public record ReadRouting(Map<String, Set<Long>> kbIdsByGrayIndex) {
 
     public ReadRouting {
-        kbIdsByGrayIndex = Map.copyOf(kbIdsByGrayIndex);
+        // 深拷贝：值集合同样不可变，避免调用方后续修改影响快照
+        kbIdsByGrayIndex = kbIdsByGrayIndex.entrySet().stream()
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> Set.copyOf(entry.getValue())));
     }
 
     public static ReadRouting none() {

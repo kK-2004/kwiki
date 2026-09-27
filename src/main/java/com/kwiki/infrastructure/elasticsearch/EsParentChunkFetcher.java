@@ -9,6 +9,7 @@ import com.kwiki.rag.retrieval.RetrievalLifecycleService;
 import com.kwiki.rag.retrieval.ScopeFilter;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -25,11 +26,21 @@ public class EsParentChunkFetcher implements ParentEvidenceResolver.ParentChunkF
 
     private final ElasticsearchClient client;
     private final RetrievalLifecycleService lifecycle;
+    private final com.kwiki.indexing.gray.GrayReadRoutes routes;
 
     public EsParentChunkFetcher(ObjectProvider<ElasticsearchClient> client,
                                 RetrievalLifecycleService lifecycle) {
+        this(client, lifecycle, null);
+    }
+
+    /** 带灰度读路由：已切换灰度的知识库从其灰度物理索引读取父块，避免新解析子块配旧解析父块。 */
+    @Autowired
+    public EsParentChunkFetcher(ObjectProvider<ElasticsearchClient> client,
+                                RetrievalLifecycleService lifecycle,
+                                @org.springframework.lang.Nullable com.kwiki.indexing.gray.GrayReadRoutes routes) {
         this.client = client.getIfAvailable();
         this.lifecycle = lifecycle;
+        this.routes = routes;
     }
 
     @Override
@@ -40,16 +51,12 @@ public class EsParentChunkFetcher implements ParentEvidenceResolver.ParentChunkF
         }
         var exclusions = lifecycle.exclusions();
         try {
-            var response = client.mget(request -> request
-                    .index(ElasticsearchIndexManager.ALIAS)
-                    .ids(parentChunkKeys),
-                    Map.class);
+            com.kwiki.indexing.gray.ReadRouting routing = routes == null
+                    ? com.kwiki.indexing.gray.ReadRouting.none() : routes.current();
+            List<Map<?, ?>> sources = routing.isEmpty()
+                    ? viaAlias(parentChunkKeys) : viaRouting(parentChunkKeys, routing);
             List<ParentEvidenceChunk> parents = new ArrayList<>();
-            for (MultiGetResponseItem<Map> item : response.docs()) {
-                if (item.isFailure() || item.result() == null || item.result().source() == null) {
-                    continue;
-                }
-                Map<?, ?> source = item.result().source();
+            for (Map<?, ?> source : sources) {
                 ParentEvidenceChunk chunk = toChunk(source);
                 if (chunk != null && inScope(chunk, scopeFilter, exclusions)) {
                     parents.add(chunk);
@@ -59,6 +66,53 @@ public class EsParentChunkFetcher implements ParentEvidenceResolver.ParentChunkF
         } catch (Exception e) {
             throw new IllegalStateException("parent chunk fetch failed", e);
         }
+    }
+
+    /** 无灰度路由：保持原有在别名上的 multi-get。 */
+    private List<Map<?, ?>> viaAlias(List<String> parentChunkKeys) throws java.io.IOException {
+        var response = client.mget(request -> request
+                .index(ElasticsearchIndexManager.ALIAS)
+                .ids(parentChunkKeys),
+                Map.class);
+        List<Map<?, ?>> sources = new ArrayList<>();
+        for (MultiGetResponseItem<Map> item : response.docs()) {
+            if (item.isFailure() || item.result() == null || item.result().source() == null) {
+                continue;
+            }
+            sources.add(item.result().source());
+        }
+        return sources;
+    }
+
+    /**
+     * 有灰度路由：multi-get 不能跨索引附加过滤，改为在别名 + 灰度索引上按 id 搜索并附加路由过滤；
+     * 结果按请求键的顺序返回，与 multi-get 的顺序语义一致。
+     */
+    private List<Map<?, ?>> viaRouting(List<String> parentChunkKeys,
+                                       com.kwiki.indexing.gray.ReadRouting routing) throws java.io.IOException {
+        List<co.elastic.clients.elasticsearch.core.search.Hit<Map>> hits = client.search(request -> request
+                        .index(EsReadRouting.indices(routing))
+                        .size(parentChunkKeys.size())
+                        .query(query -> query.bool(bool -> {
+                            bool.filter(filter -> filter.ids(ids -> ids.values(parentChunkKeys)));
+                            EsReadRouting.filter(routing).ifPresent(bool::filter);
+                            return bool;
+                        })),
+                Map.class).hits().hits();
+        Map<String, Map<?, ?>> byId = new java.util.HashMap<>();
+        for (co.elastic.clients.elasticsearch.core.search.Hit<Map> hit : hits) {
+            if (hit.source() != null) {
+                byId.putIfAbsent(hit.id(), hit.source());
+            }
+        }
+        List<Map<?, ?>> sources = new ArrayList<>();
+        for (String key : parentChunkKeys) {
+            Map<?, ?> source = byId.get(key);
+            if (source != null) {
+                sources.add(source);
+            }
+        }
+        return sources;
     }
 
     private boolean inScope(ParentEvidenceChunk chunk, ScopeFilter scope,

@@ -51,6 +51,7 @@ public final class EsReadRouting {
     }
 
     private static List<FieldValue> longs(Set<Long> values) {
-        return values.stream().sorted().map(FieldValue::of).toList();
+        // 显式取 long 重载：Long 走 FieldValue.of(Object) 会成为 Any 变体
+        return values.stream().sorted().map(value -> FieldValue.of(value.longValue())).toList();
     }
 }

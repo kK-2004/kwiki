@@ -40,20 +40,29 @@ public class EsChunkLookup implements CitationService.ChunkLookup {
             return Optional.empty();
         }
         try {
-            // 别名可能指向多个物理索引且需叠加灰度索引，故改为按 id 搜索并附加路由过滤；
-            // 无灰度路由时 indices 仅为 ElasticsearchIndexManager.ALIAS
             com.kwiki.indexing.gray.ReadRouting routing = routes == null
                     ? com.kwiki.indexing.gray.ReadRouting.none() : routes.current();
-            List<co.elastic.clients.elasticsearch.core.search.Hit<Map>> hits = client.search(request -> request
-                            .index(EsReadRouting.indices(routing))
-                            .size(1)
-                            .query(query -> query.bool(bool -> {
-                                bool.filter(filter -> filter.ids(ids -> ids.values(childChunkKey)));
-                                EsReadRouting.filter(routing).ifPresent(bool::filter);
-                                return bool;
-                            })),
-                    Map.class).hits().hits();
-            Map<?, ?> source = hits.isEmpty() ? null : hits.get(0).source();
+            Map<?, ?> source;
+            if (routing.isEmpty()) {
+                // 无灰度路由：保持原有在别名上的实时 GET
+                source = client.get(get -> get
+                                .index(com.kwiki.indexing.search.ElasticsearchIndexManager.ALIAS)
+                                .id(childChunkKey),
+                        Map.class)
+                        .source();
+            } else {
+                // 有灰度路由：GET 不能跨索引附加过滤，改为按 id 搜索并附加路由过滤
+                List<co.elastic.clients.elasticsearch.core.search.Hit<Map>> hits = client.search(request -> request
+                                .index(EsReadRouting.indices(routing))
+                                .size(1)
+                                .query(query -> query.bool(bool -> {
+                                    bool.filter(filter -> filter.ids(ids -> ids.values(childChunkKey)));
+                                    EsReadRouting.filter(routing).ifPresent(bool::filter);
+                                    return bool;
+                                })),
+                        Map.class).hits().hits();
+                source = hits.isEmpty() ? null : hits.get(0).source();
+            }
             if (source == null) {
                 return Optional.empty();
             }

@@ -53,7 +53,12 @@ public class Bm25RecallAdapter implements ChildRecallPort {
             // 无灰度路由时 indices 仅为 ElasticsearchIndexManager.ALIAS，且不追加过滤
             com.kwiki.indexing.gray.ReadRouting routing = routes == null
                     ? com.kwiki.indexing.gray.ReadRouting.none() : routes.current();
-            SearchResponse<Map> response = client.search(request -> request
+            SearchResponse<Map> response = client.search(request -> {
+                        if (!routing.isEmpty()) {
+                            // 跨别名与灰度索引打分：用 DFS 统一词频统计，使各索引的 IDF 可比
+                            request.searchType(co.elastic.clients.elasticsearch._types.SearchType.DfsQueryThenFetch);
+                        }
+                        return request
                             .index(EsReadRouting.indices(routing))
                             .size(topK)
                             .query(query -> query.bool(bool -> {
@@ -66,7 +71,8 @@ public class Bm25RecallAdapter implements ChildRecallPort {
                                                         .query(effectiveQuery)));
                                 EsReadRouting.filter(routing).ifPresent(bool::filter);
                                 return bool;
-                            })),
+                            }));
+                    },
                     Map.class);
             return toHits(response.hits().hits());
         } catch (Exception e) {
