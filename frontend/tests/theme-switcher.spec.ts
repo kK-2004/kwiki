@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 import { fireEvent, render, screen } from '@testing-library/vue';
 import ThemeSwitcher from '../src/theme/ThemeSwitcher.vue';
 import { resetThemeForTest, THEME_STORAGE_KEY } from '../src/theme/useTheme';
@@ -20,6 +21,8 @@ describe('ThemeSwitcher', () => {
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(screen.queryByRole('menu')).toBeNull();
+    await nextTick();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '切换主题' }));
   });
 
   it('菜单形态：按 Esc 关闭', async () => {
@@ -27,6 +30,8 @@ describe('ThemeSwitcher', () => {
     await fireEvent.click(screen.getByRole('button', { name: '切换主题' }));
     await fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
+    await nextTick();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '切换主题' }));
   });
 
   it('分段形态：三个单选项，点击白天生效', async () => {

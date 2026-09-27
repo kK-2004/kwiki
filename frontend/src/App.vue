@@ -16,10 +16,12 @@ import WorkspaceShell from './features/workspace/WorkspaceShell.vue';
 const route = useRoute();
 const { resolved } = useTheme();
 // Naive UI 不读取 CSS 变量，这里按当前主题给出与令牌一致的具体值
+// 这些颜色需与 styles/tokens.css 中的 --k-green-deep 等保持同步（浅色 #047857 为满足 WCAG AA 加深后的值）
 const themeOverrides = computed<GlobalThemeOverrides>(() => ({
   common: {
-    primaryColor: resolved.value === 'dark' ? '#34d399' : '#059669',
-    primaryColorHover: resolved.value === 'dark' ? '#6ee7b7' : '#10b981',
+    primaryColor: resolved.value === 'dark' ? '#34d399' : '#047857',
+    primaryColorHover: resolved.value === 'dark' ? '#6ee7b7' : '#059669',
+    primaryColorPressed: resolved.value === 'dark' ? '#10b981' : '#065f46',
     borderRadius: '8px',
     fontFamily: "Inter, ui-sans-serif, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif",
   },

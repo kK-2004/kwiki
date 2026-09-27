@@ -310,7 +310,7 @@ onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort();
 .source-tabs { display: flex; width: fit-content; gap: 2px; margin: 20px 0 4px; padding: 3px; border: 1px solid var(--k-line); border-radius: var(--k-r); background: var(--k-surface); }
 .source-tab { height: 30px; border: 0; border-radius: var(--k-r-sm); padding: 0 14px; background: none; font: inherit; font-size: 13px; color: var(--k-muted); cursor: pointer; }
 .source-tab:hover { color: var(--k-ink); }
-.source-tab[aria-selected='true'] { background: var(--k-canvas); color: var(--k-ink); font-weight: 500; box-shadow: var(--k-shadow-sm); }
+.source-tab[aria-selected='true'] { background: var(--k-selected); color: var(--k-ink); font-weight: 500; box-shadow: var(--k-shadow-sm); }
 .source-preview-area { margin: 8px 0 18px; min-height: 60vh; display: flex; }
 /* 阅读区：外层占满 .document 宽度（源文件预览需要全宽），左右留白由 .document 提供 */
 .reader {

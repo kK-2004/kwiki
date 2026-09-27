@@ -7,6 +7,8 @@
   --k-surface: #fafaf9;
   --k-surface-hover: #f3f3f1;
   --k-surface-active: #efefed;
+  /* 选中态背景（侧栏/分段控件内的选中项），浅色下沿用画布白 */
+  --k-selected: var(--k-canvas);
   --k-paper: #ffffff;
   --k-overlay: rgba(10, 10, 10, 0.32);
 
@@ -27,14 +29,14 @@
 
   /* 品牌绿：只用于选中、焦点、链接、品牌、成功 */
   --k-green: #10b981;
-  --k-green-deep: #059669;
+  --k-green-deep: #047857;
   --k-green-soft: #ecfdf5;
 
   /* 语义色 */
-  --k-danger: #d45656;
+  --k-danger: #c43d3d;
   --k-danger-soft: #fdf2f2;
   --k-danger-line: #f3d4d4;
-  --k-warn: #c37d0d;
+  --k-warn: #9a5f06;
   --k-warn-soft: #fdf6e7;
 
   /* 代码：浅色主题下为浅底，配合 highlight.js 的 github 主题 */
@@ -71,6 +73,8 @@
   --k-surface: #111113;
   --k-surface-hover: #1a1a1d;
   --k-surface-active: #202024;
+  /* 选中态背景：深色下画布比侧栏更暗，改用浅一级的 surface-active */
+  --k-selected: var(--k-surface-active);
   --k-overlay: rgba(0, 0, 0, 0.6);
 
   --k-line: #232327;

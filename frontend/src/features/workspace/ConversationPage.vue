@@ -34,11 +34,11 @@ async function remove() { if (!editSession.value) return; saving.value = true; c
 .history-search input { min-width: 0; width: 100%; border: 0; outline: 0; font-size: 12px; background: transparent; color: var(--k-ink); }
 .history-search input::placeholder { color: var(--k-faint); }
 .history-list { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; padding: 15px 18px 0 0; }
-.date-label { font-size: 10px; color: var(--k-faint); letter-spacing: .5px; margin: 18px 10px 9px; }
+.date-label { font-size: 10px; color: var(--k-muted); letter-spacing: .5px; margin: 18px 10px 9px; }
 .history-item { display: flex; align-items: center; border: 1px solid transparent; border-radius: var(--k-r); margin-bottom: 3px; }
 .history-item:hover { background: var(--k-surface-hover); }
 /* 选中项：白底 + 细线，与全局侧边栏一致 */
-.history-item.selected { background: var(--k-canvas); border-color: var(--k-line); box-shadow: var(--k-shadow-sm); }
+.history-item.selected { background: var(--k-selected); border-color: var(--k-line); box-shadow: var(--k-shadow-sm); }
 .session-link { min-width: 0; flex: 1; display: flex; align-items: center; gap: 9px; border: 0; background: none; padding: 11px 10px; text-align: left; color: var(--k-ink-2); font-size: 12px; cursor: pointer; }
 .session-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-item.selected .session-link { color: var(--k-ink); font-weight: 550; }

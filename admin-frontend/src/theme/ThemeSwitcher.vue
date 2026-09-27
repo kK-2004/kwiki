@@ -55,7 +55,7 @@ const { mode, setMode } = useTheme();
 }
 
 .segmented button.active {
-  background: var(--k-canvas);
+  background: var(--k-selected);
   color: var(--k-ink);
   box-shadow: var(--k-shadow-sm);
 }

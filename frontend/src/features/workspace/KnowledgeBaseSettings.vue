@@ -285,7 +285,7 @@ void load();
   justify-content: space-between;
   padding: 10px 0;
   border-bottom: 1px solid var(--k-line);
-  color: var(--k-faint);
+  color: var(--k-muted);
   font-size: 10px;
 }
 

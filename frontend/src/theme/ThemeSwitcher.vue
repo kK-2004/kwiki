@@ -12,8 +12,9 @@
       <i :class="option.icon" aria-hidden="true" /><span>{{ option.label }}</span>
     </button>
   </div>
-  <div v-else ref="rootEl" class="theme-menu">
+  <div v-else ref="rootEl" class="theme-menu" @focusout="onFocusOut">
     <button
+      ref="triggerEl"
       type="button"
       class="ui-icon trigger"
       :class="{ wide: !compact }"
@@ -25,7 +26,7 @@
     >
       <i :class="current.icon" aria-hidden="true" /><span v-if="!compact">{{ current.label }}</span>
     </button>
-    <div v-if="open" class="menu" role="menu" aria-label="主题" @keydown.esc.stop="close">
+    <div v-if="open" class="menu" role="menu" aria-label="主题" @keydown.esc.stop="closeAndRestoreFocus">
       <button
         v-for="option in options"
         :key="option.value"
@@ -60,14 +61,29 @@ const { mode, setMode } = useTheme();
 const current = computed(() => options.find((option) => option.value === mode.value)!);
 const open = ref(false);
 const rootEl = ref<HTMLElement | null>(null);
+const triggerEl = ref<HTMLButtonElement | null>(null);
 
 function close() {
   open.value = false;
 }
 
+// 通过键盘或选择菜单项关闭时，把焦点还给触发按钮，避免焦点随菜单节点一起丢失
+async function closeAndRestoreFocus() {
+  close();
+  await nextTick();
+  triggerEl.value?.focus();
+}
+
 function pick(value: ThemeMode) {
   setMode(value);
-  close();
+  void closeAndRestoreFocus();
+}
+
+// 焦点经 Tab 移出组件时收起菜单。relatedTarget 为空（如 Safari 点击按钮不聚焦）时交给 pointerdown 处理，
+// 否则点击菜单项会先触发 focusout 关掉菜单，导致选择失效
+function onFocusOut(event: FocusEvent) {
+  const next = event.relatedTarget as Node | null;
+  if (open.value && next && !rootEl.value?.contains(next)) close();
 }
 
 // 点击组件外部时收起菜单
@@ -132,7 +148,12 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 .menu button:focus-visible {
   background: var(--k-surface-hover);
   color: var(--k-ink);
+}
+
+/* 键盘焦点用内嵌绿色描边代替默认 outline，保证可见 */
+.menu button:focus-visible {
   outline: none;
+  box-shadow: inset 0 0 0 2px var(--k-green);
 }
 
 .menu .check {
@@ -167,7 +188,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 }
 
 .segmented button.active {
-  background: var(--k-canvas);
+  background: var(--k-selected);
   color: var(--k-ink);
   box-shadow: var(--k-shadow-sm);
 }

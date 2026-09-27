@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>KWiki 索引管理</title><script>
+<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>KWiki 管理后台</title><script>
 // 首屏渲染前写入主题，避免深色用户刷新时闪白；键名与 src/theme/useTheme.ts 保持一致
 (function(){var m=null;try{m=localStorage.getItem('kwiki-admin-theme')}catch(e){}var d=m==='dark'||(m!=='light'&&!!window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;r.dataset.theme=d?'dark':'light';r.classList.toggle('dark',d);r.style.colorScheme=d?'dark':'light'})();
 </script></head><body><div id="app"></div><script type="module" src="/src/main.ts"></script></body></html>

@@ -111,7 +111,7 @@ nav {
 }
 
 .nav-item.active {
-  background: var(--k-canvas);
+  background: var(--k-selected);
   border-color: var(--k-line);
   box-shadow: var(--k-shadow-sm);
   color: var(--k-ink);

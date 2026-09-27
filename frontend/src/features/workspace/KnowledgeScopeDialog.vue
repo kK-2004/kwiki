@@ -346,11 +346,12 @@ onMounted(async () => {
 .tree{display:flex;flex-direction:column;gap:6px}
 .tree-row{min-height:48px;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--k-r-lg);color:var(--k-ink-2);cursor:pointer;user-select:none;transition:background-color .16s}
 .tree-row .name{flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* doc-row 是 button，需先清掉默认背景；必须写在 hover/selected 之前，否则同特异性下会覆盖它们 */
+.tree-row.doc-row{width:100%;border:0;font:inherit;text-align:left;background:transparent}
 .tree-row:hover{background:var(--k-surface-hover)}
 .tree-row.selected{background:var(--k-surface-active);color:var(--k-ink)}
 .tree-row.folder-row{background:var(--k-surface);border:1px solid var(--k-line)}
 .tree-row.folder-row:hover{background:var(--k-surface-hover)}
-.tree-row.doc-row{width:100%;border:0;font:inherit;text-align:left;background:transparent}
 .node-icon{font-size:18px;color:var(--k-muted);flex:0 0 auto}
 .folder-badge{font-size:11px;padding:4px 7px;border-radius:999px;color:var(--k-green-deep);background:var(--k-green-soft);border:1px solid transparent;flex:0 0 auto;white-space:nowrap}
 .selection-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 15px;border-radius:var(--k-r-lg);background:var(--k-surface);border:1px solid var(--k-line);margin-bottom:12px}

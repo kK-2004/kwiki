@@ -125,7 +125,7 @@ li {
 /* 选中项：白底 + 左侧 2px 品牌绿竖线 */
 .row.selected {
   position: relative;
-  background: var(--k-canvas);
+  background: var(--k-selected);
   color: var(--k-ink);
   font-weight: 500;
   box-shadow: var(--k-shadow-sm);
@@ -141,9 +141,6 @@ li {
   background: var(--k-green);
 }
 /* 深色下 canvas 比目录栏更暗，选中项改用 surface-active 提亮（scoped 属性只加在最后一段，祖先选择器可直接写） */
-[data-theme='dark'] .row.selected {
-  background: var(--k-surface-active);
-}
 .caret {
   width: 14px;
   display: inline-flex;

@@ -165,7 +165,7 @@ nav {
 }
 
 .nav-item.active {
-  background: var(--k-canvas);
+  background: var(--k-selected);
   border-color: var(--k-line);
   box-shadow: var(--k-shadow-sm);
   color: var(--k-ink);
@@ -206,7 +206,7 @@ nav {
   margin: 0;
   font-size: 11px;
   font-weight: 600;
-  color: var(--k-faint);
+  color: var(--k-muted);
   letter-spacing: 0.6px;
 }
 
