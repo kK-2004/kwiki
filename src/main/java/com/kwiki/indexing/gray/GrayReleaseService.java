@@ -1,7 +1,9 @@
 package com.kwiki.indexing.gray;
 
+import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.version.*;
 import com.kwiki.wiki.api.ConflictException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,12 +28,25 @@ public class GrayReleaseService {
     private final IndexVersionEnablementService enablement;
     private final SearchIndexRebuildRunRepository runs;
     private final ParserCatalog parsers;
+    /** 管理写操作开关；为 null（离线测试）时不检查。 */
+    private final IndexingProperties properties;
 
     public GrayReleaseService(GrayReleaseStore store, SearchIndexAdminService admin,
                               SearchIndexVersionRepository versions, IndexVersionKbScope scope,
                               ManualIndexRebuildService rebuilds, SwitchPreparationService preparations,
                               SearchIndexValidationService validations, IndexVersionEnablementService enablement,
                               SearchIndexRebuildRunRepository runs, ParserCatalog parsers) {
+        this(store, admin, versions, scope, rebuilds, preparations, validations, enablement, runs, parsers, null);
+    }
+
+    @Autowired
+    public GrayReleaseService(GrayReleaseStore store, SearchIndexAdminService admin,
+                              SearchIndexVersionRepository versions, IndexVersionKbScope scope,
+                              ManualIndexRebuildService rebuilds, SwitchPreparationService preparations,
+                              SearchIndexValidationService validations, IndexVersionEnablementService enablement,
+                              SearchIndexRebuildRunRepository runs, ParserCatalog parsers,
+                              IndexingProperties properties) {
+        this.properties = properties;
         this.store = store;
         this.admin = admin;
         this.versions = versions;
@@ -54,6 +69,7 @@ public class GrayReleaseService {
 
     @Transactional
     public GrayRelease create(String name, String parserVersion, List<Long> kbIds, String operator) {
+        requireMutationsEnabled();
         List<Long> distinct = kbIds == null ? List.of() : kbIds.stream().distinct().toList();
         if (distinct.isEmpty()) {
             throw new ConflictException("请至少选择一个知识库");
@@ -87,14 +103,25 @@ public class GrayReleaseService {
 
     @Transactional
     public GrayRelease sync(long id, String operator) {
+        requireMutationsEnabled();
         GrayRelease release = find(id);
         if (release.status() != GrayReleaseStatus.CREATED && release.status() != GrayReleaseStatus.SYNCING) {
             throw new ConflictException("当前状态不能开始同步：" + release.status());
         }
         SearchIndexVersion version = versions.findByVersionNumber(release.indexVersionNumber())
                 .orElseThrow(() -> new ConflictException("灰度索引版本不存在"));
-        // 写入已开启说明重建与补齐已完成，只需重新推进校验；否则重新发起重建。
-        if (!version.isWriteEnabled()) {
+        // 以最新重建记录判断：当前配置已重建完成且已进入（或完成）切换准备时，只需清除失败原因重新推进校验；
+        // 不能以写入是否开启判断，写入可能被其他路径开启而索引并未构建。
+        SearchIndexRebuildRun run = runs.findFirstByVersionNumberOrderByIdDesc(release.indexVersionNumber())
+                .orElse(null);
+        boolean builtAndPrepared = run != null
+                && run.state() == RebuildRunState.COMPLETED
+                && run.getConfigRevision() == version.getConfigRevision()
+                && (run.switchState() == IndexSwitchState.READY || run.switchState() == IndexSwitchState.PREPARING);
+        if (!builtAndPrepared) {
+            if (version.isWriteEnabled()) {
+                throw new ConflictException("灰度索引版本写入已开启但尚未完成构建，无法重新同步，请结束该灰度后重新创建");
+            }
             VersionRebuildCoordinator.StartResult result = rebuilds.rebuild(release.indexVersionNumber(), operator);
             if (result == null || !result.accepted()) {
                 throw new ConflictException("另一个索引重建正在进行，请稍后再开始同步");
@@ -146,7 +173,7 @@ public class GrayReleaseService {
                         store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCED, null);
                     } else {
                         store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
-                                "校验未通过：" + safe(report.getSummary()));
+                                "校验未通过：" + safe(report.getSummary()) + "。如多次重试仍失败，请结束该灰度后重新创建");
                     }
                 }
             }
@@ -160,10 +187,12 @@ public class GrayReleaseService {
      */
     @Transactional(noRollbackFor = ConflictException.class)
     public GrayRelease switchTo(long id) {
+        requireMutationsEnabled();
         GrayRelease release = find(id);
         if (release.status() != GrayReleaseStatus.SYNCED) {
             throw new ConflictException("只有同步完成的灰度才能切换");
         }
+        parsers.requireAvailable(release.parserVersion());
         if (validations.currentReadyReport(release.indexVersionNumber()).isEmpty()) {
             requireTransition(store.transition(id, GrayReleaseStatus.SYNCED, GrayReleaseStatus.SYNCING, null));
             throw new ConflictException("校验报告已失效，已重新进入同步，系统会自动重新校验，请稍后再切换");
@@ -174,6 +203,7 @@ public class GrayReleaseService {
 
     @Transactional
     public GrayRelease switchBack(long id) {
+        requireMutationsEnabled();
         GrayRelease release = find(id);
         if (release.status() != GrayReleaseStatus.SWITCHED) {
             throw new ConflictException("灰度未处于已切换状态");
@@ -184,6 +214,7 @@ public class GrayReleaseService {
 
     @Transactional
     public GrayRelease end(long id) {
+        requireMutationsEnabled();
         GrayRelease release = find(id);
         if (release.status() == GrayReleaseStatus.ENDED) {
             throw new ConflictException("灰度已结束");
@@ -207,6 +238,12 @@ public class GrayReleaseService {
                 });
         requireTransition(store.end(id, release.status()));
         return find(id);
+    }
+
+    private void requireMutationsEnabled() {
+        if (properties != null && !Boolean.TRUE.equals(properties.management().mutationsEnabled())) {
+            throw new ConflictException("索引管理写操作已被关闭（kwiki.indexing.management.mutations-enabled）");
+        }
     }
 
     private static void requireTransition(boolean updated) {
