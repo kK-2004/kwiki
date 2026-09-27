@@ -29,14 +29,16 @@
 | 细线 | `--k-line` / `--k-line-strong` | `#e8e8e6` / `#dcdcd9` |
 | 文字 | `--k-ink` / `--k-ink-2` / `--k-muted` / `--k-faint` | `#0a0a0a` / `#3a3a3c` / `#6b6b6e` / `#a8a8aa` |
 | 主按钮 | `--k-primary` / `--k-primary-hover` | `#0a0a0a` / `#2a2a2c` |
-| 品牌绿 | `--k-green` / `--k-green-deep` / `--k-green-soft` | `#10b981` / `#059669` / `#ecfdf5` |
-| 危险 | `--k-danger` / `--k-danger-soft` | `#d45656` / `#fdf2f2` |
-| 警告 | `--k-warn` | `#c37d0d` |
+| 品牌绿 | `--k-green` / `--k-green-deep` / `--k-green-soft` | `#10b981` / `#047857` / `#ecfdf5` |
+| 危险 | `--k-danger` / `--k-danger-soft` | `#c43d3d` / `#fdf2f2` |
+| 警告 | `--k-warn` | `#9a5f06` |
 | 代码面 | `--k-code-bg` | `#f7f7f5`（深色见第 6 节） |
 | 圆角 | `--k-r-sm` / `--k-r` / `--k-r-lg` / `--k-r-pill` | 6 / 8 / 12 / 999px |
 | 阴影 | `--k-shadow-sm` / `--k-shadow` / `--k-shadow-float` | `0 1px 2px rgba(0,0,0,.04)` / `0 4px 12px rgba(0,0,0,.06)` / `0 12px 32px rgba(0,0,0,.10)` |
 | 焦点环 | `--k-focus-ring` | `0 0 0 3px rgba(16,185,129,.18)` |
 | 动效 | `--k-ease` | `150ms cubic-bezier(.2,0,0,1)` |
+
+浅色主题下 `--k-green-deep`、`--k-danger`、`--k-warn` 已由 `#059669` / `#d45656` / `#c37d0d` 加深，使其在白底与对应浅底上均满足 WCAG AA 正文 4.5:1 对比度。
 
 绿色**只**用于：选中态、焦点环、链接、品牌标识、成功提示。主操作按钮一律黑色。
 
