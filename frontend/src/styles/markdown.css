@@ -45,16 +45,22 @@
   letter-spacing: -0.2px;
 }
 
-.markdown a,
-.article a {
+.markdown > :first-child,
+.article > :first-child {
+  margin-top: 0;
+}
+
+/* 排除附件卡片：render.ts 输出 <a class="kwiki-attachment-card"> 位于正文内，不应套用链接样式 */
+.markdown a:not(.kwiki-attachment-card, [data-kwiki-attachment]),
+.article a:not(.kwiki-attachment-card, [data-kwiki-attachment]) {
   color: var(--k-green-deep);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--k-green-deep) 35%, transparent);
   text-underline-offset: 3px;
 }
 
-.markdown a:hover,
-.article a:hover {
+.markdown a:not(.kwiki-attachment-card, [data-kwiki-attachment]):hover,
+.article a:not(.kwiki-attachment-card, [data-kwiki-attachment]):hover {
   text-decoration-color: var(--k-green-deep);
 }
 

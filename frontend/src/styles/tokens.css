@@ -84,9 +84,23 @@
   --kwiki-danger: var(--k-danger);
   --kwiki-radius: var(--k-r-sm);
   --kwiki-focus-ring: var(--k-focus-ring);
+}
 
-  /* Element Plus（PDF 工具条）变量映射 */
+/*
+ * Element Plus（PDF 工具条）变量映射。
+ * element-plus 深色变量用 html.dark 覆盖主色为蓝色，这里用 `:root, html.dark` 使特异性持平，
+ * 且本文件在 main.ts 中晚于 element-plus/theme-chalk/dark/css-vars.css 引入，按源码顺序胜出。
+ * 同时重映射 light-* / dark-2 变体，避免悬停、禁用等状态残留蓝色。
+ */
+:root,
+html.dark {
   --el-color-primary: var(--k-green-deep);
+  --el-color-primary-light-3: color-mix(in srgb, var(--k-green-deep) 70%, var(--k-canvas));
+  --el-color-primary-light-5: color-mix(in srgb, var(--k-green-deep) 50%, var(--k-canvas));
+  --el-color-primary-light-7: color-mix(in srgb, var(--k-green-deep) 30%, var(--k-canvas));
+  --el-color-primary-light-8: color-mix(in srgb, var(--k-green-deep) 20%, var(--k-canvas));
+  --el-color-primary-light-9: var(--k-green-soft);
+  --el-color-primary-dark-2: var(--k-green-deep);
   --el-border-radius-base: var(--k-r);
   --el-font-family: var(--k-font);
 }
