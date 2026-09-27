@@ -59,8 +59,8 @@
      └─────────────── 结束灰度（任一未结束状态）───────────────────▶ ENDED
 ```
 
-1. **创建**：校验知识库均不在其他进行中的灰度；以当前全局已发布版本的配置为基础、替换 `parserVersion`，自动创建索引版本 vN（沿用现有建版本逻辑与物理名 `kwiki-chunks-v{n}`），标记其为灰度版本（`scope = 这些 kbId`）。**创建即开始对这些知识库双写**，保证同步期间新写入不丢。
-2. **开始同步**：发起限定 `kbId IN (…)` 的重建 run（从源文件用新解析器重新解析），完成后自动补齐双写积压，再自动执行限定范围的校验。全部通过 → `SYNCED`。
+1. **创建**：校验知识库均不在其他进行中的灰度；以当前全局已发布版本的配置为基础、替换 `parserVersion`，自动创建索引版本 vN（沿用现有建版本逻辑与物理名 `kwiki-chunks-v{n}`），并在 `search_index_version_kb_scope` 中登记其知识库范围。沿用现有规则：版本创建时写入关闭（重建要求写入关闭）。
+2. **开始同步**：发起限定 `kbId IN (…)` 的重建 run（从源文件用新解析器重新解析）；重建完成后由同步驱动器自动执行补齐（prepare：开启双写并从重建起点重放变更事件，保证不丢写入），补齐就绪后自动执行限定范围的校验。全部通过 → `SYNCED`。
 3. **切换 / 切回**：仅 `SYNCED` 可切换到 vN（→ `SWITCHED`）；`SWITCHED` 可随时切回（→ `SYNCED`）。切换为单事务更新路由，立即生效。
 4. **结束灰度**：知识库回到全局路由，停止向 vN 双写，释放 `active_kb_id`。vN 索引保留，状态显示为「可清理」，由管理员手动删除。
 
@@ -68,20 +68,22 @@
 
 ### 5.1 读路由 `KnowledgeBaseIndexRouter`
 
-- 输入：本次检索涉及的 `kbId` 集合。
-- 输出：`List<RouteGroup(physicalIndexOrAlias, kbIds)>`。
-  - 属于 `SWITCHED` 灰度的知识库 → 该灰度版本的物理索引。
-  - 其余 → 全局别名 `kwiki-chunks`。
-- 调用方：`VectorRecallAdapter`、`Bm25RecallAdapter`、`EsChunkLookup`、`EsGraphSourceChildResolver` 等所有读 `ElasticsearchIndexManager.ALIAS` 的位置，改为按分组查询（ES 多索引查询，每组附加 `kbId` terms 过滤），结果合并后沿用原排序/融合逻辑。
-- 路由快照按请求读取一次，同一次检索内一致。
+- 数据源：`SWITCHED` 状态灰度的「物理索引 → 知识库集合」。
+- 查询方式：一次 ES 查询同时覆盖 `kwiki-chunks` 别名与所有已切换灰度的物理索引，并附加路由过滤：
+  - 文档来自灰度物理索引 → 仅保留该灰度的知识库；
+  - 其余文档（来自别名）→ 排除所有已切换到灰度的知识库。
+  跨知识库检索的 TopK 仍是一次全局排序，无需合并。
+- 调用方：`VectorRecallAdapter`、`Bm25RecallAdapter`、`EsChunkLookup`（按 ID 取引用分块改为 ids 查询 + 路由过滤）。`EsGraphSourceChildResolver` 使用显式物理索引，不受影响。
+- 每次查询读取一次路由（单条 SQL）；切换在下一次查询立即生效。
+- 灰度版本不允许被全局「选择版本」（避免别名指向只含部分知识库的索引）。
 
 ### 5.2 写目标
 
-`IndexWriteTargets.current()` 增加按知识库的重载：目标 = 全局可写版本 ∪ 该知识库所在未结束灰度的版本。每个目标版本使用其配置中的解析器处理（`VersionedIndexingPipelineRegistry` 已按版本配置选择流水线）。
+写入扇出（`JdbcIndexingJobEnqueuer`）保持不变：所有可写版本（含已补齐的灰度版本）都会收到任务。工作线程处理 upsert 时，若目标版本有知识库范围且资源所属知识库不在范围内，则直接跳过（不写入）；删除不受限制。每个目标版本使用其配置中的解析器处理（`VersionedIndexingPipelineRegistry` 已按版本配置选择流水线）。结束灰度时停用该版本写入。
 
 ### 5.3 限定范围重建
 
-`ManualIndexRebuildService` / `FixedRangeRebuildScanner` 支持可选的 `kbIds` 范围；run 记录范围，统计按范围计算。
+`FixedRangeRebuildScanner`（重建）、`SwitchCatchupProcessor`（补齐尾部扫描）、`SearchIndexValidationService`（校验资源清单）的资源查询统一附加版本知识库范围过滤；无范围的全局版本行为不变。
 
 ### 5.4 导入解析
 
