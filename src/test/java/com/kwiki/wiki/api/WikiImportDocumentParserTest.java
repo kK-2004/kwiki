@@ -1,6 +1,7 @@
 package com.kwiki.wiki.api;
 
 import com.kwiki.indexing.config.MultimodalSwitchReadiness;
+import com.kwiki.indexing.gray.GrayReadRoutes;
 import com.kwiki.indexing.multimodal.PdfMultimodalParser;
 import com.kwiki.indexing.parse.DocumentParseService;
 import com.kwiki.indexing.parse.StructuredDocument;
@@ -56,6 +57,31 @@ class WikiImportDocumentParserTest {
                 .isEqualTo("图片前\n\n图片后");
         verify(readiness).requireReadyFor("kwiki-parse-2");
         verify(parser).parsePdfMultimodal("source.pdf", "application/pdf", pdf);
+    }
+
+    @Test
+    void 已切换灰度的知识库使用灰度解析器_其余知识库使用全局解析器() {
+        DocumentParseService documentParseService = mock(DocumentParseService.class);
+        SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
+        MultimodalSwitchReadiness readiness = mock(MultimodalSwitchReadiness.class);
+        when(versions.findBySelectedTrue()).thenReturn(Optional.of(version("kwiki-parse-1", 1)));
+        byte[] pdfBytes = new byte[]{1};
+        when(documentParseService.parsePdfMultimodal("a.pdf", "application/pdf", pdfBytes)).thenReturn(
+                new PdfMultimodalParser.PdfExtraction(List.of(new PdfMultimodalParser.TextItem("灰度正文")),
+                        List.of(), List.of()));
+        GrayReadRoutes routes = mock(GrayReadRoutes.class);
+        when(routes.switchedParserFor(7L)).thenReturn(Optional.of("kwiki-parse-2"));
+        when(routes.switchedParserFor(8L)).thenReturn(Optional.empty());
+        WikiImportDocumentParser importParser = new WikiImportDocumentParser(documentParseService,
+                com.kwiki.testutil.StandardTestProperties.providerOf(versions), readiness, routes);
+
+        importParser.parse(7L, "a.pdf", "application/pdf", pdfBytes);
+        verify(readiness).requireReadyFor("kwiki-parse-2");
+        verify(documentParseService).parsePdfMultimodal("a.pdf", "application/pdf", pdfBytes);
+
+        importParser.parse(8L, "b.pdf", "application/pdf", pdfBytes);
+        verify(documentParseService).parse(org.mockito.ArgumentMatchers.eq("b.pdf"),
+                org.mockito.ArgumentMatchers.eq("application/pdf"), any(InputStream.class));
     }
 
     private static SearchIndexVersion version(String parser, int mapping) {

@@ -76,7 +76,7 @@ public class WikiImportService {
         List<String> warnings = validateImportShape(safeName, content);
         StructuredDocument document = importParser == null
                 ? parser.parse(safeName, contentType, new ByteArrayInputStream(content))
-                : importParser.parse(safeName, contentType, content);
+                : importParser.parse(kbId, safeName, contentType, content);
         String markdown = markdown(safeName, content, document);
         String title = title(safeName);
         WikiPage page = tree.createNode(user, kbId, parentId, title, WikiPage.TYPE_PAGE, null);
