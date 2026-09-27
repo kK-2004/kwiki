@@ -21,12 +21,23 @@ const filtered = computed(() => {
   return word ? bases.value.filter(base => base.name.toLowerCase().includes(word) || String(base.id) === word) : bases.value;
 });
 
+/** 每次打开自增；只采纳最近一次加载的结果，防止快速关开时旧请求覆盖新状态 */
+let loadSeq = 0;
+
 async function load() {
-  [parsers.value, bases.value] = await Promise.all([api.parsers(), api.adminKnowledgeBases()]);
-  parserVersion.value = parsers.value.find(parser => parser.available && parser.id !== "kwiki-parse-1")?.id ?? "";
+  const seq = ++loadSeq;
   selected.value = [];
   name.value = "";
   keyword.value = "";
+  try {
+    const [parserList, baseList] = await Promise.all([api.parsers(), api.adminKnowledgeBases()]);
+    if (seq !== loadSeq) return;
+    parsers.value = parserList;
+    bases.value = baseList;
+    parserVersion.value = parserList.find(parser => parser.available && parser.id !== "kwiki-parse-1")?.id ?? "";
+  } catch (error) {
+    if (seq === loadSeq) ElMessage.error(grayErrorMessage(error, "解析器或知识库加载失败"));
+  }
 }
 
 watch(() => props.modelValue, open => { if (open) void load(); }, { immediate: true });
@@ -55,7 +66,7 @@ async function submit() {
             {{ parser.label }}<span class="parser-id">{{ parser.id }}</span>
           </el-radio>
         </el-radio-group>
-        <p v-for="parser in parsers.filter(item => !item.available)" :key="parser.id" class="hint">{{ parser.unavailableReason }}</p>
+        <p v-for="parser in parsers.filter(item => !item.available)" :key="parser.id" class="hint">{{ parser.label }}：{{ parser.unavailableReason }}</p>
       </el-form-item>
       <el-form-item :label="`知识库（已选 ${selected.length}）`">
         <el-input v-model="keyword" placeholder="搜索知识库" clearable />

@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/vue";
 import { createPinia } from "pinia";
-import ElementPlus from "element-plus";
+import ElementPlus, { ElMessageBox } from "element-plus";
 import { ApiError, type GrayRelease } from "../src/api";
 
 const mocks = vi.hoisted(() => ({ grayReleases: vi.fn(), parsers: vi.fn(), adminKnowledgeBases: vi.fn(), grayCommand: vi.fn(), createGrayRelease: vi.fn() }));
@@ -9,8 +9,13 @@ vi.mock("../src/api", async original => {
   const actual = await original<typeof import("../src/api")>();
   return { ...actual, api: { ...actual.api, ...mocks } };
 });
+const logout = vi.hoisted(() => vi.fn());
+vi.mock("../src/auth", () => ({ useAuth: () => ({ logout }) }));
 import GrayReleaseView from "../src/views/GrayReleaseView.vue";
 import GrayReleaseCreateDialog from "../src/components/GrayReleaseCreateDialog.vue";
+import GrayReleaseCard from "../src/components/GrayReleaseCard.vue";
+
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 const base: GrayRelease = {
   id: 1, name: "pdfbox-v2 灰度 #1", parserVersion: "kwiki-parse-2", parserLabel: "pdfbox-v2", indexVersionNumber: 4,
@@ -28,6 +33,7 @@ describe("灰度发布页", () => {
     await waitFor(() => expect(screen.getByText("pdfbox-v2 灰度 #1")).toBeTruthy());
     expect(screen.getByText("产品文档")).toBeTruthy();
     expect(screen.getByText("kwiki-chunks-v4")).toBeTruthy();
+    expect(screen.getByText("已扫描 10 · 成功 10 · 失败 0 · 双写积压 0")).toBeTruthy();
     expect(screen.getByRole("button", { name: "切换到灰度索引" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "切回原索引" })).toBeNull();
     expect(screen.queryByRole("button", { name: "开始同步" })).toBeNull();
@@ -51,6 +57,39 @@ describe("灰度发布页", () => {
     await fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
     await waitFor(() => expect(screen.getByText("灰度状态已变化")).toBeTruthy());
   });
+
+  it("卸载时请求在途，返回后也不再续期轮询", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let resolve!: (value: GrayRelease[]) => void;
+    mocks.grayReleases.mockReturnValue(new Promise<GrayRelease[]>(done => { resolve = done; }));
+    const { unmount } = render(GrayReleaseView, { global: { plugins } });
+    expect(mocks.grayReleases).toHaveBeenCalledTimes(1);
+    unmount();
+    resolve([base]);
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(mocks.grayReleases).toHaveBeenCalledTimes(1);
+  });
+
+  it("会话失效（401）时退出登录", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    mocks.grayReleases.mockRejectedValue(new ApiError(401, "unauthorized"));
+    render(GrayReleaseView, { global: { plugins } });
+    await waitFor(() => expect(logout).toHaveBeenCalled());
+    expect(assign).toHaveBeenCalledWith("/admin/login");
+  });
+});
+
+describe("灰度卡片确认", () => {
+  it("取消确认不发出操作，确认后发出", async () => {
+    const confirm = vi.spyOn(ElMessageBox, "confirm").mockRejectedValueOnce("cancel").mockResolvedValueOnce("confirm" as never);
+    const { emitted } = render(GrayReleaseCard, { props: { release: base, busy: false }, global: { plugins } });
+    await fireEvent.click(screen.getByRole("button", { name: "切换到灰度索引" }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(emitted().command).toBeUndefined();
+    await fireEvent.click(screen.getByRole("button", { name: "切换到灰度索引" }));
+    await waitFor(() => expect(emitted().command).toEqual([["switch"]]));
+  });
 });
 
 describe("新建灰度弹窗", () => {
@@ -63,10 +102,20 @@ describe("新建灰度弹窗", () => {
     render(GrayReleaseCreateDialog, { props: { modelValue: true, occupied: { 8: "pdfbox-v2 灰度 #1" } }, global: { plugins } });
     await waitFor(() => expect(screen.getByText("运维手册")).toBeTruthy());
     expect((screen.getByRole("radio", { name: /pdfbox-v2/ }) as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText("缺少配置：vision")).toBeTruthy();
+    expect(screen.getByText("pdfbox-v2：缺少配置：vision")).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: /技术规范/ }) as HTMLInputElement).disabled).toBe(true);
     await fireEvent.update(screen.getByPlaceholderText("搜索知识库"), "运维");
     expect(screen.queryByText("产品文档")).toBeNull();
     expect(screen.getByText("运维手册")).toBeTruthy();
+  });
+
+  it("名称留空时提交 name 为 undefined", async () => {
+    mocks.parsers.mockResolvedValue([{ id: "kwiki-parse-2", label: "pdfbox-v2", available: true, unavailableReason: null }]);
+    mocks.adminKnowledgeBases.mockResolvedValue([{ id: 7, name: "产品文档" }]);
+    mocks.createGrayRelease.mockResolvedValue({ id: 2, status: "CREATED" });
+    render(GrayReleaseCreateDialog, { props: { modelValue: true, occupied: {} }, global: { plugins } });
+    await fireEvent.click(await screen.findByRole("checkbox", { name: /产品文档/ }));
+    await fireEvent.click(screen.getByRole("button", { name: "创建灰度" }));
+    await waitFor(() => expect(mocks.createGrayRelease).toHaveBeenCalledWith({ name: undefined, parserVersion: "kwiki-parse-2", kbIds: [7] }));
   });
 });
