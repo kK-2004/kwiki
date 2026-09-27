@@ -39,6 +39,29 @@ class IndexVersionRetentionAdvisorTest {
                         org.assertj.core.groups.Tuple.tuple(3, true, false));
     }
 
+    @Test
+    void 灰度版本不占保留名额_停用后成为可清理() {
+        // v1 已选中、v2 全局版本、v3 灰度版本且已停用
+        SearchIndexVersionRepository repository = mock(SearchIndexVersionRepository.class);
+        SearchIndexVersion selected = SearchIndexVersion.bootstrapped(
+                1, "kwiki-chunks-v1", CONFIG, "mapping");
+        SearchIndexVersion v2 = builtVersion(2);
+        SearchIndexVersion v3 = builtVersion(3);
+        v3.disableByAdministrator();
+        when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc())
+                .thenReturn(List.of(selected, v2, v3));
+        com.kwiki.indexing.gray.IndexVersionKbScope scope =
+                org.mockito.Mockito.mock(com.kwiki.indexing.gray.IndexVersionKbScope.class);
+        org.mockito.Mockito.when(scope.isScoped(3)).thenReturn(true);
+        IndexVersionRetentionAdvisor advisor = new IndexVersionRetentionAdvisor(repository);
+        advisor.setKbScope(scope);
+        var items = advisor.recommend().versions();
+        assertThat(items).filteredOn(item -> item.versionNumber() == 2)
+                .singleElement().extracting(IndexVersionRetentionAdvisor.VersionRecommendation::retained).isEqualTo(true);
+        assertThat(items).filteredOn(item -> item.versionNumber() == 3)
+                .singleElement().extracting(IndexVersionRetentionAdvisor.VersionRecommendation::cleanupCandidate).isEqualTo(true);
+    }
+
     private static SearchIndexVersion builtVersion(int versionNumber) {
         SearchIndexVersion version = new SearchIndexVersion(
                 versionNumber, "kwiki-chunks-v" + versionNumber, CONFIG, "mapping");

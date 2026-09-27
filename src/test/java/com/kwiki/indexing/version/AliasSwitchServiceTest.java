@@ -97,6 +97,22 @@ class AliasSwitchServiceTest {
         verify(lock).unlock();
     }
 
+    @Test
+    void 灰度版本不能被全局选择() {
+        AliasSwitchService service = new AliasSwitchService(new KwikiDistributedLocks(
+                com.kwiki.testutil.StandardTestProperties.nullProvider()),
+                mock(SearchIndexVersionRepository.class), mock(SearchIndexValidationService.class),
+                mock(ElasticsearchIndexManager.class), mock(SearchIndexSelectionRegistry.class),
+                mock(SearchIndexAuditRepository.class), properties(), mock(MultimodalSwitchReadiness.class));
+        com.kwiki.indexing.gray.IndexVersionKbScope scope =
+                org.mockito.Mockito.mock(com.kwiki.indexing.gray.IndexVersionKbScope.class);
+        org.mockito.Mockito.when(scope.isScoped(3)).thenReturn(true);
+        service.setKbScope(scope);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.select(3, "admin"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("gray release version");
+    }
+
     private static IndexingProperties properties(){return new IndexingProperties(null,null,
             new IndexingProperties.Rebuild(50,2,20),
             new IndexingProperties.Catchup(100,Duration.ofSeconds(30)),

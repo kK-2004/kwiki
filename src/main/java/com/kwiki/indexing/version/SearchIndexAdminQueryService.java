@@ -39,6 +39,14 @@ public class SearchIndexAdminQueryService {
         this.multimodalReadiness=multimodalReadiness;
     }
 
+    /** 灰度版本的知识库范围；未注入（离线测试）时视为全部为全局版本。 */
+    private com.kwiki.indexing.gray.IndexVersionKbScope kbScope;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setKbScope(com.kwiki.indexing.gray.IndexVersionKbScope kbScope) {
+        this.kbScope = kbScope;
+    }
+
     public MultimodalReadinessView multimodalReadiness() {
         return new MultimodalReadinessView(multimodalReadiness.ready(),
                 multimodalReadiness.missingConfiguration());
@@ -125,8 +133,10 @@ public class SearchIndexAdminQueryService {
         actions.put("prepare",!snapshot.dirty()&&!version.isAdminDisabled()&&!activeRun&&!preparing);
         boolean multimodalBlocked = multimodalReadiness.isMultimodal(
                 version.editableConfig().parserVersion()) && !multimodalReadiness.ready();
+        // 灰度版本只服务范围内知识库，不允许全局选择
+        boolean scoped = kbScope != null && kbScope.isScoped(version.getVersionNumber());
         actions.put("select",!version.isSelected()&&!snapshot.dirty()&&!preparing
-                && !multimodalBlocked);
+                && !multimodalBlocked && !scoped);
         actions.put("disable",!version.isSelected()&&!version.isAdminDisabled()&&!activeRun&&!preparing);
         actions.put("reenable",version.isAdminDisabled()&&!activeRun&&!preparing);
         actions.put("delete",cleanupCandidate&&!activeRun&&!preparing);
@@ -137,7 +147,7 @@ public class SearchIndexAdminQueryService {
                 version.getCatchupStatus(),version.isWriteEnabled(),version.isAdminDisabled(),
                 version.isSelected(),version.isPipelineSupported(),version.getHealthSummary(),
                 version.getNeedsAttentionReason(),version.getLastValidationAt(),
-                version.getValidationSummary(),cleanupCandidate,Map.copyOf(actions));
+                version.getValidationSummary(),cleanupCandidate,Map.copyOf(actions),scoped);
     }
 
     private List<RangeView> ranges(Long runId) { return runId==null?List.of():ranges
@@ -153,7 +163,7 @@ public class SearchIndexAdminQueryService {
             String buildState,String catchupStatus,boolean writeEnabled,boolean adminDisabled,
             boolean selected,boolean pipelineSupported,String healthSummary,String attentionReason,
             Instant lastValidationAt,String validationSummary,boolean cleanupCandidate,
-            Map<String,Boolean> allowedActions){}
+            Map<String,Boolean> allowedActions,boolean kbScoped){}
     public record RangeView(String resourceType,long minId,long maxId,long lastSeenId,
             long tailLastSeenId,Long tailMaxId,long scanned,long succeeded,long skipped,long failed){}
     public record RunView(Long runId,int versionNumber,long buildGeneration,String kind,String state,

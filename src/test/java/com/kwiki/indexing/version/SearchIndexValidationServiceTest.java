@@ -62,7 +62,8 @@ class SearchIndexValidationServiceTest {
         when(jdbc.queryForObject(any(String.class),org.mockito.ArgumentMatchers.eq(Long.class),
                 any(Object[].class))).thenReturn(0L);
         when(jdbc.query(contains("FROM wiki_page"),
-                any(org.springframework.jdbc.core.RowMapper.class))).thenAnswer(invocation->{
+                any(org.springframework.jdbc.core.RowMapper.class),
+                org.mockito.ArgumentMatchers.<Object>any(), org.mockito.ArgumentMatchers.<Object>any())).thenAnswer(invocation->{
             @SuppressWarnings("unchecked")
             org.springframework.jdbc.core.RowMapper<Object> mapper=invocation.getArgument(1);
             java.sql.ResultSet rs=mock(java.sql.ResultSet.class);
@@ -71,7 +72,8 @@ class SearchIndexValidationServiceTest {
             return List.of(mapper.mapRow(rs,0));
         });
         when(jdbc.query(contains("FROM attachment"),
-                any(org.springframework.jdbc.core.RowMapper.class))).thenReturn(List.of());
+                any(org.springframework.jdbc.core.RowMapper.class),
+                org.mockito.ArgumentMatchers.<Object>any(), org.mockito.ArgumentMatchers.<Object>any())).thenReturn(List.of());
 
         SearchIndexValidationService service=new SearchIndexValidationService(
                 versions,runs,ranges,reports,indexes,mappings,new ObjectMapper(),jdbc);
@@ -115,7 +117,8 @@ class SearchIndexValidationServiceTest {
                 .thenReturn(new ElasticsearchIndexManager.ValidationSnapshot(
                         0,java.util.List.of(),false));
         when(reports.save(any())).thenAnswer(invocation->invocation.getArgument(0));
-        when(jdbc.query(any(String.class), any(org.springframework.jdbc.core.RowMapper.class)))
+        when(jdbc.query(any(String.class), any(org.springframework.jdbc.core.RowMapper.class),
+                org.mockito.ArgumentMatchers.<Object>any(), org.mockito.ArgumentMatchers.<Object>any()))
                 .thenReturn(java.util.List.of());
 
         SearchIndexValidationReport report=new SearchIndexValidationService(
@@ -151,7 +154,8 @@ class SearchIndexValidationServiceTest {
         child.put("indexVersion",2); child.put("vector",java.util.List.of(0.1));
         when(indexes.validationSnapshot("kwiki-chunks-v2",5000))
                 .thenReturn(new ElasticsearchIndexManager.ValidationSnapshot(1,List.of(child),false));
-        when(jdbc.query(any(String.class),any(org.springframework.jdbc.core.RowMapper.class)))
+        when(jdbc.query(any(String.class),any(org.springframework.jdbc.core.RowMapper.class),
+                org.mockito.ArgumentMatchers.<Object>any(), org.mockito.ArgumentMatchers.<Object>any()))
                 .thenReturn(List.of());
         when(reports.save(any())).thenAnswer(invocation->invocation.getArgument(0));
 

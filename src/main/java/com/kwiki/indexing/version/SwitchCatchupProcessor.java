@@ -58,8 +58,8 @@ public class SwitchCatchupProcessor {
         if (range.tailComplete()) return 0;
         Target target = target(runId);
         List<ResourceRow> rows = switch (range.getResourceType()) {
-            case "PAGE" -> tailPageRows(range);
-            case "ATTACHMENT" -> tailAttachmentRows(range);
+            case "PAGE" -> tailPageRows(range, target.version());
+            case "ATTACHMENT" -> tailAttachmentRows(range, target.version());
             default -> throw new IllegalStateException(
                     "unsupported rebuild resource type: " + range.getResourceType());
         };
@@ -115,25 +115,27 @@ public class SwitchCatchupProcessor {
         return new Target(version.getVersionNumber(), version.getPhysicalName());
     }
 
-    private List<ResourceRow> tailPageRows(SearchIndexRebuildRange range) {
+    private List<ResourceRow> tailPageRows(SearchIndexRebuildRange range, int version) {
         return jdbc.query("""
                 SELECT p.id, p.current_published_revision_id, p.lifecycle_version
                 FROM wiki_page p JOIN knowledge_base k ON k.id=p.kb_id
                 WHERE p.id>? AND p.id<=? AND p.node_type='PAGE' AND p.status='ACTIVE'
                   AND p.current_published_revision_id IS NOT NULL AND k.status='ACTIVE'
-                ORDER BY p.id ASC LIMIT ?
+                """ + com.kwiki.indexing.gray.IndexVersionKbScope.sqlFilter("p.kb_id") + """
+                 ORDER BY p.id ASC LIMIT ?
                 """, (rs, row) -> new ResourceRow(rs.getLong(1), rs.getLong(2), rs.getLong(3)),
-                range.getTailLastSeenId(), range.getTailMaxId(), batchSize);
+                range.getTailLastSeenId(), range.getTailMaxId(), version, version, batchSize);
     }
 
-    private List<ResourceRow> tailAttachmentRows(SearchIndexRebuildRange range) {
+    private List<ResourceRow> tailAttachmentRows(SearchIndexRebuildRange range, int version) {
         return jdbc.query("""
                 SELECT a.id FROM attachment a JOIN knowledge_base k ON k.id=a.kb_id
                 WHERE a.id>? AND a.id<=? AND a.status='STORED' AND k.status='ACTIVE'
                   AND LOWER(a.content_type) IN ('image/png','image/jpeg','image/gif','image/webp')
-                ORDER BY a.id ASC LIMIT ?
+                """ + com.kwiki.indexing.gray.IndexVersionKbScope.sqlFilter("a.kb_id") + """
+                 ORDER BY a.id ASC LIMIT ?
                 """, (rs, row) -> new ResourceRow(rs.getLong(1), null, 0),
-                range.getTailLastSeenId(), range.getTailMaxId(), batchSize);
+                range.getTailLastSeenId(), range.getTailMaxId(), version, version, batchSize);
     }
 
     private static Long nullableLong(java.sql.ResultSet rs, String column)

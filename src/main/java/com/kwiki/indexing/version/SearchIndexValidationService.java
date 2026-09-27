@@ -116,13 +116,16 @@ public class SearchIndexValidationService {
     }
 
     private List<ResourceIdentity> effectiveResources(SearchIndexVersion version){
+        int number=version.getVersionNumber();
         List<ResourceIdentity> result=new ArrayList<>();
         result.addAll(jdbc.query("""
                 SELECT p.id,p.current_published_revision_id,p.lifecycle_version
                 FROM wiki_page p JOIN knowledge_base k ON k.id=p.kb_id
                 WHERE p.node_type='PAGE' AND p.status='ACTIVE'
                   AND p.current_published_revision_id IS NOT NULL AND k.status='ACTIVE'
-                """,(rs,row)->new ResourceIdentity("PAGE",rs.getLong(1),rs.getLong(2),rs.getLong(3))));
+                """+com.kwiki.indexing.gray.IndexVersionKbScope.sqlFilter("p.kb_id"),
+                (rs,row)->new ResourceIdentity("PAGE",rs.getLong(1),rs.getLong(2),rs.getLong(3)),
+                number,number));
         String attachmentTypes = com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL
                 .equals(version.editableConfig().parserVersion())
                 ? "('image/png','image/jpeg','image/gif','image/webp','application/pdf')"
@@ -131,7 +134,9 @@ public class SearchIndexValidationService {
                 SELECT a.id FROM attachment a JOIN knowledge_base k ON k.id=a.kb_id
                 WHERE a.status='STORED' AND k.status='ACTIVE' AND a.purpose='GENERAL'
                   AND LOWER(a.content_type) IN %s
-                """.formatted(attachmentTypes),(rs,row)->new ResourceIdentity("ATTACHMENT",rs.getLong(1),null,0)));
+                """.formatted(attachmentTypes)+com.kwiki.indexing.gray.IndexVersionKbScope.sqlFilter("a.kb_id"),
+                (rs,row)->new ResourceIdentity("ATTACHMENT",rs.getLong(1),null,0),
+                number,number));
         return result;
     }
 

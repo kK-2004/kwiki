@@ -142,6 +142,18 @@ public class IndexingWorker {
         this.metrics = metrics;
     }
 
+    /** 灰度版本的知识库范围；未注入（离线测试）时视为全局版本。 */
+    private com.kwiki.indexing.gray.IndexVersionKbScope kbScope;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setKbScope(com.kwiki.indexing.gray.IndexVersionKbScope kbScope) {
+        this.kbScope = kbScope;
+    }
+
+    private boolean acceptsKnowledgeBase(int indexVersion, long kbId) {
+        return kbScope == null || kbScope.accepts(indexVersion, kbId);
+    }
+
     public void cancel() {
         this.cancelled = true;
     }
@@ -336,6 +348,9 @@ public class IndexingWorker {
         if (expectedVersion != null && page.getLifecycleVersion() != expectedVersion) {
             return; // 自入队以来生命周期已变化：过期的 upsert
         }
+        if (!acceptsKnowledgeBase(indexVersion, page.getKbId())) {
+            return; // 灰度版本只收范围内知识库；范围外的目标直接完成、不写入
+        }
         writeFencedUpsert(physicalIndex, indexVersion, "PAGE", pageId, revisionId,
                 page.getLifecycleVersion(), page.getKbId(), pipeline, intermediates,
                 pageDocument(page, revisionId));
@@ -359,6 +374,9 @@ public class IndexingWorker {
                 .orElseThrow(() -> new IllegalStateException("attachment missing for indexing job"));
         if (!attachment.isStored()) {
             return; // 已归档的附件不得复活
+        }
+        if (!acceptsKnowledgeBase(indexVersion, attachment.getKbId())) {
+            return; // 灰度版本只收范围内知识库
         }
         if (!Attachment.PURPOSE_GENERAL.equals(attachment.getPurpose())) {
             // 导入来源的图片语义归属于页面索引，不能绕过页面授权。

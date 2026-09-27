@@ -75,8 +75,8 @@ public class FixedRangeRebuildScanner {
         SearchIndexRebuildRange range = ranges.findByIdForUpdate(rangeId).orElseThrow();
         SearchIndexRebuildRun run = runs.findById(runId).orElseThrow();
         List<ResourceRow> rows = switch (range.getResourceType()) {
-            case "PAGE" -> pageRows(range);
-            case "ATTACHMENT" -> attachmentRows(range, multimodalParser);
+            case "PAGE" -> pageRows(range, version);
+            case "ATTACHMENT" -> attachmentRows(range, multimodalParser, version);
             default -> throw new IllegalStateException(
                     "unsupported rebuild resource type: " + range.getResourceType());
         };
@@ -146,19 +146,20 @@ public class FixedRangeRebuildScanner {
         return value instanceof Number number ? number.longValue() : 0;
     }
 
-    private List<ResourceRow> pageRows(SearchIndexRebuildRange range) {
+    private List<ResourceRow> pageRows(SearchIndexRebuildRange range, int version) {
         return jdbc.query("""
                 SELECT p.id, p.current_published_revision_id, p.lifecycle_version
                 FROM wiki_page p JOIN knowledge_base k ON k.id=p.kb_id
                 WHERE p.id>? AND p.id<=? AND p.node_type='PAGE' AND p.status='ACTIVE'
                   AND p.current_published_revision_id IS NOT NULL AND k.status='ACTIVE'
-                ORDER BY p.id ASC LIMIT ?
+                """ + com.kwiki.indexing.gray.IndexVersionKbScope.sqlFilter("p.kb_id") + """
+                 ORDER BY p.id ASC LIMIT ?
                 """, (rs, n) -> new ResourceRow(rs.getLong(1), rs.getLong(2), rs.getLong(3)),
-                range.getLastSeenId(), range.getMaxId(), batchSize);
+                range.getLastSeenId(), range.getMaxId(), version, version, batchSize);
     }
 
     private List<ResourceRow> attachmentRows(SearchIndexRebuildRange range,
-                                             boolean multimodalParser) {
+                                             boolean multimodalParser, int version) {
         // 多模态解析代把普通 PDF 附件纳入基线，导入来源由页面索引承载。
         String types = multimodalParser
                 ? "('image/png','image/jpeg','image/gif','image/webp','application/pdf')"
@@ -168,9 +169,10 @@ public class FixedRangeRebuildScanner {
                 WHERE a.id>? AND a.id<=? AND a.status='STORED' AND k.status='ACTIVE'
                   AND a.purpose='GENERAL'
                   AND LOWER(a.content_type) IN %s
-                ORDER BY a.id ASC LIMIT ?
-                """.formatted(types), (rs, n) -> new ResourceRow(rs.getLong(1), null, 0),
-                range.getLastSeenId(), range.getMaxId(), batchSize);
+                """.formatted(types) + com.kwiki.indexing.gray.IndexVersionKbScope.sqlFilter("a.kb_id") + """
+                 ORDER BY a.id ASC LIMIT ?
+                """, (rs, n) -> new ResourceRow(rs.getLong(1), null, 0),
+                range.getLastSeenId(), range.getMaxId(), version, version, batchSize);
     }
 
     private record ResourceRow(long id, Long revisionId, long lifecycleVersion) { }

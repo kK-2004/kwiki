@@ -20,6 +20,18 @@ public class IndexVersionRetentionAdvisor {
         this.versions = versions;
     }
 
+    /** 灰度版本的知识库范围；未注入（离线测试）时视为全部为全局版本。 */
+    private com.kwiki.indexing.gray.IndexVersionKbScope kbScope;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setKbScope(com.kwiki.indexing.gray.IndexVersionKbScope kbScope) {
+        this.kbScope = kbScope;
+    }
+
+    private boolean scoped(SearchIndexVersion version) {
+        return kbScope != null && kbScope.isScoped(version.getVersionNumber());
+    }
+
     @Transactional(readOnly = true)
     public Recommendation recommend() {
         List<SearchIndexVersion> active = versions
@@ -27,7 +39,9 @@ public class IndexVersionRetentionAdvisor {
         Set<Integer> retained = new LinkedHashSet<>();
         active.stream().filter(SearchIndexVersion::isSelected)
                 .forEach(version -> retained.add(version.getVersionNumber()));
+        // 灰度版本不占保留名额：结束灰度停用后即可成为清理候选
         active.stream()
+                .filter(version -> !scoped(version))
                 .sorted(Comparator.comparingInt(SearchIndexVersion::getVersionNumber).reversed())
                 .map(SearchIndexVersion::getVersionNumber)
                 .filter(version -> !retained.contains(version))

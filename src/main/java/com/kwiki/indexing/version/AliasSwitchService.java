@@ -24,9 +24,21 @@ public class AliasSwitchService {
         this.validations=validations;this.indexes=indexes;this.selection=selection;
         this.audits=audits;this.properties=properties;this.multimodalReadiness=multimodalReadiness;}
 
+    /** 灰度版本的知识库范围；未注入（离线测试）时视为全部为全局版本。 */
+    private com.kwiki.indexing.gray.IndexVersionKbScope kbScope;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setKbScope(com.kwiki.indexing.gray.IndexVersionKbScope kbScope) {
+        this.kbScope = kbScope;
+    }
+
     public Result select(int targetVersion,String operator){
         if(!Boolean.TRUE.equals(properties.management().mutationsEnabled()))
             throw new IllegalStateException(SearchIndexAdminService.MUTATIONS_DISABLED_MESSAGE);
+        // 灰度版本只服务范围内知识库，不能切换为全局读版本
+        if (kbScope != null && kbScope.isScoped(targetVersion)) {
+            throw new IllegalStateException("gray release version cannot be selected globally");
+        }
         AutoCloseable held=locks.acquire("search-index-alias",LOCK_WAIT,LOCK_LEASE);
         if(held==null)return new Result(false,null,"BUSY");
         try(held){return switchWhileLocked(targetVersion,operator);}
