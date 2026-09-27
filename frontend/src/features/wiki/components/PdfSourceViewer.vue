@@ -24,14 +24,14 @@
         <el-tooltip content="缩小" placement="bottom">
           <el-button class="tool-btn" text aria-label="缩小" @click="zoomOut">−</el-button>
         </el-tooltip>
-        <el-select v-model="zoomPercent" class="zoom-select" size="small" aria-label="缩放比例" @change="renderCurrentPage">
-          <el-option v-for="zoom in zoomOptions" :key="zoom" :label="`${zoom}%`" :value="zoom" />
+        <el-select v-model="zoomPercent" class="zoom-select" size="small" aria-label="缩放比例" @change="onZoomSelect">
+          <el-option v-for="zoom in zoomChoices" :key="zoom" :label="`${zoom}%`" :value="zoom" />
         </el-select>
         <el-tooltip content="放大" placement="bottom">
           <el-button class="tool-btn" text aria-label="放大" @click="zoomIn">＋</el-button>
         </el-tooltip>
         <span class="divider" aria-hidden="true"></span>
-        <el-button class="tool-btn fit-button" text @click="fitWidth">适宽</el-button>
+        <el-button class="tool-btn fit-button" :class="{ active: autoFit }" text :aria-pressed="autoFit" @click="fitWidth">适宽</el-button>
         <el-tooltip content="顺时针旋转" placement="bottom">
           <el-button class="tool-btn" text aria-label="顺时针旋转" @click="rotate">↻</el-button>
         </el-tooltip>
@@ -81,6 +81,8 @@
         </div>
         <div v-if="rendering" class="rendering-hint" role="status">正在渲染第 {{ currentPage }} 页…</div>
       </section>
+      <!-- 覆盖层（如水印）铺满缩略图 + 阅读区，不随文档缩放与滚动 -->
+      <slot name="overlay" />
     </main>
   </div>
 </template>
@@ -121,11 +123,18 @@ const canvasCssHeight = ref(0);
 const rendering = ref(false);
 const renderedThumbs = ref(new Set<number>());
 const zoomOptions = [50, 67, 75, 90, 100, 110, 125, 150, 175, 200];
+/** 适宽得到的比例不一定在预设里，并入选项才能在下拉框中正确显示 */
+const zoomChoices = computed(() => [...new Set([...zoomOptions, zoomPercent.value])].sort((a, b) => a - b));
+/** 默认按宽度自适应；用户手动缩放后不再随容器宽度变化自动调整 */
+const autoFit = ref(true);
 
 let pdfDoc: PDFDocumentProxy | null = null;
 let loadingTask: { promise: Promise<PDFDocumentProxy>; destroy(): Promise<void> } | null = null;
 let renderTask: RenderTask | null = null;
 let thumbnailObserver: IntersectionObserver | null = null;
+let viewerResizeObserver: ResizeObserver | null = null;
+let lastViewerWidth = 0;
+let refitTimer: ReturnType<typeof setTimeout> | undefined;
 let destroyed = false;
 let renderSequence = 0;
 const thumbCanvases = new Map<number, HTMLCanvasElement>();
@@ -185,7 +194,8 @@ async function loadPdf() {
     pageInput.value = '1';
     await nextTick();
     setupThumbnailObserver();
-    await renderCurrentPage();
+    setupViewerResizeObserver();
+    await fitWidth();
     if (!destroyed) emit('ready');
   } catch (error) {
     if (!destroyed && (error as { name?: string }).name !== 'RenderingCancelledException') emit('error', error);
@@ -290,19 +300,40 @@ async function goPage(pageNumber: number) {
 }
 
 function commitPage() { void goPage(Number(pageInput.value)); }
-function zoomIn() { zoomPercent.value = Math.min(200, zoomPercent.value + 10); void renderCurrentPage(); }
-function zoomOut() { zoomPercent.value = Math.max(40, zoomPercent.value - 10); void renderCurrentPage(); }
+function zoomIn() { autoFit.value = false; zoomPercent.value = Math.min(200, zoomPercent.value + 10); void renderCurrentPage(); }
+function zoomOut() { autoFit.value = false; zoomPercent.value = Math.max(40, zoomPercent.value - 10); void renderCurrentPage(); }
+function onZoomSelect() { autoFit.value = false; void renderCurrentPage(); }
 
 async function fitWidth() {
   if (!pdfDoc || !viewerEl.value) return;
+  autoFit.value = true;
   const page = await pdfDoc.getPage(currentPage.value);
   const baseViewport = page.getViewport({ scale: 96 / 72, rotation: rotation.value });
-  const availableWidth = Math.max(240, viewerEl.value.clientWidth - 72);
+  // 72 为左右内边距，另预留 16px 给出现纵向滚动条后的宽度变化，避免适宽后又出现横向滚动
+  const availableWidth = Math.max(240, viewerEl.value.clientWidth - 72 - 16);
   zoomPercent.value = Math.max(40, Math.min(200, Math.floor((availableWidth / baseViewport.width) * 100)));
   await renderCurrentPage();
 }
 
-function rotate() { rotation.value = (rotation.value + 90) % 360; void renderCurrentPage(); }
+function rotate() {
+  rotation.value = (rotation.value + 90) % 360;
+  if (autoFit.value) void fitWidth(); else void renderCurrentPage();
+}
+
+/** 容器宽度变化（侧栏收起、窗口缩放、进出全屏）时，自适应模式下重新适宽 */
+function setupViewerResizeObserver() {
+  viewerResizeObserver?.disconnect();
+  if (!viewerEl.value || typeof ResizeObserver === 'undefined') return;
+  lastViewerWidth = viewerEl.value.clientWidth;
+  viewerResizeObserver = new ResizeObserver(() => {
+    const width = viewerEl.value?.clientWidth ?? 0;
+    if (!autoFit.value || Math.abs(width - lastViewerWidth) < 8) return;
+    lastViewerWidth = width;
+    clearTimeout(refitTimer);
+    refitTimer = setTimeout(() => { if (!destroyed && autoFit.value) void fitWidth(); }, 120);
+  });
+  viewerResizeObserver.observe(viewerEl.value);
+}
 function onWheel(event: WheelEvent) {
   if (!(event.ctrlKey || event.metaKey)) return;
   event.preventDefault();
@@ -359,6 +390,8 @@ onBeforeUnmount(() => {
   renderSequence += 1;
   renderTask?.cancel();
   thumbnailObserver?.disconnect();
+  viewerResizeObserver?.disconnect();
+  clearTimeout(refitTimer);
   void loadingTask?.destroy();
   void pdfDoc?.destroy();
 });
@@ -366,18 +399,20 @@ onBeforeUnmount(() => {
 
 <style scoped>
 *{box-sizing:border-box}
-.pdf-shell{--header-h:58px;--sidebar-w:208px;--line:var(--k-line);--muted:var(--k-muted);--viewer:var(--k-surface);height:100%;min-height:520px;display:flex;flex-direction:column;background:var(--k-canvas);color:var(--k-ink)}
-.pdf-topbar{height:var(--header-h);flex:0 0 var(--header-h);padding:0 14px 0 18px;display:grid;grid-template-columns:minmax(180px,1fr) auto minmax(180px,1fr);align-items:center;gap:14px;border-bottom:1px solid var(--line);background:color-mix(in srgb, var(--k-canvas) 96%, transparent);z-index:3}
-.doc-meta{min-width:0;display:flex;align-items:center;gap:11px}.pdf-badge{width:34px;height:34px;border:1px solid var(--k-danger-line);border-radius:var(--k-r);display:grid;place-items:center;flex:0 0 auto;background:var(--k-danger-soft);color:var(--k-danger);font-size:11px;font-weight:800}.doc-title-wrap{min-width:0}.doc-title{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600;color:var(--k-ink)}.doc-sub{margin-top:2px;color:var(--muted);font-size:11px}
-.toolbar,.actions{display:flex;align-items:center;gap:6px;white-space:nowrap}.toolbar{justify-content:center}.actions{justify-content:flex-end}.toolbar :deep(.el-button+.el-button),.actions :deep(.el-button+.el-button){margin-left:0}.tool-btn{min-width:32px!important;padding:7px 9px!important;border-color:transparent!important;background:transparent!important;color:var(--k-ink-2)!important}.tool-btn:hover{background:var(--k-surface-hover)!important;color:var(--k-ink)!important}.divider{width:1px;height:18px;margin:0 3px;background:var(--line)}.page-jump{display:flex;align-items:center;gap:6px;color:var(--k-ink-2);font-size:13px}.page-input{width:54px}.page-input :deep(.el-input__wrapper){padding:0 7px}.page-input :deep(input){text-align:center}.zoom-select{width:98px}
-.pdf-main{min-height:0;flex:1;display:flex}.sidebar{width:var(--sidebar-w);flex:0 0 var(--sidebar-w);min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--k-surface)}.sidebar-head{height:45px;flex:0 0 45px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid var(--line)}.sidebar-title{color:var(--k-ink-2);font-size:12px;font-weight:600}.page-total{color:var(--k-faint);font-size:11px}.thumbs{min-height:0;flex:1;overflow:auto;padding:12px 12px 20px}.thumb-item{width:100%;display:flex;align-items:flex-start;gap:8px;margin:0 0 12px;padding:7px;border:1px solid transparent;border-radius:var(--k-r);background:transparent;text-align:left;cursor:pointer;transition:.15s ease}.thumb-item:hover{background:var(--k-surface-hover)}.thumb-item.active{border-color:var(--k-green);background:var(--k-green-soft)}.thumb-page{position:relative;width:112px;aspect-ratio:.707;overflow:hidden;display:flex;align-items:center;justify-content:center;border:1px solid var(--k-line);border-radius:3px;background:var(--k-paper);box-shadow:var(--k-shadow-sm)}.thumb-page canvas{display:block;max-width:100%;max-height:100%}.thumb-placeholder{position:absolute;width:78%;height:76%;display:flex;flex-direction:column;gap:7px;padding-top:14px}
+.pdf-shell{--header-h:58px;--sidebar-w:208px;--line:var(--k-line);--muted:var(--k-muted);--viewer:var(--k-surface);container-type:inline-size;container-name:pdf;height:100%;min-height:520px;display:flex;flex-direction:column;background:var(--k-canvas);color:var(--k-ink)}
+/* 顶栏用可换行的 flex：宽度不足时工具条自动换到第二行，按钮不会被挤出容器 */
+.pdf-topbar{min-height:var(--header-h);flex:0 0 auto;padding:8px 14px 8px 18px;display:flex;flex-wrap:wrap;align-items:center;column-gap:14px;row-gap:6px;border-bottom:1px solid var(--line);background:color-mix(in srgb, var(--k-canvas) 96%, transparent);z-index:5}
+.doc-meta{flex:1 1 180px;min-width:0;display:flex;align-items:center;gap:11px}.pdf-badge{width:34px;height:34px;border:1px solid var(--k-danger-line);border-radius:var(--k-r);display:grid;place-items:center;flex:0 0 auto;background:var(--k-danger-soft);color:var(--k-danger);font-size:11px;font-weight:800}.doc-title-wrap{min-width:0}.doc-title{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600;color:var(--k-ink)}.doc-sub{margin-top:2px;color:var(--muted);font-size:11px}
+.toolbar,.actions{display:flex;align-items:center;gap:4px;white-space:nowrap}.toolbar{flex:0 1 auto;justify-content:center}.actions{flex:0 0 auto;margin-left:auto;justify-content:flex-end}.fit-button.active{background:var(--k-surface-active)!important;color:var(--k-ink)!important}.toolbar :deep(.el-button+.el-button),.actions :deep(.el-button+.el-button){margin-left:0}.tool-btn{min-width:32px!important;padding:7px 9px!important;border-color:transparent!important;background:transparent!important;color:var(--k-ink-2)!important}.tool-btn:hover{background:var(--k-surface-hover)!important;color:var(--k-ink)!important}.divider{width:1px;height:18px;margin:0 3px;background:var(--line)}.page-jump{display:flex;align-items:center;gap:6px;color:var(--k-ink-2);font-size:13px}.page-input{width:54px}.page-input :deep(.el-input__wrapper){padding:0 7px}.page-input :deep(input){text-align:center}.zoom-select{width:98px}
+.pdf-main{position:relative;min-height:0;flex:1;display:flex}.sidebar{width:var(--sidebar-w);flex:0 0 var(--sidebar-w);min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--k-surface)}.sidebar-head{height:45px;flex:0 0 45px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid var(--line)}.sidebar-title{color:var(--k-ink-2);font-size:12px;font-weight:600}.page-total{color:var(--k-faint);font-size:11px}.thumbs{min-height:0;flex:1;overflow:auto;padding:12px 12px 20px}.thumb-item{width:100%;display:flex;align-items:flex-start;gap:8px;margin:0 0 12px;padding:7px;border:1px solid transparent;border-radius:var(--k-r);background:transparent;text-align:left;cursor:pointer;transition:.15s ease}.thumb-item:hover{background:var(--k-surface-hover)}.thumb-item.active{border-color:var(--k-green);background:var(--k-green-soft)}.thumb-page{position:relative;width:112px;aspect-ratio:.707;overflow:hidden;display:flex;align-items:center;justify-content:center;border:1px solid var(--k-line);border-radius:3px;background:var(--k-paper);box-shadow:var(--k-shadow-sm)}.thumb-page canvas{display:block;max-width:100%;max-height:100%}.thumb-placeholder{position:absolute;width:78%;height:76%;display:flex;flex-direction:column;gap:7px;padding-top:14px}
 /* 骨架条画在白色纸张缩略图上，两种主题都保持浅灰 */
 .thumb-placeholder i{height:4px;border-radius:3px;background:#e8eaed}.thumb-placeholder i:nth-child(2){width:76%}.thumb-placeholder i:nth-child(3){width:90%}.thumb-placeholder i:nth-child(4){width:62%}.thumb-index{min-width:18px;padding-top:3px;color:var(--k-muted);font-size:11px;text-align:center}.thumb-item.active .thumb-index{color:var(--k-green-deep);font-weight:600}
 .viewer{position:relative;min-width:0;min-height:0;flex:1;overflow:auto;background:var(--viewer)}.viewer-inner{min-width:100%;min-height:100%;padding:34px 36px 54px;display:flex;align-items:flex-start;justify-content:center}
 /* 纸张本体两种主题都保持白色 */
 .paper{overflow:hidden;border:1px solid var(--k-line);background:var(--k-paper);box-shadow:var(--k-shadow)}.source-pdf-page{display:block;margin:0 auto;background:var(--k-paper)}
 .rendering-hint{position:sticky;bottom:16px;width:max-content;margin:0 auto 16px;padding:7px 12px;border-radius:var(--k-r);background:color-mix(in srgb, var(--k-ink) 85%, transparent);color:var(--k-canvas);font-size:12px;pointer-events:none}
-.pdf-shell:fullscreen{min-height:100vh}.pdf-shell:fullscreen .pdf-main{height:calc(100vh - var(--header-h))}
-@media(max-width:1100px){.pdf-topbar{grid-template-columns:minmax(160px,1fr) auto}.toolbar{display:none}.sidebar{width:160px;flex-basis:160px}.thumb-page{width:82px}.doc-title{max-width:260px}.actions .hide-sm{display:none}}
-@media(max-width:680px){.sidebar{display:none}.pdf-topbar{padding-left:10px}.doc-title{max-width:180px}.viewer-inner{padding:20px 16px 36px}}
+.pdf-shell:fullscreen{height:100vh;min-height:100vh}
+/* 断点按预览容器自身宽度而非窗口宽度：嵌在 Wiki 页面里时容器远窄于窗口 */
+@container pdf (max-width:900px){.sidebar{width:160px;flex-basis:160px}.thumb-page{width:82px}.doc-title{max-width:260px}.toolbar{order:3;flex-basis:100%}}
+@container pdf (max-width:600px){.actions .hide-sm{display:none}.sidebar{display:none}.pdf-topbar{padding-left:10px}.doc-title{max-width:180px}.viewer-inner{padding:20px 16px 36px}.toolbar{flex-wrap:wrap}}
 </style>

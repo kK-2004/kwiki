@@ -17,16 +17,17 @@
           :http-headers="pdfInput.httpHeaders"
           @ready="onPdfReady"
           @error="onPdfError"
-        />
+        >
+          <!-- PDF 水印只覆盖缩略图 + 阅读区，不压工具栏，全屏时随组件一起进入全屏 -->
+          <template #overlay>
+            <SourceWatermark v-if="status === 'ready'" :text="watermarkText" />
+          </template>
+        </PdfSourceViewer>
         <div v-else-if="source.format === 'DOCX'" class="source-scroll">
           <div ref="renderer" class="source-renderer" :class="`fmt-${source.format.toLowerCase()}`"></div>
         </div>
         <div v-if="status === 'loading'" class="source-loading" data-testid="source-loading" role="status">正在加载源文件…</div>
-        <div v-if="status === 'ready'" class="source-watermark" data-testid="source-watermark" aria-hidden="true">
-          <div class="wm-grid">
-            <span v-for="tile in 18" :key="tile">{{ watermarkText }}</span>
-          </div>
-        </div>
+        <SourceWatermark v-if="status === 'ready' && source.format !== 'PDF'" :text="watermarkText" />
       </div>
     </template>
   </div>
@@ -39,6 +40,7 @@ import { getAuthToken } from '../api';
 import { useAuthStore } from '../../auth/store';
 import { renderSource, SOURCE_PREVIEW_MAX_BYTES, type SourceRenderHandle } from './sourceAdapters';
 import PdfSourceViewer from './PdfSourceViewer.vue';
+import SourceWatermark from './SourceWatermark.vue';
 
 const props = defineProps<{ kbId: number; pageId: number; source: SourceDocumentSummary }>();
 
@@ -244,8 +246,5 @@ onBeforeUnmount(() => {
 .source-renderer{padding:14px}
 /* 纸张本体两种主题都保持白色；正文字色也固定为深色，避免深色主题下继承浅色文字而看不清 */
 .source-renderer :deep(.kwiki-docx-wrapper){background:var(--k-paper);color:#1f2328;padding:8px 0}
-.source-watermark{position:absolute;inset:0;pointer-events:none;overflow:hidden;display:grid;place-items:center}
-/* 水印叠在白色纸张上，两种主题都保持深色半透明 */
-.wm-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:64px 48px;transform:rotate(-22deg) scale(1.25);color:rgba(45, 73, 55, 0.18);user-select:none;font-size:12px;white-space:nowrap;text-align:center}
-@media print{.source-watermark{position:fixed;inset:0;z-index:9999}.source-scroll{overflow:visible}}
+@media print{.source-scroll{overflow:visible}}
 </style>

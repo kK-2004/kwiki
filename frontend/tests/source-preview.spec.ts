@@ -27,7 +27,7 @@ vi.mock('../src/features/wiki/components/PdfSourceViewer.vue', () => ({
     name: 'PdfSourceViewer',
     props: ['source', 'httpHeaders'],
     emits: ['ready', 'error'],
-    setup(props, { emit }) {
+    setup(props, { emit, slots }) {
       onMounted(() => {
         pdfViewer.sources.push(props.source as Blob | string);
         pdfViewer.headers.push(props.httpHeaders as Record<string, string> | undefined);
@@ -36,7 +36,8 @@ vi.mock('../src/features/wiki/components/PdfSourceViewer.vue', () => ({
         if (outcome === 'error') emit('error', new TypeError('Failed to fetch'));
       });
       onBeforeUnmount(pdfViewer.unmounts);
-      return () => h('div', { 'data-testid': 'pdf-viewer' });
+      // 与真实组件一致地渲染 overlay 插槽，水印由 SourcePreview 通过该插槽注入
+      return () => h('div', { 'data-testid': 'pdf-viewer' }, slots.overlay?.());
     },
   }),
 }));
