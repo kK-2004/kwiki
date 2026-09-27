@@ -122,17 +122,40 @@
   --el-color-primary-light-9: var(--k-green-soft);
   /* 按下态：与 ink 混合，浅色下变深、深色下（ink 近白）变亮，两种主题都有反馈 */
   --el-color-primary-dark-2: color-mix(in srgb, var(--k-green-deep) 80%, var(--k-ink));
+  /* 语义色：hover / 浅底 / 按下态同样从令牌派生 */
   --el-color-danger: var(--k-danger);
+  --el-color-danger-light-3: color-mix(in srgb, var(--k-danger) 70%, var(--k-canvas));
+  --el-color-danger-light-5: color-mix(in srgb, var(--k-danger) 50%, var(--k-canvas));
+  --el-color-danger-light-7: color-mix(in srgb, var(--k-danger) 30%, var(--k-canvas));
+  --el-color-danger-light-8: color-mix(in srgb, var(--k-danger) 20%, var(--k-canvas));
+  --el-color-danger-light-9: var(--k-danger-soft);
+  --el-color-danger-dark-2: color-mix(in srgb, var(--k-danger) 80%, var(--k-ink));
   --el-color-warning: var(--k-warn);
+  --el-color-warning-light-3: color-mix(in srgb, var(--k-warn) 70%, var(--k-canvas));
+  --el-color-warning-light-5: color-mix(in srgb, var(--k-warn) 50%, var(--k-canvas));
+  --el-color-warning-light-7: color-mix(in srgb, var(--k-warn) 30%, var(--k-canvas));
+  --el-color-warning-light-8: color-mix(in srgb, var(--k-warn) 20%, var(--k-canvas));
+  --el-color-warning-light-9: var(--k-warn-soft);
+  --el-color-warning-dark-2: color-mix(in srgb, var(--k-warn) 80%, var(--k-ink));
+  --el-color-success: var(--k-green-deep);
+  --el-color-success-light-3: color-mix(in srgb, var(--k-green-deep) 70%, var(--k-canvas));
+  --el-color-success-light-5: color-mix(in srgb, var(--k-green-deep) 50%, var(--k-canvas));
+  --el-color-success-light-7: color-mix(in srgb, var(--k-green-deep) 30%, var(--k-canvas));
+  --el-color-success-light-8: color-mix(in srgb, var(--k-green-deep) 20%, var(--k-canvas));
+  --el-color-success-light-9: var(--k-green-soft);
+  --el-color-success-dark-2: color-mix(in srgb, var(--k-green-deep) 80%, var(--k-ink));
   --el-bg-color: var(--k-canvas);
   --el-bg-color-overlay: var(--k-canvas);
   --el-bg-color-page: var(--k-surface);
   --el-fill-color-blank: var(--k-canvas);
   --el-fill-color-light: var(--k-surface);
   --el-fill-color-lighter: var(--k-surface);
+  --el-fill-color: var(--k-surface-hover);
+  --el-fill-color-darker: var(--k-surface-active);
   --el-border-color: var(--k-line);
   --el-border-color-light: var(--k-line);
   --el-border-color-lighter: var(--k-line);
+  --el-border-color-extra-light: var(--k-line);
   --el-border-color-hover: var(--k-line-strong);
   --el-text-color-primary: var(--k-ink);
   --el-text-color-regular: var(--k-ink-2);
@@ -155,6 +178,10 @@
   --el-button-hover-text-color: var(--k-on-primary);
   --el-button-active-bg-color: var(--k-primary-hover);
   --el-button-active-border-color: var(--k-primary-hover);
+  /* 禁用态：主色与画布混合，避免 element-plus 默认的浅绿 */
+  --el-button-disabled-bg-color: color-mix(in srgb, var(--k-primary) 35%, var(--k-canvas));
+  --el-button-disabled-border-color: color-mix(in srgb, var(--k-primary) 35%, var(--k-canvas));
+  --el-button-disabled-text-color: var(--k-on-primary);
 }
 
 /* 表格：细线 + 浅表头 */

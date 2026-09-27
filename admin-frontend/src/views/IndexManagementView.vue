@@ -180,15 +180,7 @@ const latestValidation = (v: number) => validations.value.find(r => r.versionNum
 const displayLabel = (value: string) => statusLabel[value as Version["displayStatus"]] || value;
 </script>
 <template>
-  <div class="shell">
-    <header class="topbar">
-      <strong>KWiki · 搜索索引管理</strong>
-      <nav class="topnav">
-        <router-link to="/knowledge-graphs">知识图谱任务</router-link>
-        <span>{{ auth.user?.username }}</span>
-        <el-button text style="color:white" @click="auth.logout();$router.push('/login')">退出</el-button>
-      </nav>
-    </header>
+  <div>
     <main class="page" v-loading="loading">
       <section class="hero">
         <div>
