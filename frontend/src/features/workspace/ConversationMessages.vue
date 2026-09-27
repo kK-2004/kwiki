@@ -101,7 +101,7 @@ function retry() { if (store.historyError) void store.select(store.sessionId); e
 .composer-toolbar > span { font-size: 11px; color: var(--k-muted); display: flex; align-items: center; gap: 6px; }
 .send-button { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: var(--k-r); background: var(--k-primary); color: var(--k-on-primary); font-size: 17px; cursor: pointer; }
 .send-button:hover:not(:disabled) { background: var(--k-primary-hover); }
-.composer-note { text-align: center; font-size: 10px; color: var(--k-faint); margin: 12px 0 0; line-height: 1.6; }
+.composer-note { text-align: center; font-size: 10px; color: var(--k-muted); margin: 12px 0 0; line-height: 1.6; }
 .compact .messages { padding: 18px; }
 .compact .welcome { margin: 20px auto; }
 .compact .welcome h1 { font-size: 22px; }

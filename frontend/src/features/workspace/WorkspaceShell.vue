@@ -290,7 +290,7 @@ nav {
   padding: 10px;
   border: 1px dashed var(--k-line-strong);
   border-radius: var(--k-r);
-  color: var(--k-faint);
+  color: var(--k-muted);
   font-size: 12px;
   line-height: 18px;
 }

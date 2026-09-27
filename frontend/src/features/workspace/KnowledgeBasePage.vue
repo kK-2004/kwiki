@@ -201,6 +201,7 @@ button:disabled {
   outline: none;
   background: transparent;
   font-size: 12px;
+  color: var(--k-ink);
 }
 
 .base-grid {

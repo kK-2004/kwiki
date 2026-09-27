@@ -347,7 +347,7 @@ onBeforeUnmount(() => {
 .preview-circle-large { width: 110px; height: 110px; position: relative; overflow: hidden; margin-bottom: 20px; border: 2px solid var(--k-canvas); border-radius: 50%; background: var(--k-surface-hover); box-shadow: var(--k-shadow), 0 0 0 1px var(--k-line); display: grid; place-items: center; color: var(--k-ink-2); font-size: 42px; font-weight: 600; }
 .preview-image { position: absolute; inset: -10%; background: var(--k-surface-hover) center/cover; background-position: center; background-size: cover; }
 .preview-circle-large > span { position: relative; z-index: 1; }
-.upload-tip { margin-bottom: 14px; color: var(--k-faint); font-size: 12px; line-height: 1.5; text-align: center; }
+.upload-tip { margin-bottom: 14px; color: var(--k-muted); font-size: 12px; line-height: 1.5; text-align: center; }
 .upload-btn { width: 100%; padding: 0; font-size: 13px; }
 
 /* 密码 */

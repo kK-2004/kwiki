@@ -29,7 +29,7 @@ function open(pageId: number) {
 <style scoped>
 .summary-note {
   margin: 0 3px 10px;
-  color: var(--k-faint);
+  color: var(--k-muted);
   font-size: 12px;
   line-height: 1.6;
 }

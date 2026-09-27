@@ -319,7 +319,7 @@ onMounted(async () => {
 .col+.col{border-left:1px solid var(--k-line)}
 .section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
 .section-title{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--k-muted)}
-.section-hint{font-size:12px;color:var(--k-faint);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.section-hint{font-size:12px;color:var(--k-muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .search{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;border:1px solid var(--k-line);background:var(--k-surface);border-radius:var(--k-r-lg);margin-bottom:14px}
 .search:focus-within{border-color:var(--k-green);background:var(--k-canvas);box-shadow:var(--k-focus-ring)}
 .search i{font-size:16px;color:var(--k-faint)}

@@ -150,7 +150,7 @@ h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.8px; line-height: 1.2
 .retry-import:disabled { opacity: 0.55; cursor: default; }
 .import-list-error { margin: 12px 0 0; padding: 9px 10px; border: 1px solid var(--k-danger-line); border-radius: var(--k-r); background: var(--k-danger-soft); color: var(--k-danger); font-size: 12px; }
 @keyframes import-spin { to { transform: rotate(360deg); } }
-.empty-directory { padding: 30px 0; color: var(--k-faint); font-size: 13px; }
+.empty-directory { padding: 30px 0; color: var(--k-muted); font-size: 13px; }
 .mobile-tree { display: none; }
 .create-overlay { position: fixed; inset: 0; display: grid; place-items: center; background: var(--k-overlay); z-index: 90; }
 .create-dialog { width: min(440px, 90vw); padding: 28px; background: var(--k-canvas); border: 1px solid var(--k-line); border-radius: var(--k-r-lg); box-shadow: var(--k-shadow-float); }
