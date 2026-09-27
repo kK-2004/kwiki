@@ -214,3 +214,27 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* 输入类组件与用户端保持一致：细线边框，悬停加深，聚焦为品牌绿边框 + 浅绿光晕 */
+.el-input,
+.el-textarea,
+.el-select {
+  --el-input-border-color: var(--k-line);
+  --el-input-hover-border-color: var(--k-line-strong);
+  --el-input-focus-border-color: var(--k-green);
+  --el-select-input-focus-border-color: var(--k-green);
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--k-green) inset, var(--k-focus-ring) !important;
+}
+
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--k-green) inset, var(--k-focus-ring) !important;
+}
+
+/* 登录页输入框高度与用户端（40px）一致 */
+.login-card .el-input {
+  --el-input-height: 40px;
+}
