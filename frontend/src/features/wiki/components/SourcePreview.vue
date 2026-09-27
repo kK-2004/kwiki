@@ -20,14 +20,14 @@
         >
           <!-- PDF 水印只覆盖缩略图 + 阅读区，不压工具栏，全屏时随组件一起进入全屏 -->
           <template #overlay>
-            <SourceWatermark v-if="status === 'ready'" :text="watermarkText" />
+            <SourceWatermark v-if="status === 'ready'" :identity="watermarkIdentity" />
           </template>
         </PdfSourceViewer>
         <div v-else-if="source.format === 'DOCX'" class="source-scroll">
           <div ref="renderer" class="source-renderer" :class="`fmt-${source.format.toLowerCase()}`"></div>
         </div>
         <div v-if="status === 'loading'" class="source-loading" data-testid="source-loading" role="status">正在加载源文件…</div>
-        <SourceWatermark v-if="status === 'ready' && source.format !== 'PDF'" :text="watermarkText" />
+        <SourceWatermark v-if="status === 'ready' && source.format !== 'PDF'" :identity="watermarkIdentity" />
       </div>
     </template>
   </div>
@@ -85,15 +85,12 @@ const sizeLabel = computed(() => (props.source.byteSize >= 1024 * 1024
   ? `${(props.source.byteSize / 1024 / 1024).toFixed(1)} MB`
   : `${Math.max(1, Math.round(props.source.byteSize / 1024))} KB`));
 
-/** 泄漏溯源水印：当前用户身份 + 打开时间，仅作提醒而非 DRM。 */
-const watermarkText = computed(() => {
+/** 泄漏溯源水印的身份部分；时间由 SourceWatermark 按分钟实时刷新。仅作提醒而非 DRM。 */
+const watermarkIdentity = computed(() => {
   const user = auth.user;
-  const identity = user?.displayName && user.displayName !== user.username
+  return user?.displayName && user.displayName !== user.username
     ? `${user.displayName} ${user.username}`
     : user?.username || '已登录用户';
-  const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${identity} · ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 });
 
 function release() {

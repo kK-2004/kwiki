@@ -12,8 +12,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 /**
  * 源文件预览水印：铺满父容器（父容器需为定位元素），不随文档缩放或滚动。
  * 平铺数量按容器实际尺寸计算，保证任意宽高下都没有空白区域。
+ * 文本为「身份 · 当前时间」，时间精确到分钟并随时钟实时刷新，用于泄漏溯源。
  */
-const props = defineProps<{ text: string }>();
+const props = defineProps<{ identity: string }>();
 
 // 水印字号与格间距，决定平铺密度
 const FONT_SIZE = 13;
@@ -24,12 +25,35 @@ const FALLBACK_SIZE = { width: 1200, height: 900 };
 
 const rootEl = ref<HTMLElement | null>(null);
 const size = ref({ ...FALLBACK_SIZE });
+const now = ref(new Date());
 let observer: ResizeObserver | null = null;
+let minuteTimer: ReturnType<typeof setTimeout> | undefined;
+
+const pad = (value: number) => String(value).padStart(2, '0');
+const text = computed(() => {
+  const date = now.value;
+  const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${props.identity} · ${stamp}`;
+});
+
+/** 对齐到下一个整分钟刷新，显示的分钟与系统时钟一致，而不是相对打开时刻漂移 */
+function scheduleTick() {
+  clearTimeout(minuteTimer);
+  const current = new Date();
+  now.value = current;
+  const msToNextMinute = 60_000 - (current.getSeconds() * 1000 + current.getMilliseconds());
+  minuteTimer = setTimeout(scheduleTick, msToNextMinute);
+}
+
+/** 后台标签页的定时器会被浏览器节流，切回前台时立即校准一次 */
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') scheduleTick();
+}
 
 /** 按字符估算文本宽度（中日韩字符约一个字号宽，其余约 0.6 个字号），格宽随文本变长，避免相邻水印重叠 */
 const tileWidth = computed(() => {
   let width = 0;
-  for (const char of props.text) width += /[\u2e80-\u9fff\uff00-\uffef]/.test(char) ? FONT_SIZE : FONT_SIZE * 0.6;
+  for (const char of text.value) width += /[\u2e80-\u9fff\uff00-\uffef]/.test(char) ? FONT_SIZE : FONT_SIZE * 0.6;
   return Math.ceil(width) + GAP_X;
 });
 const span = computed(() => Math.ceil(Math.hypot(size.value.width, size.value.height)));
@@ -52,13 +76,19 @@ function measure() {
 }
 
 onMounted(() => {
+  scheduleTick();
+  document.addEventListener('visibilitychange', onVisibilityChange);
   measure();
   if (typeof ResizeObserver !== 'undefined' && rootEl.value) {
     observer = new ResizeObserver(measure);
     observer.observe(rootEl.value);
   }
 });
-onBeforeUnmount(() => observer?.disconnect());
+onBeforeUnmount(() => {
+  observer?.disconnect();
+  clearTimeout(minuteTimer);
+  document.removeEventListener('visibilitychange', onVisibilityChange);
+});
 </script>
 
 <style scoped>
