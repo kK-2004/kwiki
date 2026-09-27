@@ -50,14 +50,173 @@ async function submit() {
 </script>
 
 <style scoped>
-.auth-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #f5f8f6; color: #20312a; }
-.auth-card { width: min(420px, 100%); padding: 34px; border: 1px solid #dde7e1; border-radius: 18px; background: #fff; box-shadow: 0 18px 60px rgba(32,49,42,.09); }
-.brand { display: flex; align-items: center; gap: 9px; font-size: 22px; }
-.logo { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: #1dbb72; color: #fff; font-weight: 800; }
-h1 { margin: 30px 0 8px; font-size: 27px; } .sub { margin: 0 0 24px; color: #78857f; }
-form { display: grid; gap: 15px; } label { display: grid; gap: 7px; color: #56645d; font-size: 13px; font-weight: 650; }
-input { width: 100%; box-sizing: border-box; height: 42px; padding: 0 12px; border: 1px solid #d8e2dc; border-radius: 8px; font: inherit; color: #20312a; } input:focus { outline: 3px solid rgba(29,187,114,.15); border-color: #1dbb72; }
-.password-field { position: relative; width: 100%; } .password-field input { padding-right: 44px; } .password-toggle { position: absolute; top: 50%; right: 9px; display: grid; width: 28px; height: 28px; place-items: center; padding: 0; border: 0; border-radius: 6px; transform: translateY(-50%); background: transparent; color: #52645a; cursor: pointer; } .password-toggle:hover { background: #f0f7f2; color: #1b8e59; } .password-toggle:focus-visible { outline: 2px solid #1dbb72; outline-offset: 1px; } .password-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
-.submit { height: 43px; border: 0; border-radius: 8px; background: #1b9d61; color: #fff; font: inherit; font-weight: 700; cursor: pointer; } .submit:disabled { opacity: .55; cursor: wait; }
-.error { margin: 0; color: #c44d4d; } .switch { display: block; margin-top: 19px; color: #1b8e59; text-align: center; text-decoration: none; font-size: 13px; }
+.auth-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(1200px 600px at 20% -10%, var(--k-auth-sky), transparent 60%),
+    radial-gradient(900px 500px at 100% 110%, var(--k-auth-sand), transparent 60%),
+    var(--k-canvas);
+  color: var(--k-ink);
+}
+
+.auth-card {
+  width: min(400px, 100%);
+  padding: 32px;
+  border: 1px solid var(--k-line);
+  border-radius: 16px;
+  background: var(--k-canvas);
+  box-shadow: var(--k-shadow-float);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 18px;
+  color: var(--k-ink);
+}
+
+.logo {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--k-r-sm);
+  background: var(--k-green);
+  /* 浅色下为白字、深色下为近黑字，两种主题在绿底上都清晰 */
+  color: var(--k-canvas);
+  font-weight: 700;
+}
+
+.auth-card h1 {
+  margin: 20px 0 6px;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  color: var(--k-ink);
+}
+
+.sub {
+  margin: 0 0 24px;
+  color: var(--k-muted);
+}
+
+form {
+  display: grid;
+  gap: 15px;
+}
+
+label {
+  display: grid;
+  gap: 7px;
+  color: var(--k-ink-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r);
+  background: var(--k-canvas);
+  font: inherit;
+  color: var(--k-ink);
+  outline: none;
+}
+
+input:hover {
+  border-color: var(--k-line-strong);
+}
+
+input:focus {
+  border-color: var(--k-green);
+  box-shadow: var(--k-focus-ring);
+}
+
+.password-field {
+  position: relative;
+  width: 100%;
+}
+
+.password-field input {
+  padding-right: 44px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--k-r-sm);
+  transform: translateY(-50%);
+  background: transparent;
+  color: var(--k-muted);
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  background: var(--k-surface-hover);
+  color: var(--k-ink);
+}
+
+.password-toggle:focus-visible {
+  outline: 2px solid var(--k-green);
+  outline-offset: 1px;
+}
+
+.password-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.submit {
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--k-r);
+  background: var(--k-primary);
+  color: var(--k-on-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.submit:hover:not(:disabled) {
+  background: var(--k-primary-hover);
+}
+
+.submit:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.error {
+  margin: 0;
+  color: var(--k-danger);
+}
+
+.switch {
+  display: block;
+  margin-top: 19px;
+  color: var(--k-green-deep);
+  text-align: center;
+  text-decoration: none;
+  font-size: 13px;
+}
 </style>
