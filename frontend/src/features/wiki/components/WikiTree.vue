@@ -140,7 +140,6 @@ li {
   border-radius: 2px;
   background: var(--k-green);
 }
-/* 深色下 canvas 比目录栏更暗，选中项改用 surface-active 提亮（scoped 属性只加在最后一段，祖先选择器可直接写） */
 .caret {
   width: 14px;
   display: inline-flex;
