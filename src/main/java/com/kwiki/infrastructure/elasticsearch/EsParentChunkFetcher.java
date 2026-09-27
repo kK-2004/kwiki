@@ -92,6 +92,8 @@ public class EsParentChunkFetcher implements ParentEvidenceResolver.ParentChunkF
                                        com.kwiki.indexing.gray.ReadRouting routing) throws java.io.IOException {
         List<co.elastic.clients.elasticsearch.core.search.Hit<Map>> hits = client.search(request -> request
                         .index(EsReadRouting.indices(routing))
+                        // 灰度物理索引缺失时忽略该索引，不拖垮全部检索
+                        .ignoreUnavailable(true)
                         .size(parentChunkKeys.size())
                         .query(query -> query.bool(bool -> {
                             bool.filter(filter -> filter.ids(ids -> ids.values(parentChunkKeys)));

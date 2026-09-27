@@ -54,6 +54,8 @@ public class EsChunkLookup implements CitationService.ChunkLookup {
                 // 有灰度路由：GET 不能跨索引附加过滤，改为按 id 搜索并附加路由过滤
                 List<co.elastic.clients.elasticsearch.core.search.Hit<Map>> hits = client.search(request -> request
                                 .index(EsReadRouting.indices(routing))
+                                // 灰度物理索引缺失时忽略该索引，不拖垮全部检索
+                                .ignoreUnavailable(true)
                                 .size(1)
                                 .query(query -> query.bool(bool -> {
                                     bool.filter(filter -> filter.ids(ids -> ids.values(childChunkKey)));

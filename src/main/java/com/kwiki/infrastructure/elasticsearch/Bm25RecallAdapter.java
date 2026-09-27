@@ -57,6 +57,8 @@ public class Bm25RecallAdapter implements ChildRecallPort {
                         if (!routing.isEmpty()) {
                             // 跨别名与灰度索引打分：用 DFS 统一词频统计，使各索引的 IDF 可比
                             request.searchType(co.elastic.clients.elasticsearch._types.SearchType.DfsQueryThenFetch);
+                            // 灰度物理索引缺失时忽略该索引，不拖垮全部检索
+                            request.ignoreUnavailable(true);
                         }
                         return request
                             .index(EsReadRouting.indices(routing))

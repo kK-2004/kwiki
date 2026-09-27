@@ -89,6 +89,8 @@ class EsParentChunkFetcherTest {
         SearchRequest request = captor.getValue();
         assertThat(request.index()).containsExactly("kwiki-chunks", "kwiki-chunks-v4");
         assertThat(request.size()).isEqualTo(2);
+        // 灰度物理索引缺失时不应拖垮全部检索
+        assertThat(request.ignoreUnavailable()).isTrue();
         var filters = request.query().bool().filter();
         assertThat(filters).hasSize(2);
         assertThat(filters.get(0).ids().values()).containsExactly("p1", "p2");

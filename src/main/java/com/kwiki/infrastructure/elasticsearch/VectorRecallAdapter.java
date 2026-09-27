@@ -58,8 +58,10 @@ public class VectorRecallAdapter implements ChildRecallPort {
                     .map(route -> co.elastic.clients.elasticsearch._types.query_dsl.Query.of(q -> q.bool(b -> b
                             .filter(scope).filter(route))))
                     .orElse(scope);
+            // 灰度物理索引缺失时忽略该索引，不拖垮全部检索；无灰度路由时保持原请求
             List<Hit<Map>> hits = client.search(request -> request
                             .index(EsReadRouting.indices(routing))
+                            .ignoreUnavailable(routing.isEmpty() ? null : Boolean.TRUE)
                             .size(topK)
                             .knn(knn -> knn
                                     .field("vector")
