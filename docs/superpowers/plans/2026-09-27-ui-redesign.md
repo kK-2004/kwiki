@@ -74,7 +74,7 @@
 | 遮罩 `#14271c44` `rgba(0,0,0,.3~.5)` | `var(--k-overlay)` |
 | 焦点 `0 0 0 3px #37865a12` 等 | `var(--k-focus-ring)` |
 | PDF/DOCX 纸张本体的白色 | `var(--k-paper)`（两个主题都保持白纸） |
-| 代码块背景 | `var(--k-code-bg)`，文字 `var(--k-code-ink)` |
+| 代码块背景（随主题：白天浅底、黑夜深底） | `var(--k-code-bg)`，文字 `var(--k-code-ink)` |
 
 圆角：`4–6px` → `var(--k-r-sm)`；`7–9px` → `var(--k-r)`；`10–14px` → `var(--k-r-lg)`；`999px`/`50%` 胶囊保持原样。
 
@@ -139,9 +139,9 @@ grep -nE "#[0-9a-fA-F]{3,8}\b|rgba?\(|\bwhite\b" <本任务改动的 .vue 文件
   --k-warn: #c37d0d;
   --k-warn-soft: #fdf6e7;
 
-  /* 代码 */
-  --k-code-bg: #1c1c1e;
-  --k-code-ink: #e8e8e6;
+  /* 代码：浅色主题下为浅底，配合 highlight.js 的 github 主题 */
+  --k-code-bg: #f7f7f5;
+  --k-code-ink: #1f2328;
   --k-inline-code-bg: #f3f3f1;
 
   /* 形状与层次 */
@@ -503,7 +503,7 @@ a i {
   line-height: 1.6;
 }
 
-/* 代码块本身始终深色，highlight.js 的浅色主题背景需让位给代码块背景 */
+/* 代码块背景由 --k-code-bg 决定，highlight.js 自带的背景需让位 */
 .markdown pre code.hljs,
 .article pre code.hljs {
   padding: 0;
@@ -585,71 +585,71 @@ a[data-kwiki-attachment='true']:hover {
 
 - [ ] **Step 3：新建 `frontend/src/styles/hljs-dark.css`**
 
-说明：代码块在两种主题下都是深色底（`--k-code-bg`），因此语法高亮统一使用 github-dark 调色板，作用域限定在 `.markdown pre` / `.article pre` 内，覆盖 `render.ts` 引入的 `github.css`。文件名保留 `hljs-dark`，表示“深色代码块配色”。
+说明：白天沿用 `render.ts` 已引入的 `github.css`（浅色高亮，配合浅色 `--k-code-bg`）；黑夜时用本文件把高亮换成 github-dark 调色板。所有选择器以 `[data-theme='dark'] :is(.markdown, .article) pre` 为前缀，只在深色主题生效，且优先级高于 `github.css` 的 `.hljs-*`。
 
 ```css
-/* 代码块始终为深色底，统一使用 github-dark 调色板覆盖 highlight.js 的 github 浅色主题。 */
-:is(.markdown, .article) pre .hljs {
+/* 深色主题下用 github-dark 调色板覆盖 highlight.js 的 github 浅色主题；浅色主题不受影响。 */
+[data-theme='dark'] :is(.markdown, .article) pre .hljs {
   color: #e6edf3;
 }
 
-:is(.markdown, .article) pre :is(.hljs-doctag, .hljs-keyword, .hljs-meta .hljs-keyword, .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-variable.language_) {
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-doctag, .hljs-keyword, .hljs-meta .hljs-keyword, .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-variable.language_) {
   color: #ff7b72;
 }
 
-:is(.markdown, .article) pre :is(.hljs-title, .hljs-title.class_, .hljs-title.class_.inherited__, .hljs-title.function_) {
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-title, .hljs-title.class_, .hljs-title.class_.inherited__, .hljs-title.function_) {
   color: #d2a8ff;
 }
 
-:is(.markdown, .article) pre :is(.hljs-attr, .hljs-attribute, .hljs-literal, .hljs-meta, .hljs-number, .hljs-operator, .hljs-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id) {
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-attr, .hljs-attribute, .hljs-literal, .hljs-meta, .hljs-number, .hljs-operator, .hljs-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id) {
   color: #79c0ff;
 }
 
-:is(.markdown, .article) pre :is(.hljs-regexp, .hljs-string, .hljs-meta .hljs-string) {
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-regexp, .hljs-string, .hljs-meta .hljs-string) {
   color: #a5d6ff;
 }
 
-:is(.markdown, .article) pre :is(.hljs-built_in, .hljs-symbol) {
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-built_in, .hljs-symbol) {
   color: #ffa657;
 }
 
-:is(.markdown, .article) pre :is(.hljs-comment, .hljs-code, .hljs-formula) {
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-comment, .hljs-code, .hljs-formula) {
   color: #8b949e;
 }
 
-:is(.markdown, .article) pre :is(.hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo) {
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo) {
   color: #7ee787;
 }
 
-:is(.markdown, .article) pre .hljs-subst {
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-subst {
   color: #e6edf3;
 }
 
-:is(.markdown, .article) pre .hljs-section {
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-section {
   color: #1f6feb;
   font-weight: bold;
 }
 
-:is(.markdown, .article) pre .hljs-bullet {
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-bullet {
   color: #f2cc60;
 }
 
-:is(.markdown, .article) pre .hljs-emphasis {
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-emphasis {
   color: #e6edf3;
   font-style: italic;
 }
 
-:is(.markdown, .article) pre .hljs-strong {
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-strong {
   color: #e6edf3;
   font-weight: bold;
 }
 
-:is(.markdown, .article) pre .hljs-addition {
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-addition {
   color: #aff5b4;
   background-color: #033a16;
 }
 
-:is(.markdown, .article) pre .hljs-deletion {
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-deletion {
   color: #ffdcd7;
   background-color: #67060c;
 }
@@ -671,7 +671,7 @@ import './styles/hljs-dark.css';
 createApp(App).use(createPinia()).use(router).mount('#app');
 ```
 
-注意：`hljs-dark.css` 必须在 `render.ts`（引入 `github.css`）之后仍然生效。它的选择器带 `:is(.markdown, .article) pre` 前缀，优先级高于 `github.css` 的 `.hljs-*`，所以加载顺序无关。
+注意：`hljs-dark.css` 的选择器带 `[data-theme='dark'] :is(.markdown, .article) pre` 前缀，优先级高于 `github.css` 的 `.hljs-*`，所以与 `render.ts` 的加载顺序无关。
 
 - [ ] **Step 5：检查 `.markdown` / `.article` 选择器与组件内已有规则没有冲突**
 
@@ -1981,7 +1981,7 @@ Expected：只剩下带有中文注释说明的例外（例如 PDF 高亮层颜�
 
 - [ ] **Step 8：类型检查 + 单测**：`cd frontend && npx vue-tsc --noEmit && npx vitest run`，只允许出现基线失败。`markdown.spec.ts`、`search-tree.spec.ts`、`source-preview.spec.ts` 必须通过。
 
-- [ ] **Step 9：浏览器验证**：打开知识库「Test」→ 文档「这是一个wiki」，分别检查阅读、编辑、修订历史抽屉、来源预览（如有 PDF），各在白天和黑夜下截图；确认代码块两种主题下都是深色底并有高亮，表格和引用块正常。
+- [ ] **Step 9：浏览器验证**：打开知识库「Test」→ 文档「这是一个wiki」，分别检查阅读、编辑、修订历史抽屉、来源预览（如有 PDF），各在白天和黑夜下截图；确认代码块白天为浅底 + github 浅色高亮、黑夜为深底 + github-dark 高亮，切换主题时即时变化，表格和引用块正常。
 
 - [ ] **Step 10：提交**
 
