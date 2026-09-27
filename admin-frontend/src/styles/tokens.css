@@ -1,0 +1,185 @@
+/* kwiki 管理端设计令牌：与用户端 --k-* 同值。浅色为默认值，[data-theme="dark"] 覆盖为深色。 */
+:root {
+  color-scheme: light;
+
+  /* 表面 */
+  --k-canvas: #ffffff;
+  --k-surface: #fafaf9;
+  --k-surface-hover: #f3f3f1;
+  --k-surface-active: #efefed;
+  --k-paper: #ffffff;
+  --k-overlay: rgba(10, 10, 10, 0.32);
+
+  /* 细线 */
+  --k-line: #e8e8e6;
+  --k-line-strong: #dcdcd9;
+
+  /* 文字 */
+  --k-ink: #0a0a0a;
+  --k-ink-2: #3a3a3c;
+  --k-muted: #6b6b6e;
+  --k-faint: #a8a8aa;
+
+  /* 主操作：浅色黑底白字 */
+  --k-primary: #0a0a0a;
+  --k-primary-hover: #2a2a2c;
+  --k-on-primary: #ffffff;
+
+  /* 品牌绿：只用于选中、焦点、链接、品牌、成功 */
+  --k-green: #10b981;
+  --k-green-deep: #059669;
+  --k-green-soft: #ecfdf5;
+
+  /* 语义色 */
+  --k-danger: #d45656;
+  --k-danger-soft: #fdf2f2;
+  --k-danger-line: #f3d4d4;
+  --k-warn: #c37d0d;
+  --k-warn-soft: #fdf6e7;
+
+  /* 代码：浅色主题下为浅底，配合 highlight.js 的 github 主题 */
+  --k-code-bg: #f7f7f5;
+  --k-code-ink: #1f2328;
+  --k-inline-code-bg: #f3f3f1;
+
+  /* 登录页背景光晕 */
+  --k-auth-sky: #e3eef8;
+  --k-auth-sand: #f7efe2;
+
+  /* 形状与层次 */
+  --k-r-sm: 6px;
+  --k-r: 8px;
+  --k-r-lg: 12px;
+  --k-r-pill: 999px;
+  --k-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --k-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --k-shadow-float: 0 12px 32px rgba(0, 0, 0, 0.1);
+  --k-focus-ring: 0 0 0 3px rgba(16, 185, 129, 0.18);
+  --k-ease: 150ms cubic-bezier(0.2, 0, 0, 1);
+
+  /* 字体 */
+  --k-font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --k-font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* 深色：层级参考 Linear，强调色保持品牌绿 */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --k-canvas: #0b0b0c;
+  --k-surface: #111113;
+  --k-surface-hover: #1a1a1d;
+  --k-surface-active: #202024;
+  --k-overlay: rgba(0, 0, 0, 0.6);
+
+  --k-line: #232327;
+  --k-line-strong: #34343a;
+
+  --k-ink: #f5f5f4;
+  --k-ink-2: #d4d4d2;
+  --k-muted: #8a8a8f;
+  --k-faint: #5c5c61;
+
+  --k-primary: #f5f5f4;
+  --k-primary-hover: #ffffff;
+  --k-on-primary: #0a0a0a;
+
+  --k-green: #34d399;
+  --k-green-deep: #10b981;
+  --k-green-soft: rgba(52, 211, 153, 0.12);
+
+  --k-danger: #f07171;
+  --k-danger-soft: rgba(240, 113, 113, 0.12);
+  --k-danger-line: rgba(240, 113, 113, 0.28);
+  --k-warn: #e0a33a;
+  --k-warn-soft: rgba(224, 163, 58, 0.12);
+
+  --k-code-bg: #161618;
+  --k-code-ink: #e8e8e6;
+  --k-inline-code-bg: #1a1a1d;
+
+  --k-auth-sky: rgba(56, 189, 248, 0.08);
+  --k-auth-sand: rgba(52, 211, 153, 0.06);
+
+  --k-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --k-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --k-shadow-float: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --k-focus-ring: 0 0 0 3px rgba(52, 211, 153, 0.22);
+}
+
+/*
+ * Element Plus 主题映射：主色为品牌绿，圆角、边框、文字与令牌对齐。
+ * element-plus 在 index.css 的 :root（0,1,0）和深色 css-vars 的 html.dark（0,1,1）中都声明了自身变量，
+ * 这里用 `:root:root`（0,2,0）靠特异性胜出，不依赖样式加载顺序；深色时令牌本身已切换，映射随之生效。
+ */
+:root:root {
+  --el-color-primary: var(--k-green-deep);
+  --el-color-primary-light-3: color-mix(in srgb, var(--k-green-deep) 70%, var(--k-canvas));
+  --el-color-primary-light-5: color-mix(in srgb, var(--k-green-deep) 50%, var(--k-canvas));
+  --el-color-primary-light-7: color-mix(in srgb, var(--k-green-deep) 30%, var(--k-canvas));
+  --el-color-primary-light-8: color-mix(in srgb, var(--k-green-deep) 20%, var(--k-canvas));
+  --el-color-primary-light-9: var(--k-green-soft);
+  /* 按下态：与 ink 混合，浅色下变深、深色下（ink 近白）变亮，两种主题都有反馈 */
+  --el-color-primary-dark-2: color-mix(in srgb, var(--k-green-deep) 80%, var(--k-ink));
+  --el-color-danger: var(--k-danger);
+  --el-color-warning: var(--k-warn);
+  --el-bg-color: var(--k-canvas);
+  --el-bg-color-overlay: var(--k-canvas);
+  --el-bg-color-page: var(--k-surface);
+  --el-fill-color-blank: var(--k-canvas);
+  --el-fill-color-light: var(--k-surface);
+  --el-fill-color-lighter: var(--k-surface);
+  --el-border-color: var(--k-line);
+  --el-border-color-light: var(--k-line);
+  --el-border-color-lighter: var(--k-line);
+  --el-border-color-hover: var(--k-line-strong);
+  --el-text-color-primary: var(--k-ink);
+  --el-text-color-regular: var(--k-ink-2);
+  --el-text-color-secondary: var(--k-muted);
+  --el-text-color-placeholder: var(--k-faint);
+  --el-border-radius-base: var(--k-r);
+  --el-border-radius-small: var(--k-r-sm);
+  --el-font-family: var(--k-font);
+  --el-box-shadow-light: var(--k-shadow);
+  --el-mask-color: var(--k-overlay);
+}
+
+/* 主按钮：浅色黑底白字，深色白底黑字 */
+.el-button--primary {
+  --el-button-bg-color: var(--k-primary);
+  --el-button-border-color: var(--k-primary);
+  --el-button-text-color: var(--k-on-primary);
+  --el-button-hover-bg-color: var(--k-primary-hover);
+  --el-button-hover-border-color: var(--k-primary-hover);
+  --el-button-hover-text-color: var(--k-on-primary);
+  --el-button-active-bg-color: var(--k-primary-hover);
+  --el-button-active-border-color: var(--k-primary-hover);
+}
+
+/* 表格：细线 + 浅表头 */
+.el-table {
+  --el-table-header-bg-color: var(--k-surface);
+  --el-table-header-text-color: var(--k-muted);
+  --el-table-row-hover-bg-color: var(--k-surface-hover);
+  --el-table-border-color: var(--k-line);
+  --el-table-bg-color: var(--k-canvas);
+  --el-table-tr-bg-color: var(--k-canvas);
+}
+
+html,
+body {
+  background: var(--k-canvas);
+}
+
+body {
+  margin: 0;
+  font-family: var(--k-font);
+  font-size: 14px;
+  color: var(--k-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
