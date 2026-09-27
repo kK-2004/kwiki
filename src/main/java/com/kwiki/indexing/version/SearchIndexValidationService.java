@@ -55,7 +55,9 @@ public class SearchIndexValidationService {
                         && frozen.physicalName().equals(version.getPhysicalName())
                         && frozen.embeddingDimensions()==version.editableConfig().embeddingDimensions()
                         && frozen.mappingHash().equals(version.getMappingHash())
-                        && frozen.mappingHash().equals(mappings.mappingHash(frozen.embeddingDimensions()));
+                        && frozen.mappingHash().equals(mappings.mappingHash(
+                                frozen.embeddingDimensions(),
+                                version.editableConfig().mappingSchemaVersion()));
             }
             mappingError=indexes.validateIndex(version.getPhysicalName(),
                     version.editableConfig().embeddingDimensions(),
@@ -65,7 +67,7 @@ public class SearchIndexValidationService {
         boolean vectorDimension=mapping || !mappingError.contains("dimension");
         boolean requiredFields=mapping || !mappingError.contains("required field")
                 && !mappingError.contains("mappings") && !mappingError.contains("properties");
-        List<ResourceIdentity> resources=effectiveResources();
+        List<ResourceIdentity> resources=effectiveResources(version);
         long missing=resources.stream().filter(resource -> !present(version,resource)).count();
         boolean coverage=missing==0;
         Diagnostics diagnostics=diagnostics(version,resources);
@@ -113,7 +115,7 @@ public class SearchIndexValidationService {
         return Optional.of(report);
     }
 
-    private List<ResourceIdentity> effectiveResources(){
+    private List<ResourceIdentity> effectiveResources(SearchIndexVersion version){
         List<ResourceIdentity> result=new ArrayList<>();
         result.addAll(jdbc.query("""
                 SELECT p.id,p.current_published_revision_id,p.lifecycle_version
@@ -121,11 +123,15 @@ public class SearchIndexValidationService {
                 WHERE p.node_type='PAGE' AND p.status='ACTIVE'
                   AND p.current_published_revision_id IS NOT NULL AND k.status='ACTIVE'
                 """,(rs,row)->new ResourceIdentity("PAGE",rs.getLong(1),rs.getLong(2),rs.getLong(3))));
+        String attachmentTypes = com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL
+                .equals(version.editableConfig().parserVersion())
+                ? "('image/png','image/jpeg','image/gif','image/webp','application/pdf')"
+                : "('image/png','image/jpeg','image/gif','image/webp')";
         result.addAll(jdbc.query("""
                 SELECT a.id FROM attachment a JOIN knowledge_base k ON k.id=a.kb_id
-                WHERE a.status='STORED' AND k.status='ACTIVE'
-                  AND LOWER(a.content_type) IN ('image/png','image/jpeg','image/gif','image/webp')
-                """,(rs,row)->new ResourceIdentity("ATTACHMENT",rs.getLong(1),null,0)));
+                WHERE a.status='STORED' AND k.status='ACTIVE' AND a.purpose='GENERAL'
+                  AND LOWER(a.content_type) IN %s
+                """.formatted(attachmentTypes),(rs,row)->new ResourceIdentity("ATTACHMENT",rs.getLong(1),null,0)));
         return result;
     }
 

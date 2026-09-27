@@ -53,6 +53,7 @@ public class SearchIndexAdminController {
     }
 
     @GetMapping("/versions") public TransDTO<List<SearchIndexAdminQueryService.VersionView>> versions(){return TransDTO.success(queries.versions());}
+    @GetMapping("/multimodal-readiness") public TransDTO<SearchIndexAdminQueryService.MultimodalReadinessView> multimodalReadiness(){return TransDTO.success(queries.multimodalReadiness());}
     @GetMapping("/alias") public TransDTO<SearchIndexAdminQueryService.AliasTruth> alias(){return TransDTO.success(queries.aliasTruth());}
     @GetMapping("/writable-targets") public TransDTO<List<SearchIndexAdminQueryService.VersionView>> writable(){return TransDTO.success(queries.writableTargets());}
     @GetMapping("/runs") public TransDTO<List<SearchIndexAdminQueryService.RunView>> runs(){return TransDTO.success(queries.runs());}

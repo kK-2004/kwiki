@@ -1,6 +1,7 @@
 package com.kwiki.indexing.version;
 
 import com.kwiki.indexing.config.IndexingProperties;
+import com.kwiki.indexing.config.MultimodalSwitchReadiness;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
 import org.springframework.stereotype.Service;
@@ -15,12 +16,13 @@ public class AliasSwitchService {
     private final SearchIndexValidationService validations; private final ElasticsearchIndexManager indexes;
     private final SearchIndexSelectionRegistry selection; private final SearchIndexAuditRepository audits;
     private final IndexingProperties properties;
+    private final MultimodalSwitchReadiness multimodalReadiness;
     public AliasSwitchService(KwikiDistributedLocks locks,SearchIndexVersionRepository versions,
             SearchIndexValidationService validations,ElasticsearchIndexManager indexes,
             SearchIndexSelectionRegistry selection,SearchIndexAuditRepository audits,
-            IndexingProperties properties){this.locks=locks;this.versions=versions;
+            IndexingProperties properties, MultimodalSwitchReadiness multimodalReadiness){this.locks=locks;this.versions=versions;
         this.validations=validations;this.indexes=indexes;this.selection=selection;
-        this.audits=audits;this.properties=properties;}
+        this.audits=audits;this.properties=properties;this.multimodalReadiness=multimodalReadiness;}
 
     public Result select(int targetVersion,String operator){
         if(!Boolean.TRUE.equals(properties.management().mutationsEnabled()))
@@ -37,6 +39,7 @@ public class AliasSwitchService {
                 .orElseThrow(()->new IllegalStateException("selected source is missing"));
         SearchIndexVersion target=versions.findByVersionNumber(targetVersion)
                 .orElseThrow(()->new IllegalArgumentException("unknown target version"));
+        multimodalReadiness.requireReadyFor(target.editableConfig().parserVersion());
         SearchIndexValidationReport report=validations.currentReadyReport(targetVersion)
                 .orElseThrow(()->new IllegalStateException("target has no current READY validation"));
         SearchIndexAudit audit=audits.saveAndFlush(SearchIndexAudit.pending("SELECT",

@@ -1,6 +1,7 @@
 package com.kwiki.indexing.pipeline;
 
 import com.kwiki.indexing.config.IndexingProperties;
+import com.kwiki.indexing.config.MultimodalIndexingProperties;
 import com.kwiki.indexing.parse.DocumentParseService;
 import com.kwiki.indexing.version.EditableIndexConfig;
 import com.kwiki.infrastructure.config.ExternalServicesProperties;
@@ -98,6 +99,25 @@ class VersionedIndexingPipelineRegistryTest {
         assertThat(resolved.get().embeddingModel()).isEqualTo("text-embedding-v4");
         assertThat(resolved.get().embeddingDimensions()).isEqualTo(1024);
         assertThat(resolved.get().embeddings()).isSameAs(defaultEmbeddings);
+    }
+
+    @Test
+    void configuredVisionAndMultimodalSwitchAddImplicitV2Generation() {
+        ExternalServicesProperties base = external("text-embedding-v4", 1024);
+        ExternalServicesProperties configured = new ExternalServicesProperties(
+                base.contentCenter(), base.elasticsearch(), base.answerLlm(), base.qwenEmbedding(),
+                new ExternalServicesProperties.VisionModel("https://vision.example/v1", "secret",
+                        "qwen3.7-flash", Duration.ofSeconds(5), Duration.ofSeconds(60), 2, 4));
+        MultimodalIndexingProperties multimodal = mock(MultimodalIndexingProperties.class);
+        org.mockito.Mockito.when(multimodal.enabled()).thenReturn(true);
+        VersionedIndexingPipelineRegistry registry = new VersionedIndexingPipelineRegistry(
+                emptyManifests(), configured, provider(DocumentParseService.forTests()),
+                provider(defaultEmbeddings), nullProvider(), nullProvider(), multimodal);
+
+        assertThat(registry.effectiveManifests()).extracting(IndexingProperties.Manifest::parserVersion)
+                .containsExactly("kwiki-parse-1", "kwiki-parse-2");
+        assertThat(registry.supports(new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1",
+                "default", "text-embedding-v4", 1024, 2))).isTrue();
     }
 
     @Test

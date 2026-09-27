@@ -88,7 +88,8 @@ class AliasSwitchFaultInjectionTest {
         when(audits.save(any())).thenAnswer(invocation->invocation.getArgument(0));
         var service=new AliasSwitchService(new KwikiDistributedLocks(
                 com.kwiki.testutil.StandardTestProperties.providerOf(factory)),versions,
-                validations,indexes,selection,audits,properties());
+                validations,indexes,selection,audits,properties(),
+                mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class));
         Fixture result=new Fixture(service,indexes,selection,audits);holder[0]=result;return result;
     }
 

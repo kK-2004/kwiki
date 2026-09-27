@@ -14,9 +14,8 @@ import java.time.Duration;
 
 /**
  * 多模态索引装配：仅在 kwiki.multimodal.enabled=true 时创建
- * 视觉客户端、安全下载器与协议实例，并在装配期做组合校验
- * （启用即要求可用的视觉模型配置——空白 api-key、非法 base-url
- * 或空白模型在启动时快速失败，而不是等第一个索引任务失败）。
+ * 视觉客户端、安全下载器与协议实例；视觉模型配置缺失时
+ * 使用明确失败的端口，管理端与别名切换门禁会显示缺失项并拒绝 v2。
  * 关闭时整个多模态路径不存在，kwiki-parse-2 流水线随之不可解析
  * （fail closed），旧版本行为完全不变。
  */
@@ -36,13 +35,18 @@ public class MultimodalConfiguration {
     }
 
     @Bean
-    public QwenVisionSummaryClient qwenVisionSummaryClient(
+    public ImageSummaryPort qwenVisionSummaryClient(
             WebClient.Builder webClientBuilder,
             ExternalServicesProperties properties,
             MultimodalIndexingProperties multimodalProperties,
             MultimodalMetrics metrics) {
-        multimodalProperties.requireUsableWhenEnabled(properties);
         ExternalServicesProperties.VisionModel vision = properties.visionModel();
+        if (vision == null || !vision.isConfigured()) {
+            // 管理端需要启动后展示缺失项；误入摘要路径仍须明确失败。
+            return cdnUrl -> {
+                throw new IllegalStateException("vision model configuration is unavailable");
+            };
+        }
         WebClient webClient = webClientBuilder.clone()
                 .baseUrl(vision.baseUrl().replaceAll("/+$", "") + "/")
                 .defaultHeader("Authorization", "Bearer " + vision.apiKey())

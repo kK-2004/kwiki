@@ -3,6 +3,7 @@ package com.kwiki.indexing.version;
 import com.kk2004.common.lock.DistributedLock;
 import com.kk2004.common.lock.DistributedLockFactory;
 import com.kwiki.indexing.config.IndexingProperties;
+import com.kwiki.indexing.config.MultimodalSwitchReadiness;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
 import org.junit.jupiter.api.Test;
@@ -11,9 +12,11 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 class AliasSwitchServiceTest {
@@ -41,7 +44,7 @@ class AliasSwitchServiceTest {
         when(audits.save(any())).thenAnswer(invocation->invocation.getArgument(0));
         AliasSwitchService service=new AliasSwitchService(new KwikiDistributedLocks(
                 com.kwiki.testutil.StandardTestProperties.providerOf(factory)),versions,
-                validations,indexes,selection,audits,properties());
+                validations,indexes,selection,audits,properties(), mock(MultimodalSwitchReadiness.class));
 
         var result=service.select(2,"admin");
 
@@ -57,8 +60,41 @@ class AliasSwitchServiceTest {
                 com.kwiki.testutil.StandardTestProperties.nullProvider()),
                 mock(SearchIndexVersionRepository.class),mock(SearchIndexValidationService.class),
                 mock(ElasticsearchIndexManager.class),mock(SearchIndexSelectionRegistry.class),
-                mock(SearchIndexAuditRepository.class),properties());
+                mock(SearchIndexAuditRepository.class),properties(), mock(MultimodalSwitchReadiness.class));
         assertThat(service.select(2,"admin").code()).isEqualTo("BUSY");
+    }
+
+    @Test
+    void multimodalPrerequisiteFailurePreventsAliasSwitch() throws Exception {
+        DistributedLock lock = mock(DistributedLock.class);
+        when(lock.tryLock(2000, 30000, TimeUnit.MILLISECONDS)).thenReturn(true);
+        when(lock.isHeldByCurrentThread()).thenReturn(true);
+        DistributedLockFactory factory = mock(DistributedLockFactory.class);
+        when(factory.getDistributedLock("kwiki:lock:search-index-alias")).thenReturn(lock);
+        var versions = mock(SearchIndexVersionRepository.class);
+        var config = new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1",
+                "default", "model", 1024, 2);
+        when(versions.findBySelectedTrue()).thenReturn(Optional.of(
+                SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", config, "h")));
+        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(
+                SearchIndexVersion.bootstrapped(2, "kwiki-chunks-v2", config, "h")));
+        MultimodalSwitchReadiness readiness = mock(MultimodalSwitchReadiness.class);
+        org.mockito.Mockito.doThrow(new IllegalStateException("missing configuration: KWIKI_VISION_API_KEY"))
+                .when(readiness).requireReadyFor("kwiki-parse-2");
+        var indexes = mock(ElasticsearchIndexManager.class);
+        var audits = mock(SearchIndexAuditRepository.class);
+        var validations = mock(SearchIndexValidationService.class);
+        AliasSwitchService service = new AliasSwitchService(new KwikiDistributedLocks(
+                com.kwiki.testutil.StandardTestProperties.providerOf(factory)), versions,
+                validations, indexes, mock(SearchIndexSelectionRegistry.class), audits,
+                properties(), readiness);
+
+        assertThatThrownBy(() -> service.select(2, "admin"))
+                .hasMessageContaining("KWIKI_VISION_API_KEY");
+        verify(indexes, never()).atomicSwitchAlias(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        verify(validations, never()).currentReadyReport(2);
+        verify(lock).unlock();
     }
 
     private static IndexingProperties properties(){return new IndexingProperties(null,null,

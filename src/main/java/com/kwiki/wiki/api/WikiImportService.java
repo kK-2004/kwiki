@@ -29,15 +29,23 @@ public class WikiImportService {
     private final PageRevisionService revisions;
     private final ResourceAudienceService audience;
     private final SourceDocumentRepository sources;
+    private final WikiImportDocumentParser importParser;
 
     public WikiImportService(DocumentParseService parser, WikiTreeService tree, PageRevisionService revisions, ResourceAudienceService audience) {
         this(parser, tree, revisions, audience, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public WikiImportService(DocumentParseService parser, WikiTreeService tree, PageRevisionService revisions,
                              ResourceAudienceService audience, SourceDocumentRepository sources) {
-        this.parser = parser; this.tree = tree; this.revisions = revisions; this.audience = audience; this.sources = sources;
+        this(parser, tree, revisions, audience, sources, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public WikiImportService(DocumentParseService parser, WikiTreeService tree, PageRevisionService revisions,
+                             ResourceAudienceService audience, SourceDocumentRepository sources,
+                             WikiImportDocumentParser importParser) {
+        this.parser = parser; this.tree = tree; this.revisions = revisions;
+        this.audience = audience; this.sources = sources; this.importParser = importParser;
     }
 
     @Transactional
@@ -66,7 +74,9 @@ public class WikiImportService {
         validateUpload(fileName, contentType, content);
         String safeName = fileName == null || fileName.isBlank() ? "导入文档" : fileName;
         List<String> warnings = validateImportShape(safeName, content);
-        StructuredDocument document = parser.parse(safeName, contentType, new ByteArrayInputStream(content));
+        StructuredDocument document = importParser == null
+                ? parser.parse(safeName, contentType, new ByteArrayInputStream(content))
+                : importParser.parse(safeName, contentType, content);
         String markdown = markdown(safeName, content, document);
         String title = title(safeName);
         WikiPage page = tree.createNode(user, kbId, parentId, title, WikiPage.TYPE_PAGE, null);

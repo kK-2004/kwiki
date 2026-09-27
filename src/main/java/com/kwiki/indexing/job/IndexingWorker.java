@@ -75,6 +75,8 @@ public class IndexingWorker {
     private final AttachmentStorage storage;
     private final org.springframework.beans.factory.ObjectProvider<
             com.kwiki.indexing.multimodal.MultimodalIndexingService> multimodal;
+    private final org.springframework.beans.factory.ObjectProvider<
+            com.kwiki.wiki.persistence.SourceDocumentRepository> sourceDocuments;
     private final int maxAttempts;
     private final long baseBackoffSeconds;
     private final long maxBackoffSeconds;
@@ -97,7 +99,7 @@ public class IndexingWorker {
                           @Value("${kwiki.indexing.base-backoff-seconds:30}") long baseBackoffSeconds,
                           @Value("${kwiki.indexing.max-backoff-seconds:3600}") long maxBackoffSeconds) {
         this(targetClaimer, targets, pipelines, versionRegistry, index, chunkIndexRepository,
-                pages, knowledgeBases, revisions, attachments, storage, null, metrics,
+                pages, knowledgeBases, revisions, attachments, storage, null, null, metrics,
                 maxAttempts, baseBackoffSeconds, maxBackoffSeconds);
     }
 
@@ -115,6 +117,8 @@ public class IndexingWorker {
                           AttachmentStorage storage,
                           org.springframework.beans.factory.ObjectProvider<
                                   com.kwiki.indexing.multimodal.MultimodalIndexingService> multimodal,
+                          org.springframework.beans.factory.ObjectProvider<
+                                  com.kwiki.wiki.persistence.SourceDocumentRepository> sourceDocuments,
                           MeterRegistry metrics,
                           @Value("${kwiki.indexing.max-attempts:8}") int maxAttempts,
                           @Value("${kwiki.indexing.base-backoff-seconds:30}") long baseBackoffSeconds,
@@ -131,6 +135,7 @@ public class IndexingWorker {
         this.attachments = attachments;
         this.storage = storage;
         this.multimodal = multimodal;
+        this.sourceDocuments = sourceDocuments;
         this.maxAttempts = maxAttempts;
         this.baseBackoffSeconds = baseBackoffSeconds;
         this.maxBackoffSeconds = maxBackoffSeconds;
@@ -355,6 +360,11 @@ public class IndexingWorker {
         if (!attachment.isStored()) {
             return; // 已归档的附件不得复活
         }
+        if (!Attachment.PURPOSE_GENERAL.equals(attachment.getPurpose())) {
+            // 导入来源的图片语义归属于页面索引，不能绕过页面授权。
+            index.deleteResourceChunks(physicalIndex, "ATTACHMENT", attachmentId);
+            return;
+        }
         boolean multimodalPdf = PARSER_VERSION_MULTIMODAL.equals(pipeline.parserVersion())
                 && multimodal != null && multimodal.getIfAvailable() != null
                 && isPdf(attachment.getContentType());
@@ -442,6 +452,11 @@ public class IndexingWorker {
             com.kwiki.indexing.multimodal.MultimodalIndexingService multimodalService =
                     requireMultimodalFor(pipeline);
             if (multimodalService != null) {
+                StructuredDocument importedPdf = importedPdfDocument(
+                        page, revision, pipeline, multimodalService);
+                if (importedPdf != null) {
+                    return importedPdf;
+                }
                 // 多模态解析代：发布修订的图片语法在索引投影中成为受保护块；
                 // 数据库中的修订 Markdown 与页面渲染保持原样。
                 return multimodalService.buildPageDocument(
@@ -451,6 +466,41 @@ public class IndexingWorker {
                     new ByteArrayInputStream(
                             revision.getMarkdown().getBytes(StandardCharsets.UTF_8)));
         };
+    }
+
+    /** PDF 导入的首个修订按原始顺序索引图片，索引身份仍属于页面权限。 */
+    StructuredDocument importedPdfDocument(WikiPage page, WikiPageRevision revision,
+            ResolvedPipeline pipeline,
+            com.kwiki.indexing.multimodal.MultimodalIndexingService multimodalService) {
+        if (sourceDocuments == null || sourceDocuments.getIfAvailable() == null
+                || revision.getRevisionNo() != 1
+                || revision.getChangeNote() == null
+                || !revision.getChangeNote().startsWith("导入 ")) {
+            return null;
+        }
+        for (com.kwiki.wiki.domain.SourceDocument source
+                : sourceDocuments.getIfAvailable().findByPageId(page.getId())) {
+            if (!com.kwiki.wiki.domain.SourceDocument.REL_DERIVED_FROM
+                    .equals(source.getRelationship())) {
+                continue;
+            }
+            Attachment attachment = attachments.findById(source.getAttachmentId()).orElse(null);
+            if (attachment == null || !attachment.isStored()
+                    || !java.util.Objects.equals(attachment.getKbId(), page.getKbId())
+                    || !isPdf(attachment.getContentType())) {
+                continue;
+            }
+            Long fileId = attachment.getContentCenterFileId();
+            if (fileId == null || fileId <= 0) {
+                throw new AttachmentStorageException(
+                        AttachmentStorageException.Category.PERMANENT,
+                        "import source has no content-center file id for indexing");
+            }
+            return multimodalService.buildPdfDocument(pipeline.parser(), page.getKbId(),
+                    attachment.getId(), attachment.getFileName(),
+                    attachment.getContentType(), storage.readContent(fileId));
+        }
+        return null;
     }
 
     private DocumentSupplier attachmentDocument(Attachment attachment,

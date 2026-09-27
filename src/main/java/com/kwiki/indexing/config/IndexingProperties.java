@@ -22,8 +22,8 @@ import java.util.Map;
  * <p>清单（manifest）是"当前部署可执行的结构配置代"：一个物理索引
  * 版本的 parser/chunker/embedding 模型/维度/mapping 组合必须精确匹配
  * 其中一项，才允许被选中、双写或重建。凭据只存在于本配置，绝不进入
- * 数据库或管理 API。未配置清单时，唯一受支持的结构即当前部署配置
- * （由 {@code kwiki.qwen-embedding.*} 派生，见
+ * 数据库或管理 API。未配置清单时，默认支持 v1；多模态配置
+ * 齐全时额外支持相同 embedding 配置的 v2（由 {@code kwiki.qwen-embedding.*} 派生，见
  * VersionedIndexingPipelineRegistry 的默认解析）。
  *
  * <p>embedding 档案名 {@value #DEFAULT_EMBEDDING_PROFILE} 在未显式

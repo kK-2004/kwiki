@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { api, ApiError, type Audit, type Config, type CommunityVersion, type Run, type Validation, type Version } from "../api";
+import { api, ApiError, type Audit, type Config, type CommunityVersion, type MultimodalReadiness, type Run, type Validation, type Version } from "../api";
 import { statusLabel, statusType } from "../status";
 import { useAuth } from "../auth";
 
@@ -12,6 +12,7 @@ const validations = ref<Validation[]>([]);
 const audits = ref<Audit[]>([]);
 const stats = ref<Record<string, unknown>[]>([]);
 const alias = ref<string[]>([]);
+const multimodalReadiness = ref<MultimodalReadiness | null>(null);
 const indexKind = ref<"CHUNK" | "COMMUNITY">("CHUNK");
 /** COMMUNITY 数据属于图构建功能；未启用时该标签页展示引导而不是报错。 */
 const communityVersions = ref<CommunityVersion[]>([]);
@@ -28,10 +29,11 @@ const totalPending = computed(() => stats.value.reduce((n, row) => n + Number(ro
 async function load(silent = false) {
   if (!silent) loading.value = true;
   try {
-    const [v, r, a, vr, au, st] = await Promise.all([
-      api.versions(), api.runs(), api.alias(), api.validations(), api.audits(), api.stats(),
+    const [v, r, a, vr, au, st, mm] = await Promise.all([
+      api.versions(), api.runs(), api.alias(), api.validations(), api.audits(), api.stats(), api.multimodalReadiness(),
     ]);
     versions.value = v; runs.value = r; alias.value = a.targets;
+    multimodalReadiness.value = mm;
     validations.value = vr; audits.value = au; stats.value = st;
     if (currentRun.value) {
       selectedRun.value = currentRun.value.runId;
@@ -78,8 +80,14 @@ const form = reactive<Config>({ parserVersion: "", chunkerVersion: "", embedding
 
 function edit(target?: Version) {
   dialog.editing = target || null;
-  Object.assign(form, target?.configuration || { parserVersion: "", chunkerVersion: "", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, mappingSchemaVersion: 1 });
+  const base = target?.configuration || versions.value.find(v => v.selected)?.configuration || versions.value[0]?.configuration;
+  Object.assign(form, base || { parserVersion: "kwiki-parse-1", chunkerVersion: "kwiki-chunk-1", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, mappingSchemaVersion: 1 });
   dialog.config = true;
+}
+
+function setParserVersion(value: string) {
+  form.parserVersion = value;
+  form.mappingSchemaVersion = value === "kwiki-parse-2" ? 2 : 1;
 }
 
 async function save() {
@@ -242,6 +250,15 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
       </template>
 
       <template v-else>
+        <el-alert
+          type="info" :closable="false" show-icon
+          title="解析器版本说明"
+          description="kwiki-parse-1 使用现有文本解析；kwiki-parse-2 额外提取 PDF 内嵌图片及已发布 Markdown 中的图片，生成检索摘要并保留图片资源标识。PDF 导入页仍可编辑文本，初始修订的图片语义按页面权限进入索引，原图可在源文件预览查看；扫描版 PDF 不支持 OCR。切换的是已重建、补齐且通过校验的索引版本；使用显式清单的部署还需登记 v2。"/>
+        <el-alert
+          v-if="multimodalReadiness && !multimodalReadiness.ready"
+          type="warning" :closable="false" show-icon
+          title="暂不能切换到 kwiki-parse-2"
+          :description="`缺少配置：${multimodalReadiness.missingConfiguration.join('、')}。配置完成并重启服务后，再重建、补齐和校验 v2 索引。`"/>
         <section class="hero">
           <div style="display:flex;gap:12px">
             <el-button type="primary" @click="edit()">创建版本</el-button>
@@ -278,6 +295,7 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
                 <template #default="{ row }">
                   <strong>v{{ row.versionNumber }}</strong>
                   <div class="muted">{{ row.physicalName }}</div>
+                  <div class="muted">{{ row.configuration.parserVersion }}</div>
                 </template>
               </el-table-column>
               <el-table-column label="状态" width="120">
@@ -392,8 +410,11 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
       <el-alert title="保存后为待重建；不会自动创建索引或切换别名" type="info" class="dialog-alert"/>
       <el-form label-width="150px">
         <el-form-item label="Parser 版本">
-          <el-input v-model="form.parserVersion" placeholder="如 tika-2.9"/>
-          <div class="hint">文档解析组件的代际标识；修改后该版本会变为「待重建」。</div>
+          <el-select :model-value="form.parserVersion" @change="setParserVersion">
+            <el-option label="kwiki-parse-1（文本解析）" value="kwiki-parse-1"/>
+            <el-option label="kwiki-parse-2（PDF / Markdown 图片摘要）" value="kwiki-parse-2" :disabled="!multimodalReadiness?.ready"/>
+          </el-select>
+          <div class="hint">v2 需要 KWIKI_MULTIMODAL_ENABLED=true、KWIKI_VISION_BASE_URL 和 KWIKI_VISION_API_KEY；修改后需重建。</div>
         </el-form-item>
         <el-form-item label="Chunker 版本">
           <el-input v-model="form.chunkerVersion" placeholder="切分器代际"/>

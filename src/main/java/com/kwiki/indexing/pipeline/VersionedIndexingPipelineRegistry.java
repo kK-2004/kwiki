@@ -19,11 +19,11 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 按目标版本"成功构建的配置修订"解析流水线（任务 5.1）：把结构配置
  * 六元组匹配到当前部署受支持的结构代清单，并给出该代对应的
- * parser、chunker、embedding 客户端与维度。清单留空时唯一受支持的
- * 代是隐式默认代（kwiki.qwen-embedding 派生）。
+ * parser、chunker、embedding 客户端与维度。清单留空时默认支持
+ * 隐式 v1 代；多模态配置齐全时同时支持隐式 v2 代。
  *
- * <p>当前部署只有一个 parser 实现（{@code kwiki-parse-1}）与一个
- * chunker 实现（{@code kwiki-chunk-1}）；其它版本号的组合不受支持。
+ * <p>当前部署支持 {@code kwiki-parse-1} 与条件启用的
+ * {@code kwiki-parse-2}，chunker 为 {@code kwiki-chunk-1}；其它组合不受支持。
  * 匹配是全字段精确相等；embedding 档案必须解析出 baseUrl/apiKey。
  * default 档案复用应用装配的 embedding 客户端 bean；其它档案按配置
  * 惰性构建独立客户端。凭据只存在于配置与客户端实例，绝不进入返回值
@@ -110,7 +110,9 @@ public class VersionedIndexingPipelineRegistry {
         return com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL
                 .equals(parserVersion)
                 && multimodalProperties != null
-                && Boolean.TRUE.equals(multimodalProperties.enabled());
+                && Boolean.TRUE.equals(multimodalProperties.enabled())
+                && externalProperties.visionModel() != null
+                && externalProperties.visionModel().isConfigured();
     }
 
     /** 无法解析的脱敏原因（供管理端与日志使用）。 */
@@ -172,14 +174,26 @@ public class VersionedIndexingPipelineRegistry {
             return indexingProperties.manifests();
         }
         var qwen = externalProperties.qwenEmbedding();
-        return List.of(new IndexingProperties.Manifest(
+        IndexingProperties.Manifest original = new IndexingProperties.Manifest(
                 "implicit-default",
                 SUPPORTED_PARSER_VERSION,
                 SUPPORTED_CHUNKER_VERSION,
                 IndexingProperties.DEFAULT_EMBEDDING_PROFILE,
                 qwen.model(),
                 qwen.dimensions(),
-                1));
+                1);
+        if (!parserVersionSupported(
+                com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL)) {
+            return List.of(original);
+        }
+        return List.of(original, new IndexingProperties.Manifest(
+                "implicit-multimodal",
+                com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL,
+                SUPPORTED_CHUNKER_VERSION,
+                IndexingProperties.DEFAULT_EMBEDDING_PROFILE,
+                qwen.model(),
+                qwen.dimensions(),
+                2));
     }
 
     /** 多模态指标（未启用时为 null，计数为空操作）。 */

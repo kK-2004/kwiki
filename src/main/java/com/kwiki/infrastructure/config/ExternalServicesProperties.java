@@ -90,8 +90,7 @@ public record ExternalServicesProperties(
      * 图片摘要视觉模型的独立配置（OpenAI-compatible
      * /chat/completions）。与回答模型、embedding 完全解耦：
      * 独立凭据、超时与并发生命周期。base-url 与 api-key 在
-     * 多模态索引关闭（kwiki.multimodal.enabled=false，默认）时
-     * 允许为空；启用时由多模态装配做启动期校验并快速失败。
+     * 允许为空；缺失时管理端展示缺失项，v2 创建与切换失败关闭。
      * api key 绝不出现在日志、异常或指标中。
      */
     public record VisionModel(

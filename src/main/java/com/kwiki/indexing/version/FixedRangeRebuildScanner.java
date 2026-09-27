@@ -159,13 +159,14 @@ public class FixedRangeRebuildScanner {
 
     private List<ResourceRow> attachmentRows(SearchIndexRebuildRange range,
                                              boolean multimodalParser) {
-        // 多模态解析代把 application/pdf 纳入可索引附件基线
+        // 多模态解析代把普通 PDF 附件纳入基线，导入来源由页面索引承载。
         String types = multimodalParser
                 ? "('image/png','image/jpeg','image/gif','image/webp','application/pdf')"
                 : "('image/png','image/jpeg','image/gif','image/webp')";
         return jdbc.query("""
                 SELECT a.id FROM attachment a JOIN knowledge_base k ON k.id=a.kb_id
                 WHERE a.id>? AND a.id<=? AND a.status='STORED' AND k.status='ACTIVE'
+                  AND a.purpose='GENERAL'
                   AND LOWER(a.content_type) IN %s
                 ORDER BY a.id ASC LIMIT ?
                 """.formatted(types), (rs, n) -> new ResourceRow(rs.getLong(1), null, 0),

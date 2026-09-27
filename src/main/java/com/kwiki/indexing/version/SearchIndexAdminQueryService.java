@@ -1,6 +1,7 @@
 package com.kwiki.indexing.version;
 
 import com.kwiki.indexing.job.IndexingJobTargetStore;
+import com.kwiki.indexing.config.MultimodalSwitchReadiness;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -24,15 +25,23 @@ public class SearchIndexAdminQueryService {
     private final ElasticsearchIndexManager indexes;
     private final IndexingJobTargetStore targetStore;
     private final MeterRegistry metrics;
+    private final MultimodalSwitchReadiness multimodalReadiness;
 
     public SearchIndexAdminQueryService(SearchIndexVersionRepository versions,
             SearchIndexRebuildRunRepository runs, SearchIndexRebuildRangeRepository ranges,
             SearchIndexValidationReportRepository validations, SearchIndexAuditRepository audits,
             IndexVersionRetentionAdvisor retention, ElasticsearchIndexManager indexes,
-            IndexingJobTargetStore targetStore, MeterRegistry metrics) {
+            IndexingJobTargetStore targetStore, MeterRegistry metrics,
+            MultimodalSwitchReadiness multimodalReadiness) {
         this.versions=versions; this.runs=runs; this.ranges=ranges;
         this.validations=validations; this.audits=audits; this.retention=retention;
         this.indexes=indexes; this.targetStore=targetStore; this.metrics=metrics;
+        this.multimodalReadiness=multimodalReadiness;
+    }
+
+    public MultimodalReadinessView multimodalReadiness() {
+        return new MultimodalReadinessView(multimodalReadiness.ready(),
+                multimodalReadiness.missingConfiguration());
     }
 
     public List<VersionView> versions() {
@@ -114,7 +123,10 @@ public class SearchIndexAdminQueryService {
         actions.put("edit",snapshot.editable());
         actions.put("rebuild",!version.isSelected()&&!version.isWriteEnabled()&&!activeRun&&!preparing);
         actions.put("prepare",!snapshot.dirty()&&!version.isAdminDisabled()&&!activeRun&&!preparing);
-        actions.put("select",!version.isSelected()&&!snapshot.dirty()&&!preparing);
+        boolean multimodalBlocked = multimodalReadiness.isMultimodal(
+                version.editableConfig().parserVersion()) && !multimodalReadiness.ready();
+        actions.put("select",!version.isSelected()&&!snapshot.dirty()&&!preparing
+                && !multimodalBlocked);
         actions.put("disable",!version.isSelected()&&!version.isAdminDisabled()&&!activeRun&&!preparing);
         actions.put("reenable",version.isAdminDisabled()&&!activeRun&&!preparing);
         actions.put("delete",cleanupCandidate&&!activeRun&&!preparing);
@@ -135,6 +147,7 @@ public class SearchIndexAdminQueryService {
                     range.getItemsSucceeded(),range.getItemsSkipped(),range.getItemsFailed())).toList(); }
 
     public record AliasTruth(String alias,List<String> targets){}
+    public record MultimodalReadinessView(boolean ready,List<String> missingConfiguration){}
     public record VersionView(int versionNumber,String physicalName,EditableIndexConfig configuration,
             long configRevision,Long builtConfigRevision,boolean dirty,String displayStatus,
             String buildState,String catchupStatus,boolean writeEnabled,boolean adminDisabled,

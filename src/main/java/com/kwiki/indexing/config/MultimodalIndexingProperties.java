@@ -16,7 +16,7 @@ import java.util.Set;
 /**
  * 多模态文档索引（PDF 内嵌图片 + 发布后 Markdown 图片）的部署开关与
  * 资源边界。默认整体关闭：开启前必须提供有效的视觉模型配置
- * （kwiki.vision-model.*）。所有限额都是显式失败边界——达到上限的
+ * （kwiki.vision-model.*）；缺失时 v2 切换失败关闭。所有限额都是显式失败边界——达到上限的
  * 文档让索引任务失败，而不是静默截断图片语义。
  */
 @ConfigurationProperties(prefix = "kwiki.multimodal")

@@ -24,7 +24,7 @@ kwiki 在 Java 进程内原生完成 PDF 内嵌图片与发布后 Markdown 图�
 | `KWIKI_MULTIMODAL_EXTERNAL_IMAGE_TIMEOUT` | `20s` | 外链抓取总时限（含全部重定向） |
 | `KWIKI_MULTIMODAL_EXTERNAL_IMAGE_MAX_REDIRECTS` | `3` | 重定向上限；每跳重新执行地址策略 |
 | `KWIKI_MULTIMODAL_EXTERNAL_IMAGE_ALLOWED_PORTS` | `443` | 允许的外链 HTTPS 端口白名单 |
-| `KWIKI_VISION_BASE_URL` / `KWIKI_VISION_API_KEY` | 空 | 视觉模型（OpenAI-compatible）；**启用多模态时必填**，启动期校验失败即拒绝启动 |
+| `KWIKI_VISION_BASE_URL` / `KWIKI_VISION_API_KEY` | 空 | 视觉模型（OpenAI-compatible）；缺失时管理端显示原因并禁止创建或切换到 v2 |
 | `KWIKI_VISION_MODEL` | `qwen3.7-flash` | 模型名（与提示词版本共同构成摘要身份） |
 | `KWIKI_VISION_TIMEOUT` / `KWIKI_VISION_CONNECT_TIMEOUT` | `60s` / `5s` | 视觉调用超时 |
 | `KWIKI_VISION_MAX_RETRIES` / `KWIKI_VISION_CONCURRENCY` | `2` / `4` | 瞬时故障（429/5xx/超时）有界重试与并发信号量 |
@@ -41,14 +41,25 @@ kwiki 在 Java 进程内原生完成 PDF 内嵌图片与发布后 Markdown 图�
 
 1. 默认关闭。旧版本（`kwiki-parse-1` / mapping v1）行为完全不变，
    旧物理索引继续可读。
-2. 开启 `KWIKI_MULTIMODAL_ENABLED=true` 并提供 `KWIKI_VISION_*` 后，
-   运维在 `kwiki.indexing.manifests` 中登记
-   `parser-version: kwiki-parse-2`、`mapping-schema-version: 2` 的结构代。
+2. 配置 `KWIKI_MULTIMODAL_ENABLED=true`、`KWIKI_VISION_BASE_URL` 和
+   `KWIKI_VISION_API_KEY` 后，默认清单会同时支持原有
+   `kwiki-parse-1` / mapping v1 和 `kwiki-parse-2` / mapping v2。
+   如果部署使用显式 `kwiki.indexing.manifests`，仍须在清单中同时登记
+   这两代。任一必需配置缺失时，服务可启动并在管理端显示缺失项，
+   但不支持创建或切换到 v2；不会显示密钥值。
 3. 经管理端（`KWIKI_INDEX_MANAGEMENT_MUTATIONS_ENABLED=true`）创建新
    版本、重建、校验、切换别名——存量文档只有显式重建后才携带图片语义，
    绝不静默混用新旧解析结果。
-4. 开启多模态后：新上传的 PDF 附件进入索引队列；重建基线扫描
-   （parse-2 版本）包含存量 STORED PDF。
+   三项部署配置预先加载后，已建好且完成补齐、校验的 v1 / v2 版本
+   可以在管理端热切换读别名，无需重启。只有修改环境变量本身才需
+   重新加载应用配置。
+4. 开启多模态后：新上传的普通 PDF 附件进入索引队列；重建基线扫描
+   （parse-2 版本）包含存量 STORED 普通 PDF。PDF 导入任务按当前选中
+   的 parser 选择文本提取策略：v1 使用 Tika，v2 使用 PDFBox。
+   导入页 Markdown 仍是可编辑的纯文本；导入成功并建立来源关联后，
+   v2 对导入时发布的页面修订按原 PDF 顺序索引正文与图片，摘要和
+   contentId 属于页面索引，因此沿用页面读取权限。导入来源附件本身
+   不作为普通附件索引；后续手动编辑的修订按其已发布 Markdown 索引。
 5. 提示词/模型变更：修改 `KWIKI_MULTIMODAL_PROMPT_VERSION`（或模型名）
    会为新身份生成新摘要并复用已上传 contentId；要让存量索引吃到新摘要，
    需以新的 parser 代（例如 `kwiki-parse-2-p2`）登记清单并重建。

@@ -8,6 +8,8 @@ import com.kwiki.wiki.attach.AttachmentStorageException;
 import com.kwiki.wiki.attach.AttachmentUpload;
 import com.kwiki.wiki.attach.DirectUpload;
 import com.kwiki.wiki.attach.StoredAttachment;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -31,6 +33,8 @@ import java.util.regex.Pattern;
  */
 @Component
 public class ContentCenterAttachmentStorage implements AttachmentStorage {
+
+    private static final Logger log = LoggerFactory.getLogger(ContentCenterAttachmentStorage.class);
 
     private static final Pattern CONTENT_RANGE = Pattern.compile("bytes\\s+(\\d+)-(\\d+)/(\\d+)");
 
@@ -88,7 +92,7 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
                         "content-center file deletion was incomplete");
             }
         } catch (ContentCenterException e) {
-            throw translate("delete file", e);
+            log.warn(translate("delete file", e).toString());
         }
     }
 
@@ -131,6 +135,7 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
             // 其他错误（包括鉴权失败、对象缺失和服务不可用）必须快速失败。
             if (fileId != null && fileId > 0 && e.getStatus() == 400 && e.getMessage() != null
                     && e.getMessage().startsWith("未找到上传初始化记录:")) {
+                log.info("内容中心已完成上传但响应丢失，改用服务端身份校验：fileId={}", fileId);
                 return recoverCompletedUpload(fileId, contentType, byteSize);
             }
             throw translate("complete upload", e);
@@ -152,6 +157,8 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
                 }
                 String type = response.headers().firstValue("Content-Type").orElse("");
                 if (size != expectedSize || !type.equalsIgnoreCase(expectedType)) {
+                    log.warn("内容中心已完成对象的元数据与上传会话不一致：fileId={}，期望 {} 字节/{}，实际 {} 字节/{}",
+                            fileId, expectedSize, expectedType, size, type);
                     throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
                             "completed object metadata disagrees with upload session");
                 }
@@ -361,14 +368,18 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
         return new StoredAttachment(result.fileId(), result.size(), verifiedType);
     }
 
-    /** 将 SDK 失败映射为已净化的异常；消息绝不回显 SDK 原文。 */
+    /** 将 SDK 失败映射为已净化的异常；消息绝不回显 SDK 原文，日志同样只记状态码。 */
     private AttachmentStorageException translate(String operation, ContentCenterException e) {
         int status = e.getStatus();
         if (status <= 0) {
+            log.warn("内容中心 {} 传输失败（无 HTTP 状态码，按可重试处理）", operation);
             return new AttachmentStorageException(AttachmentStorageException.Category.TRANSIENT,
                     "content-center " + operation + " transport failure", e);
         }
-        return new AttachmentStorageException(categoryFor(status),
+        AttachmentStorageException.Category category = categoryFor(status);
+        // 绝不打印 e.getMessage() 或堆栈：SDK 消息与响应体可能内嵌 token 或签名 URL。
+        log.warn("内容中心 {} 失败：status={}，category={}", operation, status, category);
+        return new AttachmentStorageException(category,
                 "content-center " + operation + " failed (HTTP " + status + ")", e);
     }
 

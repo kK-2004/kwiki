@@ -34,7 +34,7 @@ class SearchIndexValidationServiceTest {
         var mappings=new ChunkMappingBuilder();
         var jdbc=mock(JdbcTemplate.class);
         var config=new EditableIndexConfig("parser","chunker","default","model",1024,1);
-        String hash=mappings.mappingHash(1024);
+        String hash=mappings.mappingHash(1024, 1);
         SearchIndexVersion version=SearchIndexVersion.bootstrapped(2,"kwiki-chunks-v2",config,hash);
         BuildManifestSnapshot manifest=version.buildManifestSnapshot();
         SearchIndexRebuildRun run=SearchIndexRebuildRun.create(2,1,RebuildRunKind.INITIAL,1,
