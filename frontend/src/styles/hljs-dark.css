@@ -1,0 +1,65 @@
+/* 深色主题下用 github-dark 调色板覆盖 highlight.js 的 github 浅色主题；浅色主题不受影响。 */
+[data-theme='dark'] :is(.markdown, .article) pre .hljs {
+  color: #e6edf3;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-doctag, .hljs-keyword, .hljs-meta .hljs-keyword, .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-variable.language_) {
+  color: #ff7b72;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-title, .hljs-title.class_, .hljs-title.class_.inherited__, .hljs-title.function_) {
+  color: #d2a8ff;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-attr, .hljs-attribute, .hljs-literal, .hljs-meta, .hljs-number, .hljs-operator, .hljs-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id) {
+  color: #79c0ff;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-regexp, .hljs-string, .hljs-meta .hljs-string) {
+  color: #a5d6ff;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-built_in, .hljs-symbol) {
+  color: #ffa657;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-comment, .hljs-code, .hljs-formula) {
+  color: #8b949e;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre :is(.hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo) {
+  color: #7ee787;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-subst {
+  color: #e6edf3;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-section {
+  color: #1f6feb;
+  font-weight: bold;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-bullet {
+  color: #f2cc60;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-emphasis {
+  color: #e6edf3;
+  font-style: italic;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-strong {
+  color: #e6edf3;
+  font-weight: bold;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-addition {
+  color: #aff5b4;
+  background-color: #033a16;
+}
+
+[data-theme='dark'] :is(.markdown, .article) pre .hljs-deletion {
+  color: #ffdcd7;
+  background-color: #67060c;
+}

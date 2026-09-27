@@ -1,0 +1,170 @@
+/* Wiki 正文阅读排版：Notion 式节奏，颜色全部来自令牌。 */
+.markdown img,
+.markdown video,
+.article img,
+.article video {
+  max-width: 100% !important;
+  height: auto;
+  object-fit: contain;
+}
+
+.markdown,
+.article {
+  color: var(--k-ink-2);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.markdown :is(h1, h2, h3, h4),
+.article :is(h1, h2, h3, h4) {
+  color: var(--k-ink);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.markdown h1,
+.article h1 {
+  margin: 1.6em 0 0.6em;
+  font-size: 28px;
+  letter-spacing: -0.5px;
+}
+
+.markdown h2,
+.article h2 {
+  margin: 1.8em 0 0.6em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--k-line);
+  font-size: 22px;
+  letter-spacing: -0.3px;
+}
+
+.markdown h3,
+.article h3 {
+  margin: 1.5em 0 0.5em;
+  font-size: 18px;
+  letter-spacing: -0.2px;
+}
+
+.markdown a,
+.article a {
+  color: var(--k-green-deep);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--k-green-deep) 35%, transparent);
+  text-underline-offset: 3px;
+}
+
+.markdown a:hover,
+.article a:hover {
+  text-decoration-color: var(--k-green-deep);
+}
+
+.markdown blockquote,
+.article blockquote {
+  margin: 1em 0;
+  padding: 2px 0 2px 16px;
+  border-left: 3px solid var(--k-line-strong);
+  color: var(--k-muted);
+}
+
+.markdown :not(pre) > code,
+.article :not(pre) > code {
+  padding: 2px 6px;
+  border-radius: var(--k-r-sm);
+  background: var(--k-inline-code-bg);
+  color: var(--k-ink);
+  font-family: var(--k-font-mono);
+  font-size: 0.88em;
+}
+
+.markdown pre,
+.article pre {
+  margin: 1.2em 0;
+  padding: 14px 16px;
+  overflow: auto;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-lg);
+  background: var(--k-code-bg);
+  color: var(--k-code-ink);
+  font-family: var(--k-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 代码块背景由 --k-code-bg 决定，highlight.js 自带的背景需让位 */
+.markdown pre code.hljs,
+.article pre code.hljs {
+  padding: 0;
+  background: transparent;
+}
+
+.markdown table,
+.article table {
+  width: 100%;
+  margin: 1.2em 0;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.markdown :is(th, td),
+.article :is(th, td) {
+  padding: 8px 12px;
+  border: 1px solid var(--k-line);
+  text-align: left;
+}
+
+.markdown th,
+.article th {
+  background: var(--k-surface);
+  color: var(--k-ink);
+  font-weight: 600;
+}
+
+.markdown hr,
+.article hr {
+  margin: 2em 0;
+  border: 0;
+  border-top: 1px solid var(--k-line);
+}
+
+/* 附件卡片 */
+.kwiki-attachment-card,
+a[data-kwiki-attachment='true'] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(520px, 100%);
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-lg);
+  background: var(--k-surface);
+  color: var(--k-ink);
+  text-decoration: none;
+}
+
+.kwiki-attachment-card:hover,
+a[data-kwiki-attachment='true']:hover {
+  border-color: var(--k-line-strong);
+  box-shadow: var(--k-shadow-sm);
+}
+
+.kwiki-attachment-card > span:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.kwiki-attachment-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kwiki-attachment-card small {
+  color: var(--k-muted);
+}
+
+.kwiki-attachment-download {
+  margin-left: auto;
+  color: var(--k-green-deep);
+}
