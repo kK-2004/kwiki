@@ -1,5 +1,7 @@
 package com.kwiki.indexing.version;
 
+import com.kwiki.indexing.gray.IndexVersionKbScope;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -9,6 +11,14 @@ public class SearchIndexSelectionRegistry {
     private final SearchIndexVersionRepository versions;
     public SearchIndexSelectionRegistry(SearchIndexVersionRepository versions){this.versions=versions;}
 
+    /** 灰度版本的知识库范围；未注入（离线测试）时视为全部为全局版本。 */
+    private IndexVersionKbScope kbScope;
+
+    @Autowired(required = false)
+    public void setKbScope(IndexVersionKbScope kbScope) {
+        this.kbScope = kbScope;
+    }
+
     @Transactional
     public void select(int targetVersion){
         var all=versions.findAllActiveForUpdate();
@@ -17,7 +27,10 @@ public class SearchIndexSelectionRegistry {
         for(SearchIndexVersion version:all){
             if(version.isSelected()) version.applySnapshot(IndexVersionStatusPolicy.unpublish(
                     version.toSnapshot(false,false)));
-            if(!version.isAdminDisabled()&&version.isPipelineSupported())
+            // 灰度版本的写入只由灰度自身的切换准备开启，全局选择不得顺带开启
+            boolean gray=version.getVersionNumber()!=targetVersion
+                    &&kbScope!=null&&kbScope.isScoped(version.getVersionNumber());
+            if(!gray&&!version.isAdminDisabled()&&version.isPipelineSupported())
                 version.enableForSwitchPreparation();
         }
         target.applySnapshot(IndexVersionStatusPolicy.publish(target.toSnapshot(false,false)));

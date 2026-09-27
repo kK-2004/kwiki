@@ -82,6 +82,46 @@ class SwitchPreparationServiceTest {
         assertThat(dirty.isWriteEnabled()).isFalse();
     }
 
+    @Test
+    void 其他版本的切换准备不会开启未构建灰度版本的写入_灰度自身的切换准备会开启() {
+        SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
+        SearchIndexRebuildRunRepository runs = mock(SearchIndexRebuildRunRepository.class);
+        SearchIndexRebuildRangeRepository ranges = mock(SearchIndexRebuildRangeRepository.class);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        SearchIndexVersion current = SearchIndexVersion.bootstrapped(
+                1, "kwiki-chunks-v1", CONFIG, "mapping");
+        SearchIndexVersion target = builtVersion(2);
+        // 灰度 A 处于 CREATED：尚未构建
+        SearchIndexVersion grayCreated = new SearchIndexVersion(
+                3, "kwiki-chunks-v3", CONFIG, "mapping");
+        SearchIndexVersion grayBuilt = builtVersion(4);
+        when(versions.findAllActiveForUpdate()).thenReturn(List.of(current, target, grayCreated, grayBuilt));
+        when(runs.findFirstByVersionNumberAndConfigRevisionAndStateOrderByIdDesc(2, 1, "COMPLETED"))
+                .thenReturn(Optional.of(completedRun(2)));
+        when(runs.findFirstByVersionNumberAndConfigRevisionAndStateOrderByIdDesc(4, 1, "COMPLETED"))
+                .thenReturn(Optional.of(completedRun(4)));
+        when(ranges.findByRunIdOrderByResourceType(91))
+                .thenAnswer(invocation -> List.of(new SearchIndexRebuildRange(91, "PAGE", 0, 0)));
+        when(jdbc.queryForObject(anyString(), org.mockito.ArgumentMatchers.eq(Long.class))).thenReturn(42L);
+        com.kwiki.indexing.gray.IndexVersionKbScope scope =
+                mock(com.kwiki.indexing.gray.IndexVersionKbScope.class);
+        when(scope.isScoped(3)).thenReturn(true);
+        when(scope.isScoped(4)).thenReturn(true);
+        SwitchPreparationService service = service(versions, runs, ranges, jdbc);
+        service.setKbScope(scope);
+
+        service.prepare(2);
+
+        assertThat(current.isWriteEnabled()).isTrue();
+        assertThat(target.isWriteEnabled()).isTrue();
+        assertThat(grayCreated.isWriteEnabled()).isFalse();
+        assertThat(grayBuilt.isWriteEnabled()).isFalse();
+
+        service.prepare(4);
+        assertThat(grayBuilt.isWriteEnabled()).isTrue();
+        assertThat(grayCreated.isWriteEnabled()).isFalse();
+    }
+
     private static SwitchPreparationService service(SearchIndexVersionRepository versions,
                                                     SearchIndexRebuildRunRepository runs,
                                                     SearchIndexRebuildRangeRepository ranges,

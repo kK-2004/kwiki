@@ -37,6 +37,14 @@ public class SwitchPreparationService {
         this.clock = clock;
     }
 
+    /** 灰度版本的知识库范围；未注入（离线测试）时视为全部为全局版本。 */
+    private com.kwiki.indexing.gray.IndexVersionKbScope kbScope;
+
+    @Autowired(required = false)
+    public void setKbScope(com.kwiki.indexing.gray.IndexVersionKbScope kbScope) {
+        this.kbScope = kbScope;
+    }
+
     /**
      * 锁定全部版本行，使实时入队要么完整落在旧目标集合及水位之前，
      * 要么在提交后看到全新的多写集合，避免边界事件丢失。
@@ -62,9 +70,12 @@ public class SwitchPreparationService {
             throw new IllegalStateException("completed rebuild has no captured ranges");
         }
 
+        // 其他灰度版本的写入只能由其自身的切换准备开启，避免未构建完成的灰度索引被提前写入
         activeVersions.stream()
                 .filter(version -> !version.isAdminDisabled())
                 .filter(SearchIndexVersion::isPipelineSupported)
+                .filter(version -> version.getVersionNumber() == targetVersion
+                        || kbScope == null || !kbScope.isScoped(version.getVersionNumber()))
                 .forEach(SearchIndexVersion::enableForSwitchPreparation);
         versions.flush();
 
