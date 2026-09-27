@@ -232,16 +232,20 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .source-preview{min-height:0;display:flex;flex-direction:column;gap:8px}
-.source-loading{position:absolute;z-index:5;top:74px;left:50%;transform:translateX(-50%);padding:10px 16px;border-radius:8px;background:#eef4eff2;color:#7d8c81;font-size:13px;box-shadow:0 2px 10px #1f3c2814}
-.source-error{display:flex;align-items:center;gap:8px;margin:24px auto;padding:14px 18px;border:1px solid #eed3b0;border-radius:10px;background:#fffaf2;color:#8a6427;font-size:13px}
+.source-loading{position:absolute;z-index:5;top:74px;left:50%;transform:translateX(-50%);padding:10px 16px;border:1px solid var(--k-line);border-radius:var(--k-r);background:color-mix(in srgb, var(--k-canvas) 95%, transparent);color:var(--k-muted);font-size:13px;box-shadow:var(--k-shadow)}
+.source-error{display:flex;align-items:center;gap:8px;margin:24px auto;padding:14px 18px;border:1px solid color-mix(in srgb, var(--k-warn) 30%, transparent);border-radius:var(--k-r-lg);background:var(--k-warn-soft);color:var(--k-warn);font-size:13px}
 .source-error i{font-size:17px}
-.source-error button{border:1px solid #e0cba7;border-radius:7px;padding:5px 12px;background:#fff;color:#8a6427;font:inherit;font-size:12px;cursor:pointer}
-.source-meta{margin:0;color:#8d9891;font-size:12px}
-.source-shell{position:relative;flex:1;min-height:320px;border:1px solid #e2e8e3;border-radius:10px;background:#f7faf8;overflow:hidden}
+.source-error button{border:1px solid color-mix(in srgb, var(--k-warn) 35%, transparent);border-radius:var(--k-r);padding:5px 12px;background:var(--k-canvas);color:var(--k-warn);font:inherit;font-size:12px;cursor:pointer}
+.source-error button:hover{background:var(--k-surface-hover)}
+.source-meta{margin:0;color:var(--k-muted);font-size:12px}
+/* 外围画布跟随主题 */
+.source-shell{position:relative;flex:1;min-height:320px;border:1px solid var(--k-line);border-radius:var(--k-r-lg);background:var(--k-surface);overflow:hidden}
 .source-scroll{position:absolute;inset:0;overflow:auto;scrollbar-width:thin;overflow-anchor:none}
 .source-renderer{padding:14px}
-.source-renderer :deep(.kwiki-docx-wrapper){background:#fff;padding:8px 0}
+/* 纸张本体两种主题都保持白色；正文字色也固定为深色，避免深色主题下继承浅色文字而看不清 */
+.source-renderer :deep(.kwiki-docx-wrapper){background:var(--k-paper);color:#1f2328;padding:8px 0}
 .source-watermark{position:absolute;inset:0;pointer-events:none;overflow:hidden;display:grid;place-items:center}
-.wm-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:64px 48px;transform:rotate(-22deg) scale(1.25);color:#2d49372e;user-select:none;font-size:12px;white-space:nowrap;text-align:center}
+/* 水印叠在白色纸张上，两种主题都保持深色半透明 */
+.wm-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:64px 48px;transform:rotate(-22deg) scale(1.25);color:rgba(45, 73, 55, 0.18);user-select:none;font-size:12px;white-space:nowrap;text-align:center}
 @media print{.source-watermark{position:fixed;inset:0;z-index:9999}.source-scroll{overflow:visible}}
 </style>

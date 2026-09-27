@@ -45,16 +45,18 @@ function restoreSelected() { if (!selected.value) return; emit('restore', select
 <style scoped>
 .history {
   position: fixed;
-  top: 0;
-  right: 0;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
   z-index: 50;
   width: min(390px, 92vw);
-  height: 100vh;
   padding: 20px;
   overflow: auto;
-  border-left: 1px solid var(--kwiki-line);
-  background: var(--kwiki-panel);
-  box-shadow: -18px 0 48px rgba(24, 40, 32, 0.11);
+  /* 抽屉：悬浮卡片样式，与弹窗统一 */
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-lg);
+  background: var(--k-canvas);
+  box-shadow: var(--k-shadow-float);
   transform: translateX(0);
 }
 .drawer-head {
@@ -65,7 +67,9 @@ function restoreSelected() { if (!selected.value) return; emit('restore', select
 }
 .drawer-head h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--k-ink);
 }
 .icon {
   width: 32px;
@@ -74,14 +78,14 @@ function restoreSelected() { if (!selected.value) return; emit('restore', select
   place-items: center;
   border: 0;
   background: none;
-  border-radius: 7px;
-  color: #737a7a;
+  border-radius: var(--k-r-sm);
+  color: var(--k-muted);
   cursor: pointer;
   font-size: 16px;
 }
 .icon:hover {
-  background: #eef1ef;
-  color: #303636;
+  background: var(--k-surface-hover);
+  color: var(--k-ink);
 }
 .revisions {
   list-style: none;
@@ -92,7 +96,7 @@ function restoreSelected() { if (!selected.value) return; emit('restore', select
   position: relative;
   margin-left: 9px;
   padding: 0 0 20px 24px;
-  border-left: 1px solid #dfe4e2;
+  border-left: 1px solid var(--k-line);
 }
 .revision::before {
   content: '';
@@ -101,46 +105,53 @@ function restoreSelected() { if (!selected.value) return; emit('restore', select
   top: 3px;
   width: 9px;
   height: 9px;
-  border: 2px solid #bdc6c2;
+  border: 2px solid var(--k-line-strong);
   border-radius: 50%;
-  background: var(--kwiki-panel);
+  background: var(--k-canvas);
 }
 .revision.current::before {
-  border-color: var(--kwiki-green);
-  background: var(--kwiki-green-soft);
+  border-color: var(--k-green);
+  background: var(--k-green-soft);
 }
 .revision p {
   margin: 4px 0 10px;
-  color: var(--kwiki-muted);
+  color: var(--k-muted);
   line-height: 1.55;
 }
+.revision strong {
+  color: var(--k-ink);
+  font-weight: 600;
+}
 .rev-meta {
-  color: #a0a6a6;
+  color: var(--k-faint);
   font-size: 11px;
 }
 .btn {
   min-height: 34px;
   padding: 0 13px;
-  border: 1px solid #dfe3e2;
-  border-radius: 6px;
-  background: var(--kwiki-panel);
-  font-weight: 600;
-  color: #555c5c;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-sm);
+  background: var(--k-canvas);
+  font-weight: 500;
+  color: var(--k-ink-2);
   cursor: pointer;
   font: inherit;
 }
 .btn:hover {
-  border-color: #bfc7c4;
+  border-color: var(--k-line-strong);
+  background: var(--k-surface);
+  color: var(--k-ink);
 }
 .empty {
-  color: var(--kwiki-muted);
+  color: var(--k-muted);
 }
-.revision-overlay { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; background: #19332255; }
-.revision-dialog { width: min(860px, 100%); max-height: min(760px, 90vh); display: flex; flex-direction: column; overflow: hidden; border-radius: 16px; background: #fff; box-shadow: 0 24px 80px #1a332633; }
-.revision-dialog header,.revision-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--kwiki-line); }
+.revision-overlay { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; background: var(--k-overlay); }
+.revision-dialog { width: min(860px, 100%); max-height: min(760px, 90vh); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--k-line); border-radius: var(--k-r-lg); background: var(--k-canvas); box-shadow: var(--k-shadow-float); }
+.revision-dialog header,.revision-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--k-line); }
 .revision-dialog header h3,.revision-dialog header p { margin: 0; }
-.revision-dialog header p { margin-top: 5px; color: var(--kwiki-muted); font-size: 12px; }
+.revision-dialog header p { margin-top: 5px; color: var(--k-muted); font-size: 12px; }
 .revision-content { flex: 1; min-height: 240px; overflow: auto; padding: 24px; }
-.revision-dialog footer { justify-content: flex-end; border-top: 1px solid var(--kwiki-line); border-bottom: 0; }
-.btn.primary { border-color: var(--kwiki-green); background: var(--kwiki-green); color: #fff; }
+.revision-dialog footer { justify-content: flex-end; border-top: 1px solid var(--k-line); border-bottom: 0; }
+.btn.primary { border-color: var(--k-primary); background: var(--k-primary); color: var(--k-on-primary); }
+.btn.primary:hover { border-color: var(--k-primary-hover); background: var(--k-primary-hover); color: var(--k-on-primary); }
 </style>

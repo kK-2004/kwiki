@@ -178,7 +178,7 @@ defineExpose({ toggleEdit, toggleHistory, openArchive });
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgba(22, 31, 27, 0.25);
+  background: var(--k-overlay);
   backdrop-filter: blur(1px);
 }
 </style>

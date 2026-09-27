@@ -104,7 +104,7 @@ li {
   min-width: 0;
 }
 .row {
-  min-height: 34px;
+  min-height: 30px;
   width: 100%;
   display: flex;
   align-items: center;
@@ -112,24 +112,39 @@ li {
   padding: 0 10px;
   border: 0;
   background: none;
-  border-radius: 7px;
+  border-radius: var(--k-r-sm);
   text-align: left;
-  color: #404646;
+  font-size: 13px;
+  color: var(--k-ink-2);
   cursor: pointer;
 }
 .row:hover {
-  background: var(--kwiki-hover-bg);
+  background: var(--k-surface-hover);
+  color: var(--k-ink);
 }
+/* 选中项：白底 + 左侧 2px 品牌绿竖线 */
 .row.selected {
-  background: var(--kwiki-selected-bg);
-  color: var(--kwiki-green-dark);
-  font-weight: 650;
+  position: relative;
+  background: var(--k-canvas);
+  color: var(--k-ink);
+  font-weight: 500;
+  box-shadow: var(--k-shadow-sm);
+}
+.row.selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--k-green);
 }
 .caret {
   width: 14px;
   display: inline-flex;
   justify-content: center;
-  color: #9ea4a4;
+  color: var(--k-faint);
   font-size: 12px;
   transition: transform 0.14s;
   flex: none;
@@ -143,12 +158,12 @@ li[aria-expanded='false'] .caret {
 .node-icon {
   width: 16px;
   display: inline-flex;
-  color: #929999;
+  color: var(--k-muted);
   font-size: 14px;
   flex: none;
 }
 .selected .node-icon {
-  color: var(--kwiki-green);
+  color: var(--k-green-deep);
 }
 .node-title {
   min-width: 0;
@@ -158,7 +173,7 @@ li[aria-expanded='false'] .caret {
   white-space: nowrap;
 }
 .node-count {
-  color: #afb4b4;
+  color: var(--k-faint);
   font-size: 11px;
 }
 </style>

@@ -77,7 +77,7 @@ function confirmArchive() {
 .archive-overlay {
   position: fixed;
   inset: 0;
-  background: #0003;
+  background: var(--k-overlay);
   z-index: 100;
   display: grid;
   place-items: center;
@@ -85,17 +85,20 @@ function confirmArchive() {
 }
 .archive-dialog {
   width: min(420px, 100%);
-  background: #fff;
-  border: 1px solid #e1e9e3;
-  border-radius: 12px;
+  background: var(--k-canvas);
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-lg);
+  box-shadow: var(--k-shadow-float);
   padding: 22px;
 }
 .archive-dialog h3 {
   margin: 0 0 10px;
   font-size: 16px;
+  font-weight: 600;
+  color: var(--k-ink);
 }
 .archive-dialog p {
-  color: #667d6e;
+  color: var(--k-ink-2);
   line-height: 1.7;
   font-size: 13px;
 }
@@ -105,11 +108,18 @@ function confirmArchive() {
   gap: 10px;
   margin-top: 18px;
 }
-.danger {
-  color: #ad4c4c;
-  border-color: #e0c4c4;
+/* 危险确认：实心红底；文字用 canvas，浅色下为白字、深色下为深字以保证对比 */
+.ui-button.danger {
+  color: var(--k-canvas);
+  background: var(--k-danger);
+  border-color: var(--k-danger);
 }
-.danger:disabled {
+.ui-button.danger:hover {
+  color: var(--k-canvas);
+  background: color-mix(in srgb, var(--k-danger) 88%, var(--k-ink));
+  border-color: color-mix(in srgb, var(--k-danger) 88%, var(--k-ink));
+}
+.ui-button.danger:disabled {
   opacity: 0.6;
   cursor: wait;
 }

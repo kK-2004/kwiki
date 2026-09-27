@@ -106,11 +106,11 @@ function formatBytes(bytes: number): string {
 </script>
 
 <style scoped>
-.attachment-card { width: min(520px, 100%); display: flex; align-items: center; gap: 12px; padding: 13px 15px; border: 1px solid #dce7df; border-radius: 10px; color: #3f5e49; text-decoration: none; background: #f8fbf9; box-sizing: border-box; }
+.attachment-card { width: min(520px, 100%); display: flex; align-items: center; gap: 12px; padding: 13px 15px; border: 1px solid var(--k-line); border-radius: var(--k-r-lg); color: var(--k-ink-2); text-decoration: none; background: var(--k-surface); box-sizing: border-box; }
 .attachment-card > i:first-child { font-size: 20px; }
 .attachment-card > i:last-child { margin-left: auto; }
 .attachment-card span { display: grid; gap: 3px; min-width: 0; }
 .attachment-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attachment-card small { color: #8b9990; }
+.attachment-card small { color: var(--k-faint); }
 .attachment-card.unavailable { opacity: 0.75; }
 </style>

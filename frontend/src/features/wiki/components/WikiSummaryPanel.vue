@@ -29,7 +29,7 @@ function open(pageId: number) {
 <style scoped>
 .summary-note {
   margin: 0 3px 10px;
-  color: #a0a6a6;
+  color: var(--k-faint);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -37,30 +37,31 @@ function open(pageId: number) {
   width: 100%;
   padding: 12px;
   margin-bottom: 7px;
-  border: 1px solid var(--kwiki-line);
-  border-radius: 8px;
-  background: var(--kwiki-panel);
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r);
+  background: var(--k-canvas);
   text-align: left;
   cursor: pointer;
   font: inherit;
-  color: var(--kwiki-ink);
+  color: var(--k-ink);
+  box-shadow: var(--k-shadow-sm);
 }
 .summary-card:hover {
-  border-color: #b9e7d0;
-  background: #fbfefc;
+  border-color: var(--k-line-strong);
+  background: var(--k-surface-hover);
 }
 .summary-card strong {
   display: block;
   margin-bottom: 5px;
 }
 .summary-card span {
-  color: var(--kwiki-muted);
+  color: var(--k-muted);
   font-size: 12px;
   line-height: 1.5;
 }
 .empty {
   padding: 34px 18px;
   text-align: center;
-  color: var(--kwiki-muted);
+  color: var(--k-muted);
 }
 </style>

@@ -330,11 +330,11 @@ function downloadBlob(blob: Blob, name: string) {
 .editor {
   position: relative;
   margin-top: 22px;
-  border: 1px solid #dfe4e2;
-  border-radius: 9px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-lg);
   overflow: visible;
-  box-shadow: 0 8px 30px rgba(27, 52, 40, 0.06);
-  background: var(--kwiki-panel);
+  box-shadow: var(--k-shadow-sm);
+  background: var(--k-canvas);
 }
 .draft-loading {
   position: absolute;
@@ -345,15 +345,16 @@ function downloadBlob(blob: Blob, name: string) {
   justify-content: center;
   gap: 9px;
   min-height: 180px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--kwiki-muted);
+  border-radius: var(--k-r-lg);
+  background: color-mix(in srgb, var(--k-canvas) 94%, transparent);
+  color: var(--k-muted);
   font-size: 13px;
 }
 .draft-loading .spinner {
   width: 15px;
   height: 15px;
-  border: 2px solid #bcd9c6;
-  border-top-color: #2f8f5b;
+  border: 2px solid var(--k-line-strong);
+  border-top-color: var(--k-green);
   border-radius: 50%;
   animation: page-editor-spin 0.8s linear infinite;
 }
@@ -364,8 +365,9 @@ function downloadBlob(blob: Blob, name: string) {
   align-items: center;
   gap: 3px;
   padding: 7px 9px;
-  border-bottom: 1px solid var(--kwiki-line);
-  background: var(--kwiki-sidebar-bg);
+  border-bottom: 1px solid var(--k-line);
+  border-radius: var(--k-r-lg) var(--k-r-lg) 0 0;
+  background: var(--k-surface);
   flex-wrap: wrap;
   position: relative;
 }
@@ -375,15 +377,19 @@ function downloadBlob(blob: Blob, name: string) {
   padding: 0 8px;
   border: 0;
   background: none;
-  border-radius: 5px;
-  color: #626969;
+  border-radius: var(--k-r-sm);
+  color: var(--k-ink-2);
   cursor: pointer;
   font: inherit;
 }
-.tool:hover,
+.tool:hover {
+  background: var(--k-surface-hover);
+  color: var(--k-ink);
+}
 .tool.active {
-  background: #edf3ef;
-  color: var(--kwiki-green-dark);
+  background: var(--k-surface-active);
+  color: var(--k-ink);
+  font-weight: 500;
 }
 .tool:disabled {
   opacity: 0.5;
@@ -397,7 +403,7 @@ function downloadBlob(blob: Blob, name: string) {
 .divider {
   width: 1px;
   height: 18px;
-  background: var(--kwiki-line);
+  background: var(--k-line);
   margin: 0 4px;
 }
 .menu {
@@ -408,10 +414,11 @@ function downloadBlob(blob: Blob, name: string) {
   top: calc(100% + 4px);
   left: 0;
   z-index: 20;
-  background: #fff;
-  border: 1px solid #e0e8e2;
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(27, 52, 40, 0.12);
+  padding: 4px;
+  background: var(--k-canvas);
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r);
+  box-shadow: var(--k-shadow-float);
   display: grid;
   min-width: 150px;
 }
@@ -419,18 +426,21 @@ function downloadBlob(blob: Blob, name: string) {
   border: 0;
   background: none;
   text-align: left;
-  padding: 10px 14px;
+  padding: 8px 12px;
+  border-radius: var(--k-r-sm);
   font: inherit;
   font-size: 12px;
-  color: #4a5454;
+  color: var(--k-ink-2);
   cursor: pointer;
 }
 .menu-panel button:hover {
-  background: #f0f7f2;
+  background: var(--k-surface-hover);
+  color: var(--k-ink);
 }
 .preview {
   min-height: 400px;
   padding: 22px;
+  background: var(--k-canvas);
 }
 .preview-chunk:first-child > :first-child,
 .preview-chunk + .preview-media + .preview-chunk > :first-child {
@@ -452,11 +462,11 @@ function downloadBlob(blob: Blob, name: string) {
   gap: 5px;
   min-height: 30px;
   padding: 0 9px;
-  border: 1px solid #d9e1dc;
-  border-radius: 6px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-sm);
   opacity: 0;
-  background: rgba(255, 255, 255, 0.94);
-  color: #53625a;
+  background: color-mix(in srgb, var(--k-canvas) 94%, transparent);
+  color: var(--k-ink-2);
   cursor: pointer;
   transition: opacity 0.15s, background-color 0.15s;
 }
@@ -465,8 +475,8 @@ function downloadBlob(blob: Blob, name: string) {
   opacity: 1;
 }
 .preview :deep(.code-copy[data-copied='true']) {
-  color: var(--kwiki-green-dark);
-  background: #eff8f2;
+  color: var(--k-green-deep);
+  background: var(--k-green-soft);
 }
 .editor-foot {
   display: flex;
@@ -474,11 +484,12 @@ function downloadBlob(blob: Blob, name: string) {
   justify-content: space-between;
   gap: 10px;
   padding: 10px 12px;
-  border-top: 1px solid var(--kwiki-line);
-  background: var(--kwiki-sidebar-bg);
+  border-top: 1px solid var(--k-line);
+  border-radius: 0 0 var(--k-r-lg) var(--k-r-lg);
+  background: var(--k-surface);
 }
 .draft {
-  color: var(--kwiki-muted);
+  color: var(--k-muted);
   font-size: 12px;
 }
 .buttons {
@@ -488,60 +499,48 @@ function downloadBlob(blob: Blob, name: string) {
 .btn {
   min-height: 34px;
   padding: 0 13px;
-  border: 1px solid #dfe3e2;
-  border-radius: 6px;
-  background: var(--kwiki-panel);
-  font-weight: 600;
-  color: #555c5c;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-sm);
+  background: var(--k-canvas);
+  font-weight: 500;
+  color: var(--k-ink);
   cursor: pointer;
   font: inherit;
 }
 .btn:hover:not(:disabled) {
-  border-color: #bfc7c4;
+  border-color: var(--k-line-strong);
+  background: var(--k-surface);
 }
 .btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
+/* 保存/发布为主操作：浅色黑底白字、深色白底黑字 */
 .btn.primary {
-  border-color: var(--kwiki-green);
-  background: var(--kwiki-green);
-  color: #fff;
+  border-color: var(--k-primary);
+  background: var(--k-primary);
+  color: var(--k-on-primary);
+}
+.btn.primary:hover:not(:disabled) {
+  border-color: var(--k-primary-hover);
+  background: var(--k-primary-hover);
 }
 .upload-note {
-  color: #8a6c42;
+  color: var(--k-warn);
   font-size: 12px;
   margin: 8px 12px;
 }
-.dialog-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px; background: #19332244; }
-.publish-dialog { width: min(520px, 100%); padding: 24px; border-radius: 16px; background: #fff; box-shadow: 0 20px 70px #1a332622; }
+.dialog-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px; background: var(--k-overlay); }
+.publish-dialog { width: min(520px, 100%); padding: 24px; border: 1px solid var(--k-line); border-radius: var(--k-r-lg); background: var(--k-canvas); box-shadow: var(--k-shadow-float); }
 .publish-dialog header,.publish-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.publish-dialog h2 { margin: 0; font-size: 20px; }
-.publish-dialog label { display: grid; gap: 8px; margin-top: 22px; color: #506158; font-size: 13px; }
-.publish-dialog textarea { resize: vertical; padding: 12px; border: 1px solid #dce5df; border-radius: 8px; font: inherit; }
-.publish-dialog p { color: #8a958e; font-size: 12px; line-height: 1.6; }
+.publish-dialog h2 { margin: 0; font-size: 18px; font-weight: 600; color: var(--k-ink); }
+.publish-dialog label { display: grid; gap: 8px; margin-top: 22px; color: var(--k-ink-2); font-size: 13px; }
+.publish-dialog textarea { resize: vertical; padding: 12px; border: 1px solid var(--k-line); border-radius: var(--k-r); background: var(--k-canvas); font: inherit; outline: none; }
+.publish-dialog textarea:hover { border-color: var(--k-line-strong); }
+.publish-dialog textarea:focus { border-color: var(--k-green); box-shadow: var(--k-focus-ring); }
+.publish-dialog p { color: var(--k-muted); font-size: 12px; line-height: 1.6; }
 .publish-dialog footer { justify-content: flex-end; margin-top: 20px; }
-.markdown.article {
-  font-size: 15px;
-  line-height: 1.85;
-  color: #343a3a;
-}
-.markdown :deep(h1) {
-  font-size: 25px;
-}
-.markdown :deep(h2) {
-  margin: 27px 0 9px;
-  font-size: 19px;
-}
-.markdown :deep(h3) {
-  margin: 23px 0 8px;
-  font-size: 17px;
-}
-.markdown :deep(img),
-.markdown :deep(video) {
-  max-width: 100%;
-  height: auto;
-}
+/* 预览区正文排版由全局 markdown.css 统一接管 */
 @media (max-width: 640px) {
   .editor-foot {
     align-items: flex-start;

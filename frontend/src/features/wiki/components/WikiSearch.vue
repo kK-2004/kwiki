@@ -75,23 +75,26 @@ function clear() {
   transform: translateY(-50%);
   display: inline-flex;
   font-size: 15px;
-  color: #909797;
+  color: var(--k-faint);
   pointer-events: none;
 }
 .search-box input {
   width: 100%;
-  height: 36px;
-  border: 1px solid #dfe3e2;
-  border-radius: var(--kwiki-radius);
+  height: 34px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r);
   padding: 0 34px;
-  color: #363c3c;
+  color: var(--k-ink);
   outline: none;
-  background: var(--kwiki-panel);
+  background: var(--k-canvas);
   font: inherit;
 }
+.search-box input:hover {
+  border-color: var(--k-line-strong);
+}
 .search-box input:focus {
-  border-color: #82dcb0;
-  box-shadow: 0 0 0 3px rgba(24, 188, 114, 0.08);
+  border-color: var(--k-green);
+  box-shadow: var(--k-focus-ring);
 }
 .clear {
   position: absolute;
@@ -103,8 +106,8 @@ function clear() {
   place-items: center;
   border: 0;
   background: none;
-  border-radius: 5px;
-  color: #969d9d;
+  border-radius: var(--k-r-sm);
+  color: var(--k-faint);
   cursor: pointer;
   font-size: 15px;
 }
@@ -112,12 +115,13 @@ function clear() {
   display: grid;
 }
 .clear:hover {
-  background: #f1f3f2;
+  background: var(--k-surface-hover);
+  color: var(--k-ink);
 }
 .count {
   margin: 0 0 7px;
   padding: 0 3px;
-  color: var(--kwiki-muted);
+  color: var(--k-muted);
   font-size: 12px;
 }
 .tree-area {
@@ -130,7 +134,7 @@ function clear() {
 .empty {
   padding: 34px 18px;
   text-align: center;
-  color: var(--kwiki-muted);
+  color: var(--k-muted);
   line-height: 1.7;
 }
 .empty span {

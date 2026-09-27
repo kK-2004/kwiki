@@ -517,23 +517,23 @@ defineExpose({
 </script>
 
 <style scoped>
-.block-editor { border: 1px solid #e0e8e2; border-radius: 10px; background: #fff; padding: 14px; min-height: 320px; cursor: text; }
+.block-editor { border: 1px solid var(--k-line); border-radius: var(--k-r-lg); background: var(--k-canvas); color: var(--k-ink); padding: 14px; min-height: 320px; cursor: text; }
 .segments { display: grid; gap: 2px; min-height: 290px; align-content: start; }
-.text-segment textarea { width: 100%; border: 0; outline: none; resize: none; overflow: hidden; background: transparent; font: inherit; line-height: 1.9; padding: 2px 4px; border-radius: 4px; box-sizing: border-box; }
-.text-segment textarea:focus { background: #f7faf8; }
-.media-segment { position: relative; display: flex; flex-direction: column; align-items: stretch; padding: 8px 4px 48px; border-radius: 8px; max-width: 100%; overflow: hidden; }
-.media-segment:focus-visible { outline: 2px solid #18bc72; outline-offset: 2px; }
-.media-controls { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 10px; background: #ffffffee; border: 1px solid #e0e8e2; border-radius: 8px; padding: 4px 10px; font-size: 11px; color: #667d6e; z-index: 5; }
+.text-segment textarea { width: 100%; border: 0; outline: none; resize: none; overflow: hidden; background: transparent; color: var(--k-ink); font: inherit; font-family: var(--k-font-mono); font-size: 14px; line-height: 1.9; padding: 2px 4px; border-radius: var(--k-r-sm); box-sizing: border-box; }
+.text-segment textarea:focus { background: var(--k-surface); }
+.media-segment { position: relative; display: flex; flex-direction: column; align-items: stretch; padding: 8px 4px 48px; border-radius: var(--k-r); max-width: 100%; overflow: hidden; }
+.media-segment:focus-visible { outline: 2px solid var(--k-green); outline-offset: 2px; }
+.media-controls { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 10px; background: color-mix(in srgb, var(--k-canvas) 94%, transparent); border: 1px solid var(--k-line); border-radius: var(--k-r); box-shadow: var(--k-shadow-sm); padding: 4px 10px; font-size: 11px; color: var(--k-ink-2); z-index: 5; }
 .media-controls label { display: flex; align-items: center; gap: 4px; }
-.media-controls select { border: 1px solid #dce5df; border-radius: 4px; font-size: 11px; padding: 1px 2px; }
-.remove-media { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: auto; border: 0; border-radius: 5px; background: transparent; color: #a25757; cursor: pointer; }
-.remove-media:hover { background: #fff0f0; }
+.media-controls select { border: 1px solid var(--k-line); border-radius: var(--k-r-sm); background: var(--k-canvas); color: var(--k-ink); font-size: 11px; padding: 1px 2px; }
+.remove-media { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: auto; border: 0; border-radius: var(--k-r-sm); background: transparent; color: var(--k-danger); cursor: pointer; }
+.remove-media:hover { background: var(--k-danger-soft); }
 .upload-segment { display: contents; }
-.upload-text { margin: 0; font: inherit; white-space: pre-wrap; font-family: inherit; }
-.upload-placeholder { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0; padding: 8px 14px; border: 1px dashed #a8cfb5; border-radius: 8px; background: #f0f9f3; color: #33684a; font-size: 12px; }
-.upload-placeholder.failed { border-color: #dcbcbc; background: #faf0f0; color: #8a4c4c; }
-.upload-placeholder button { border: 1px solid currentColor; background: none; border-radius: 5px; color: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer; }
-.spinner { width: 12px; height: 12px; border: 2px solid #bcd9c6; border-top-color: #2f8f5b; border-radius: 50%; animation: spin 0.8s linear infinite; }
+.upload-text { margin: 0; font: inherit; white-space: pre-wrap; font-family: var(--k-font-mono); font-size: 14px; }
+.upload-placeholder { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0; padding: 8px 14px; border: 1px dashed var(--k-line-strong); border-radius: var(--k-r); background: var(--k-surface); color: var(--k-ink-2); font-size: 12px; }
+.upload-placeholder.failed { border-color: var(--k-danger-line); background: var(--k-danger-soft); color: var(--k-danger); }
+.upload-placeholder button { border: 1px solid currentColor; background: none; border-radius: var(--k-r-sm); color: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer; }
+.spinner { width: 12px; height: 12px; border: 2px solid var(--k-line-strong); border-top-color: var(--k-green); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.upload-errors { margin-top: 10px; color: #8a4c4c; font-size: 12px; }
+.upload-errors { margin-top: 10px; color: var(--k-danger); font-size: 12px; }
 </style>

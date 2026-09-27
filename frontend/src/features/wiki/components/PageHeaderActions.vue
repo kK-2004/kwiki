@@ -118,17 +118,19 @@ onBeforeUnmount(() => document.removeEventListener('click', closeExport));
 <style scoped>
 .page-toolbar { display:flex; align-items:center; margin-left:auto; flex-shrink:0; }
 .toolbar-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; }
-.action-group { display:flex; align-items:center; height:38px; padding:0 4px; border:1px solid #e1e7e3; border-radius:11px; background:#fbfcfb; }
-.toolbar-icon { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; border:1px solid transparent; border-radius:9px; background:transparent; color:#6f7b74; cursor:pointer; font-size:16px; transition:.16s ease; }
-.toolbar-icon:hover, .toolbar-icon:focus-visible { border-color:#e4eae6; background:#f4f7f5; color:#2e4237; outline:none; }
+.action-group { display:flex; align-items:center; height:36px; padding:0 2px; border:1px solid var(--k-line); border-radius:var(--k-r); background:var(--k-surface); }
+.toolbar-icon { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; border:1px solid transparent; border-radius:var(--k-r-sm); background:transparent; color:var(--k-muted); cursor:pointer; font-size:16px; transition:.16s ease; }
+.toolbar-icon:focus-visible { box-shadow:var(--k-focus-ring); }
+.toolbar-icon:hover, .toolbar-icon:focus-visible { background:var(--k-surface-hover); color:var(--k-ink); outline:none; }
 .toolbar-export { position:relative; flex-shrink:0; }
-.export-toggle { height:38px; display:inline-flex; align-items:center; gap:7px; padding:0 14px; border:1px solid #d8dfdb; border-radius:11px; background:#fff; color:#45534c; font:inherit; font-size:13px; cursor:pointer; transition:.16s ease; }
-.export-toggle:hover, .export-toggle:focus-visible { border-color:#c4d3c9; background:#f7faf8; outline:none; }
-.export-toggle i:first-child { color:#537663; }
+.export-toggle { height:36px; display:inline-flex; align-items:center; gap:7px; padding:0 14px; border:1px solid var(--k-line); border-radius:var(--k-r); background:var(--k-canvas); color:var(--k-ink); box-shadow:var(--k-shadow-sm); font:inherit; font-size:13px; cursor:pointer; transition:.16s ease; }
+.export-toggle:hover, .export-toggle:focus-visible { border-color:var(--k-line-strong); background:var(--k-surface); outline:none; }
+.export-toggle i:first-child { color:var(--k-muted); }
+.export-toggle:focus-visible { box-shadow:var(--k-focus-ring); }
 .export-toggle i:last-child { font-size:13px; }
-.export-panel { position:absolute; top:calc(100% + 8px); right:0; z-index:30; min-width:180px; display:grid; gap:2px; padding:6px; border:1px solid #e2e7e4; border-radius:12px; background:#fff; box-shadow:0 14px 45px rgba(28,51,39,.12); }
-.export-panel button { width:100%; height:36px; display:flex; align-items:center; gap:8px; padding:0 10px; border:0; border-radius:8px; background:transparent; color:#45534c; font:inherit; font-size:12px; text-align:left; cursor:pointer; }
-.export-panel button:hover { background:#f4f7f5; }
+.export-panel { position:absolute; top:calc(100% + 8px); right:0; z-index:30; min-width:180px; display:grid; gap:2px; padding:6px; border:1px solid var(--k-line); border-radius:var(--k-r-lg); background:var(--k-canvas); box-shadow:var(--k-shadow-float); }
+.export-panel button { width:100%; height:36px; display:flex; align-items:center; gap:8px; padding:0 10px; border:0; border-radius:var(--k-r-sm); background:transparent; color:var(--k-ink-2); font:inherit; font-size:12px; text-align:left; cursor:pointer; }
+.export-panel button:hover { background:var(--k-surface-hover); color:var(--k-ink); }
 .export-panel button:disabled { opacity:.55; cursor:default; }
 @media (max-width:900px) { .page-toolbar { margin-left:0; } }
 @media (max-width:560px) { .toolbar-actions { flex-wrap:wrap; justify-content:flex-start; } .toolbar-export { margin-left:auto; } }
