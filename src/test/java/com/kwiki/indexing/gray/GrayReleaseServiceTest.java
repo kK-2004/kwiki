@@ -5,6 +5,7 @@ import com.kwiki.indexing.version.*;
 import com.kwiki.wiki.api.ConflictException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -75,6 +76,7 @@ class GrayReleaseServiceTest {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
         SearchIndexVersion version = versionWrites(false);
         when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
+        when(rebuilds.rebuild(2, "admin")).thenReturn(accepted());
         GrayRelease syncing = service.sync(created.id(), "admin");
         verify(rebuilds).rebuild(2, "admin");
         assertThat(syncing.status()).isEqualTo(GrayReleaseStatus.SYNCING);
@@ -162,6 +164,120 @@ class GrayReleaseServiceTest {
         assertThat(ended.status()).isEqualTo(GrayReleaseStatus.ENDED);
         assertThat(store.activeReleaseByKb(List.of(7L))).isEmpty();
         assertThatThrownBy(() -> service.end(created.id())).isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void 切换被拒时保留回到同步中的状态与原因() throws Exception {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.updateStatus(created.id(), GrayReleaseStatus.SYNCED, null);
+        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.switchTo(created.id())).isInstanceOf(ConflictException.class);
+        GrayRelease after = service.find(created.id());
+        assertThat(after.status()).isEqualTo(GrayReleaseStatus.SYNCING);
+        assertThat(after.lastError()).isNotBlank();
+        Transactional tx = GrayReleaseService.class.getMethod("switchTo", long.class)
+                .getAnnotation(Transactional.class);
+        assertThat(tx.noRollbackFor()).contains(ConflictException.class);
+    }
+
+    @Test
+    void 重建未被受理时拒绝同步且状态不变() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        SearchIndexVersion version = versionWrites(false);
+        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
+        when(rebuilds.rebuild(2, "admin"))
+                .thenReturn(new VersionRebuildCoordinator.StartResult(false, 3L, false, "BUSY"));
+        assertThatThrownBy(() -> service.sync(created.id(), "admin")).isInstanceOf(ConflictException.class);
+        assertThat(service.find(created.id()).status()).isEqualTo(GrayReleaseStatus.CREATED);
+    }
+
+    @Test
+    void 已记录失败原因时推进停在原地() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, "校验未通过：x");
+        SearchIndexRebuildRun run = completedRun(IndexSwitchState.NONE);
+        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
+        GrayRelease after = service.advance(created.id());
+        assertThat(after.lastError()).isEqualTo("校验未通过：x");
+        verifyNoInteractions(preparations, validations);
+    }
+
+    @Test
+    void 补齐抛异常时记录失败原因() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        SearchIndexRebuildRun run = completedRun(IndexSwitchState.NONE);
+        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
+        when(preparations.prepare(2)).thenThrow(new IllegalStateException("barrier missing"));
+        GrayRelease after = service.advance(created.id());
+        assertThat(after.status()).isEqualTo(GrayReleaseStatus.SYNCING);
+        assertThat(after.lastError()).contains("barrier missing");
+    }
+
+    @Test
+    void 校验未通过后再次推进不会重复校验() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        SearchIndexRebuildRun run = completedRun(IndexSwitchState.READY);
+        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
+        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
+        SearchIndexValidationReport failed = mock(SearchIndexValidationReport.class);
+        when(failed.getStatus()).thenReturn("FAIL");
+        when(failed.getSummary()).thenReturn("missingResources=3");
+        when(validations.validate(2)).thenReturn(failed);
+        service.advance(created.id());
+        service.advance(created.id());
+        verify(validations, times(1)).validate(2);
+    }
+
+    @Test
+    void 从已创建结束也会停用灰度版本() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        SearchIndexVersion version = versionWrites(false);
+        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
+        assertThat(service.end(created.id()).status()).isEqualTo(GrayReleaseStatus.ENDED);
+        verify(enablement).disable(2);
+    }
+
+    @Test
+    void 重建进行中时拒绝结束() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
+        when(run.state()).thenReturn(RebuildRunState.RUNNING);
+        when(run.switchState()).thenReturn(IndexSwitchState.NONE);
+        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
+        assertThatThrownBy(() -> service.end(created.id())).isInstanceOf(ConflictException.class);
+        verifyNoInteractions(enablement);
+        assertThat(service.find(created.id()).status()).isEqualTo(GrayReleaseStatus.SYNCING);
+    }
+
+    @Test
+    void 补齐进行中时拒绝结束() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        SearchIndexRebuildRun run = completedRun(IndexSwitchState.PREPARING);
+        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
+        assertThatThrownBy(() -> service.end(created.id())).isInstanceOf(ConflictException.class);
+        verifyNoInteractions(enablement);
+    }
+
+    @Test
+    void 名称超过120个字符拒绝创建() {
+        assertThatThrownBy(() -> service.create("x".repeat(121), "kwiki-parse-2", List.of(7L), "admin"))
+                .isInstanceOf(ConflictException.class).hasMessageContaining("120");
+        verify(admin, never()).createVersion(any());
+    }
+
+    private static VersionRebuildCoordinator.StartResult accepted() {
+        return new VersionRebuildCoordinator.StartResult(true, 1L, false, "ACCEPTED");
+    }
+
+    private static SearchIndexRebuildRun completedRun(IndexSwitchState switchState) {
+        SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
+        when(run.state()).thenReturn(RebuildRunState.COMPLETED);
+        when(run.switchState()).thenReturn(switchState);
+        return run;
     }
 
     private SearchIndexVersion versionWrites(boolean writeEnabled) {

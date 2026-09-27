@@ -58,6 +58,9 @@ public class GrayReleaseService {
         if (distinct.isEmpty()) {
             throw new ConflictException("请至少选择一个知识库");
         }
+        if (name != null && name.trim().length() > 120) {
+            throw new ConflictException("名称不能超过 120 个字符");
+        }
         parsers.requireAvailable(parserVersion);
         Map<Long, Long> conflicts = store.activeReleaseByKb(distinct);
         if (!conflicts.isEmpty()) {
@@ -92,17 +95,23 @@ public class GrayReleaseService {
                 .orElseThrow(() -> new ConflictException("灰度索引版本不存在"));
         // 写入已开启说明重建与补齐已完成，只需重新推进校验；否则重新发起重建。
         if (!version.isWriteEnabled()) {
-            rebuilds.rebuild(release.indexVersionNumber(), operator);
+            VersionRebuildCoordinator.StartResult result = rebuilds.rebuild(release.indexVersionNumber(), operator);
+            if (result == null || !result.accepted()) {
+                throw new ConflictException("另一个索引重建正在进行，请稍后再开始同步");
+            }
         }
         store.updateStatus(id, GrayReleaseStatus.SYNCING, null);
         return find(id);
     }
 
-    /** 由同步驱动器定时调用：按重建 → 补齐 → 校验推进一步。 */
-    @Transactional
+    /**
+     * 由同步驱动器定时调用：按重建 → 补齐 → 校验推进一步。
+     * 不开外层事务：补齐与校验各有自己的事务，外层事务会因其内部异常被标记为只回滚而丢失失败原因。
+     * 已记录失败原因（lastError 非空）的灰度停在原地，等待用户点击「开始同步」重试，避免反复失败重跑。
+     */
     public GrayRelease advance(long id) {
         GrayRelease release = find(id);
-        if (release.status() != GrayReleaseStatus.SYNCING) {
+        if (release.status() != GrayReleaseStatus.SYNCING || release.lastError() != null) {
             return release;
         }
         int number = release.indexVersionNumber();
@@ -115,9 +124,18 @@ public class GrayReleaseService {
                     + "。可点击「开始同步」重试");
             return find(id);
         }
+        try {
+            advanceCompletedRun(id, number, run);
+        } catch (RuntimeException failure) {
+            store.updateStatus(id, GrayReleaseStatus.SYNCING, "同步失败：" + safe(failure.getMessage())
+                    + "。可点击「开始同步」重试");
+        }
+        return find(id);
+    }
+
+    private void advanceCompletedRun(long id, int number, SearchIndexRebuildRun run) {
         switch (run.switchState()) {
             case NONE -> preparations.prepare(number);
-            case FAILED -> store.updateStatus(id, GrayReleaseStatus.SYNCING, "补齐失败，可点击「开始同步」重试");
             case READY -> {
                 if (validations.currentReadyReport(number).isPresent()) {
                     store.updateStatus(id, GrayReleaseStatus.SYNCED, null);
@@ -132,10 +150,10 @@ public class GrayReleaseService {
             }
             default -> { /* PREPARING：补齐进行中，等待下一轮 */ }
         }
-        return find(id);
     }
 
-    @Transactional
+    /** 校验报告失效时回到同步中的状态更新必须保留，故 ConflictException 不回滚事务。 */
+    @Transactional(noRollbackFor = ConflictException.class)
     public GrayRelease switchTo(long id) {
         GrayRelease release = find(id);
         if (release.status() != GrayReleaseStatus.SYNCED) {
@@ -165,8 +183,15 @@ public class GrayReleaseService {
         if (release.status() == GrayReleaseStatus.ENDED) {
             throw new ConflictException("灰度已结束");
         }
-        versions.findByVersionNumber(release.indexVersionNumber())
-                .filter(SearchIndexVersion::isWriteEnabled)
+        int number = release.indexVersionNumber();
+        runs.findFirstByVersionNumberOrderByIdDesc(number)
+                .filter(run -> run.state().active() || run.switchState() == IndexSwitchState.PREPARING)
+                .ifPresent(run -> {
+                    throw new ConflictException("同步正在进行，请等待当前重建或补齐结束后再结束灰度");
+                });
+        // 无论写入当前是否开启都做管理员停用，防止之后的全局切换准备重新开启灰度版本写入。
+        versions.findByVersionNumber(number)
+                .filter(version -> !version.isAdminDisabled())
                 .ifPresent(version -> enablement.disable(version.getVersionNumber()));
         store.end(id);
         return find(id);

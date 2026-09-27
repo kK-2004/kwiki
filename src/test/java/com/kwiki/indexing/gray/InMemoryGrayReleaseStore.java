@@ -5,6 +5,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,13 +30,14 @@ class InMemoryGrayReleaseStore implements GrayReleaseStore {
 
     @Override
     public void insertKbs(long releaseId, Collection<Long> kbIds) {
-        for (Long kbId : kbIds) {
+        List<Long> sorted = kbIds.stream().distinct().sorted().toList();
+        for (Long kbId : sorted) {
             if (activeKb.containsKey(kbId)) {
                 throw new DataIntegrityViolationException("duplicate active kb " + kbId);
             }
         }
         List<GrayRelease.Kb> kbs = new ArrayList<>();
-        for (Long kbId : kbIds) {
+        for (Long kbId : sorted) {
             activeKb.put(kbId, releaseId);
             kbs.add(new GrayRelease.Kb(kbId, "知识库 " + kbId));
         }
@@ -51,7 +53,9 @@ class InMemoryGrayReleaseStore implements GrayReleaseStore {
 
     @Override
     public List<GrayRelease> findAll() {
-        return new ArrayList<>(releases.values());
+        List<GrayRelease> all = new ArrayList<>(releases.values());
+        Collections.reverse(all);
+        return all;
     }
 
     @Override
