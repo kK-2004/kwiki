@@ -61,6 +61,21 @@ class SearchIndexGrayReleaseControllerTest {
                 .containsEntry("sync", false).containsEntry("end", true);
     }
 
+    @Test
+    void 列表视图的物理名取自版本行() {
+        var versions = mock(com.kwiki.indexing.version.SearchIndexVersionRepository.class);
+        var row = mock(com.kwiki.indexing.version.SearchIndexVersion.class);
+        when(row.getPhysicalName()).thenReturn("kwiki-chunks-v4-r2");
+        when(versions.findByVersionNumber(4)).thenReturn(Optional.of(row));
+        controller.setVersions(versions);
+        when(service.list()).thenReturn(List.of(release(GrayReleaseStatus.SYNCED)));
+        when(runs.findFirstByVersionNumberOrderByIdDesc(4)).thenReturn(Optional.empty());
+        assertThat(controller.list().getData().get(0).physicalName()).isEqualTo("kwiki-chunks-v4-r2");
+
+        when(versions.findByVersionNumber(4)).thenReturn(Optional.empty());
+        assertThat(controller.list().getData().get(0).physicalName()).isEqualTo("kwiki-chunks-v4");
+    }
+
     private GrayRelease release(GrayReleaseStatus status, String lastError) {
         return new GrayRelease(1, "pdfbox-v2 灰度 #1", "kwiki-parse-2", 4, status, lastError, "admin",
                 Instant.EPOCH, null, null, List.of(new GrayRelease.Kb(7, "产品文档")));

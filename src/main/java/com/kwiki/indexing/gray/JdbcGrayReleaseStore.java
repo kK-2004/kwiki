@@ -73,6 +73,12 @@ public class JdbcGrayReleaseStore implements GrayReleaseStore {
     }
 
     @Override
+    public Optional<GrayRelease> findByIndexVersion(int indexVersionNumber) {
+        return query(SELECT_RELEASE + " WHERE index_version_number = ? ORDER BY id DESC", indexVersionNumber)
+                .stream().findFirst();
+    }
+
+    @Override
     public List<GrayRelease> findByStatus(GrayReleaseStatus status) {
         return query(SELECT_RELEASE + " WHERE status = ? ORDER BY id", status.name());
     }

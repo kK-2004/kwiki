@@ -1,7 +1,12 @@
 package com.kwiki.wiki.api;
 
 import com.kk2004.common.response.TransDTO;
+import com.kwiki.indexing.gray.GrayRelease;
+import com.kwiki.indexing.gray.GrayReleaseStatus;
+import com.kwiki.indexing.gray.GrayReleaseStore;
+import com.kwiki.indexing.gray.IndexVersionKbScope;
 import com.kwiki.security.CurrentUser;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.kwiki.indexing.version.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -52,6 +57,17 @@ public class SearchIndexAdminController {
         this.observability=observability;
     }
 
+    static final String GRAY_VERSION_MESSAGE="该版本属于灰度发布，请在「灰度发布」页操作";
+
+    /** 灰度相关依赖；未注入（离线测试）时视为不存在灰度。 */
+    private IndexVersionKbScope kbScope;
+    private GrayReleaseStore grayReleases;
+    private SearchIndexVersionRepository versionRepository;
+
+    @Autowired(required=false) public void setKbScope(IndexVersionKbScope kbScope){this.kbScope=kbScope;}
+    @Autowired(required=false) public void setGrayReleases(GrayReleaseStore grayReleases){this.grayReleases=grayReleases;}
+    @Autowired(required=false) public void setVersionRepository(SearchIndexVersionRepository versionRepository){this.versionRepository=versionRepository;}
+
     @GetMapping("/versions") public TransDTO<List<SearchIndexAdminQueryService.VersionView>> versions(){return TransDTO.success(queries.versions());}
     @GetMapping("/multimodal-readiness") public TransDTO<SearchIndexAdminQueryService.MultimodalReadinessView> multimodalReadiness(){return TransDTO.success(queries.multimodalReadiness());}
     @GetMapping("/alias") public TransDTO<SearchIndexAdminQueryService.AliasTruth> alias(){return TransDTO.success(queries.aliasTruth());}
@@ -72,12 +88,14 @@ public class SearchIndexAdminController {
     public TransDTO<Map<String,Object>> edit(@AuthenticationPrincipal CurrentUser user,
             @PathVariable int version,@RequestHeader("Idempotency-Key") String key,
             @Valid @RequestBody EditableIndexConfig request){
+        requireGlobalVersion(version);
         return TransDTO.success(command(key,"EDIT",version,user,()->version(admin.editVersion(version,request))));
     }
 
     @PostMapping("/versions/{version}/rebuild")
     public ResponseEntity<TransDTO<Map<String,Object>>> rebuild(@AuthenticationPrincipal CurrentUser user,
             @PathVariable int version,@RequestHeader("Idempotency-Key") String key){
+        requireGlobalVersion(version);
         Map<String,Object> body=command(key,"REBUILD",version,user,()->{
             var result=rebuilds.rebuild(version,user.username());
             return map("accepted",result.accepted(),"runId",result.runId(),"resumed",result.resumed(),"code",result.code());});
@@ -97,6 +115,7 @@ public class SearchIndexAdminController {
     @PostMapping("/versions/{version}/prepare")
     public TransDTO<Map<String,Object>> prepare(@AuthenticationPrincipal CurrentUser user,
             @PathVariable int version,@RequestHeader("Idempotency-Key") String key){
+        requireGlobalVersion(version);
         return TransDTO.success(command(key,"PREPARE",version,user,()->{
             var value=preparations.prepare(version);
             return map("runId",value.runId(),"dualWriteStartEventId",value.dualWriteStartEventId(),"ranges",value.ranges());}));
@@ -105,6 +124,7 @@ public class SearchIndexAdminController {
     @PostMapping("/versions/{version}/select")
     public ResponseEntity<TransDTO<Map<String,Object>>> select(@AuthenticationPrincipal CurrentUser user,
             @PathVariable int version,@RequestHeader("Idempotency-Key") String key){
+        requireEmbeddingCompatibleWithGrayReleases(version);
         Map<String,Object> body=command(key,"SELECT",version,user,()->{
             var value=switches.select(version,user.username());
             return map("switched",value.switched(),"auditId",value.auditId(),"code",value.code());});
@@ -123,12 +143,14 @@ public class SearchIndexAdminController {
     @PostMapping("/versions/{version}/disable")
     public TransDTO<Map<String,Object>> disable(@AuthenticationPrincipal CurrentUser user,
             @PathVariable int version,@RequestHeader("Idempotency-Key") String key){
+        requireGlobalVersion(version);
         return TransDTO.success(command(key,"DISABLE",version,user,()->version(enablement.disable(version))));
     }
 
     @PostMapping("/versions/{version}/reenable")
     public TransDTO<Map<String,Object>> reenable(@AuthenticationPrincipal CurrentUser user,
             @PathVariable int version,@RequestHeader("Idempotency-Key") String key){
+        requireGlobalVersion(version);
         return TransDTO.success(command(key,"REENABLE",version,user,()->{
             var value=enablement.reenable(version);
             return map("runId",value.runId(),"state","CATCHUP_PREPARING");}));
@@ -138,7 +160,48 @@ public class SearchIndexAdminController {
     public TransDTO<SearchIndexDeletionService.DeletionResult> delete(
             @AuthenticationPrincipal CurrentUser user,@PathVariable int version,
             @RequestHeader("Idempotency-Key") String key,@Valid @RequestBody DeleteRequest request){
+        requireDeletableGrayVersion(version);
         return TransDTO.success(deletion.delete(version,request.confirmPhysicalName(),key,user.username()));
+    }
+
+    /**
+     * 灰度版本只能由灰度发布页驱动：全局接口的编辑、重建、切换准备、停用与恢复一律拒绝。
+     * 守卫放在控制器层，灰度服务内部直接调用下层服务不受影响。
+     */
+    private void requireGlobalVersion(int version){
+        if(kbScope!=null&&kbScope.isScoped(version))throw new ConflictException(GRAY_VERSION_MESSAGE);
+    }
+
+    /** 灰度版本的索引只能在灰度结束后删除。 */
+    private void requireDeletableGrayVersion(int version){
+        if(kbScope==null||!kbScope.isScoped(version))return;
+        boolean ended=grayReleases!=null&&grayReleases.findByIndexVersion(version)
+                .map(release->release.status()==GrayReleaseStatus.ENDED).orElse(false);
+        if(!ended)throw new ConflictException("该版本属于未结束的灰度发布，请先在「灰度发布」页结束灰度后再删除");
+    }
+
+    /**
+     * 已切换的灰度与全局索引共用查询向量；全局切到 embedding 配置不同的版本会使灰度的 kNN 查询失配，
+     * 故存在配置不同的未结束灰度时拒绝全局选择。
+     */
+    private void requireEmbeddingCompatibleWithGrayReleases(int version){
+        if(grayReleases==null||versionRepository==null)return;
+        SearchIndexVersion target=versionRepository.findByVersionNumber(version).orElse(null);
+        if(target==null)return;
+        EditableIndexConfig wanted=target.editableConfig();
+        for(GrayRelease release:grayReleases.findAll()){
+            if(release.status()==GrayReleaseStatus.ENDED)continue;
+            boolean mismatch=versionRepository.findByVersionNumber(release.indexVersionNumber())
+                    .map(gray->!sameEmbedding(gray.editableConfig(),wanted)).orElse(false);
+            if(mismatch)throw new ConflictException("灰度「"+release.name()
+                    +"」的向量模型配置与目标版本不同，请先结束该灰度再切换全局版本");
+        }
+    }
+
+    private static boolean sameEmbedding(EditableIndexConfig a,EditableIndexConfig b){
+        return java.util.Objects.equals(a.embeddingProvider(),b.embeddingProvider())
+                &&java.util.Objects.equals(a.embeddingModel(),b.embeddingModel())
+                &&java.util.Objects.equals(a.embeddingDimensions(),b.embeddingDimensions());
     }
 
     private Map<String,Object> command(String key,String action,Integer target,CurrentUser user,

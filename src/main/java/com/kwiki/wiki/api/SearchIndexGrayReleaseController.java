@@ -9,6 +9,9 @@ import com.kwiki.indexing.version.AdminCommandIdempotency;
 import com.kwiki.indexing.version.IndexSwitchState;
 import com.kwiki.indexing.version.SearchIndexRebuildRun;
 import com.kwiki.indexing.version.SearchIndexRebuildRunRepository;
+import com.kwiki.indexing.version.SearchIndexVersion;
+import com.kwiki.indexing.version.SearchIndexVersionRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.kwiki.security.CurrentUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -55,6 +58,14 @@ public class SearchIndexGrayReleaseController {
         this.commands = commands;
         this.runs = runs;
         this.jdbc = jdbc;
+    }
+
+    /** 索引版本仓库；未注入（离线测试）时物理名按命名约定推导。 */
+    private SearchIndexVersionRepository versions;
+
+    @Autowired(required = false)
+    public void setVersions(SearchIndexVersionRepository versions) {
+        this.versions = versions;
     }
 
     public record CreateRequest(String name, @NotBlank String parserVersion, @NotEmpty List<Long> kbIds) { }
@@ -176,8 +187,14 @@ public class SearchIndexGrayReleaseController {
                 run == null ? null : run.state().name(), run == null ? null : run.switchState().name(),
                 run == null ? 0 : run.getResourcesScanned(), run == null ? 0 : run.getResourcesSucceeded(),
                 run == null ? 0 : run.getResourcesFailed(), pending == null ? 0 : pending);
+        // 物理名以版本行为准，版本行缺失时才按命名约定推导
+        String physicalName = versions == null ? null : versions.findByVersionNumber(version)
+                .map(SearchIndexVersion::getPhysicalName).orElse(null);
+        if (physicalName == null) {
+            physicalName = "kwiki-chunks-v" + version;
+        }
         return new GrayReleaseView(release.id(), release.name(), release.parserVersion(),
-                ParserCatalog.label(release.parserVersion()), version, "kwiki-chunks-v" + version,
+                ParserCatalog.label(release.parserVersion()), version, physicalName,
                 release.status().name(), release.lastError(), release.createdBy(), release.createdAt(),
                 release.switchedAt(), release.endedAt(), release.kbs(), progress, actions(release, run));
     }

@@ -18,6 +18,9 @@ public interface GrayReleaseStore {
 
     List<GrayRelease> findAll();
 
+    /** 按灰度索引版本号查找灰度（一个版本只属于一个灰度）。 */
+    Optional<GrayRelease> findByIndexVersion(int indexVersionNumber);
+
     List<GrayRelease> findByStatus(GrayReleaseStatus status);
 
     /** 返回给定知识库中已在未结束灰度里的：kbId → releaseId。 */

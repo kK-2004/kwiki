@@ -59,6 +59,11 @@ class InMemoryGrayReleaseStore implements GrayReleaseStore {
     }
 
     @Override
+    public Optional<GrayRelease> findByIndexVersion(int indexVersionNumber) {
+        return findAll().stream().filter(r -> r.indexVersionNumber() == indexVersionNumber).findFirst();
+    }
+
+    @Override
     public List<GrayRelease> findByStatus(GrayReleaseStatus status) {
         return releases.values().stream().filter(r -> r.status() == status).toList();
     }
