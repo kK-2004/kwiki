@@ -272,106 +272,145 @@ watch(kbId, () => void load(true));
 </template>
 
 <style scoped>
+/* 统一页面骨架：回收站表格较宽，放宽到 1200px */
 .trash-page {
-  max-width: 1080px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 30px 40px 80px;
+  padding: 40px 40px 80px;
 }
 .crumb {
   display: flex;
   gap: 8px;
   font-size: 12px;
-  color: #92a095;
+  color: var(--k-faint);
 }
 .crumb a {
-  color: #6d8a76;
+  color: var(--k-muted);
   text-decoration: none;
 }
+.crumb a:hover {
+  color: var(--k-ink);
+}
 .head h1 {
-  font-size: 24px;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  color: var(--k-ink);
   margin: 18px 0 8px;
 }
 .head p {
-  color: #97a499;
-  font-size: 12px;
-  line-height: 1.8;
-  margin: 0 0 22px;
-}
-.loading,
-.empty {
-  color: #8c9f90;
+  color: var(--k-muted);
   font-size: 13px;
-  padding: 30px 0;
+  line-height: 1.8;
+  margin: 0 0 24px;
+}
+.ui-notice,
+.ui-error {
+  margin: 0 0 14px;
+}
+.loading {
+  color: var(--k-muted);
+  font-size: 13px;
+  padding: 40px 0;
+  text-align: center;
+}
+/* 空状态：模板只有一行文字，用虚线框承载 */
+.empty {
+  margin: 0;
+  padding: 48px 0;
+  border: 1px dashed var(--k-line);
+  border-radius: var(--k-r-lg);
+  background: var(--k-surface);
+  color: var(--k-ink);
+  font-size: 15px;
+  font-weight: 600;
   text-align: center;
 }
 .bulk-actions {
-  min-height: 42px;
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  border: 1px solid #e7ede8;
-  border-radius: 9px;
+  min-height: 44px;
+  margin-bottom: 12px;
+  padding: 6px 8px 6px 14px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r);
+  background: var(--k-surface);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: #718278;
-  font-size: 12px;
+  color: var(--k-muted);
+  font-size: 13px;
 }
 .select-cell {
-  width: 34px;
+  width: 40px;
   text-align: center !important;
 }
 .select-cell input {
-  accent-color: #43885a;
+  accent-color: var(--k-green-deep);
+  cursor: pointer;
 }
 .trash-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-lg);
+  overflow: hidden;
   font-size: 13px;
 }
 .trash-table th {
   text-align: left;
-  color: #a0aca3;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 10px 8px;
-  border-bottom: 1px solid #e9eeea;
+  background: var(--k-surface);
+  color: var(--k-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--k-line);
 }
 .trash-table td {
-  padding: 13px 8px;
-  border-bottom: 1px solid #edf2ee;
-  color: #5b6f63;
+  padding: 12px;
+  border-bottom: 1px solid var(--k-line);
+  color: var(--k-ink-2);
+}
+.trash-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.trash-table tbody tr:hover td {
+  background: var(--k-surface-hover);
 }
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 8px;
 }
-.ui-button.danger {
-  color: #a55f5f;
-  border-color: #e8cccc;
+.actions .ui-button {
+  min-height: 30px;
+  padding: 4px 12px;
+  font-size: 12px;
 }
 .confirm-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: #203d2b44;
+  background: var(--k-overlay);
   display: grid;
   place-items: center;
   padding: 20px;
 }
 .confirm-dialog {
-  background: #fff;
+  background: var(--k-canvas);
+  border: 1px solid var(--k-line);
   padding: 28px;
-  border-radius: 14px;
+  border-radius: var(--k-r-lg);
   width: min(460px, 100%);
-  box-shadow: 0 25px 80px #14302026;
+  box-shadow: var(--k-shadow-float);
 }
 .confirm-dialog h2 {
-  font-size: 20px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--k-ink);
   margin: 0 0 12px;
 }
 .confirm-dialog p {
-  color: #8b9c90;
+  color: var(--k-muted);
   font-size: 13px;
   line-height: 1.8;
 }
@@ -381,12 +420,21 @@ watch(kbId, () => void load(true));
   gap: 10px;
   margin-top: 28px;
 }
+/* 危险确认按钮：实心红底 */
+.confirm-dialog footer .ui-button.danger {
+  color: var(--k-on-primary);
+  background: var(--k-danger);
+  border-color: var(--k-danger);
+}
+.confirm-dialog footer .ui-button.danger:hover {
+  opacity: 0.9;
+}
 .title {
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #2f4638;
+  color: var(--k-ink) !important;
   font-weight: 500;
 }
 .more {
@@ -396,8 +444,11 @@ watch(kbId, () => void load(true));
 .back {
   display: inline-block;
   margin-top: 26px;
-  font-size: 12px;
-  color: #43885a;
+  font-size: 13px;
+  color: var(--k-green-deep);
   text-decoration: none;
+}
+.back:hover {
+  text-decoration: underline;
 }
 </style>

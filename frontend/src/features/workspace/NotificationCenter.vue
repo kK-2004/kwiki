@@ -33,5 +33,31 @@ onBeforeUnmount(() => { if (refreshTimer) clearInterval(refreshTimer); document.
 </script>
 
 <style scoped>
-.notification-page { min-height:100vh; max-width:900px; margin:0 auto; padding:56px 28px; color:#26352e; } header { display:flex; justify-content:space-between; align-items:flex-start; } .eyebrow { margin:0 0 8px; color:#1b9d61; font-size:12px; font-weight:700; text-transform:uppercase; } h1 { margin:0; font-size:32px; } .sub { color:#77847c; } header button { padding:8px 14px; border:1px solid #cedbd3; border-radius:7px; background:#fff; cursor:pointer; } header button:disabled { opacity:.5; cursor:default; } .state { margin-top:38px; padding:44px; border:1px dashed #cbd9d1; border-radius:14px; color:#718078; text-align:center; } .error { color:#b24a4a; } .notifications { display:grid; gap:8px; margin:28px 0 0; padding:0; list-style:none; } .notification { width:100%; display:flex; gap:12px; align-items:center; padding:15px 16px; text-align:left; border:1px solid #e1e9e4; border-radius:10px; background:#fff; cursor:pointer; } li.unread .notification { border-color:#bce4cc; background:#f6fcf8; } .dot { width:8px; height:8px; flex:none; border-radius:50%; background:transparent; } li.unread .dot { background:#1b9d61; } .copy { display:grid; gap:3px; flex:1; } .copy span, time { color:#77847c; font-size:13px; } .arrow { color:#92a198; font-size:22px; }
+/* 统一页面骨架 */
+.notification-page { min-height: 100vh; max-width: 960px; margin: 0 auto; padding: 40px 40px 80px; color: var(--k-ink); }
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.eyebrow { margin: 0 0 8px; color: var(--k-muted); font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; }
+h1 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.5px; color: var(--k-ink); }
+.sub { margin: 8px 0 0; color: var(--k-muted); font-size: 14px; }
+header button, .state button { min-height: 36px; padding: 7px 14px; border: 1px solid var(--k-line); border-radius: var(--k-r); background: var(--k-canvas); color: var(--k-ink); font-weight: 500; box-shadow: var(--k-shadow-sm); cursor: pointer; }
+header button:hover:not(:disabled), .state button:hover { border-color: var(--k-line-strong); background: var(--k-surface); }
+header button:disabled { opacity: .5; cursor: default; }
+/* 空状态 / 加载 / 错误 */
+.state { margin-top: 32px; padding: 48px 24px; border: 1px dashed var(--k-line); border-radius: var(--k-r-lg); background: var(--k-surface); color: var(--k-muted); font-size: 13px; text-align: center; }
+.error { border-color: var(--k-danger-line); background: var(--k-danger-soft); color: var(--k-danger); }
+.state button { margin-left: 8px; }
+/* 列表：整体描边，行间细线分隔 */
+.notifications { display: grid; margin: 28px 0 0; padding: 0; list-style: none; border: 1px solid var(--k-line); border-radius: var(--k-r-lg); overflow: hidden; }
+.notifications li + li { border-top: 1px solid var(--k-line); }
+.notification { width: 100%; display: flex; gap: 12px; align-items: center; padding: 14px 16px; text-align: left; border: 0; background: var(--k-canvas); color: var(--k-ink); cursor: pointer; }
+.notification:hover { background: var(--k-surface-hover); }
+li.unread .notification { background: var(--k-surface); }
+li.unread .notification:hover { background: var(--k-surface-hover); }
+.dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: transparent; }
+li.unread .dot { background: var(--k-green); }
+.copy { display: grid; gap: 3px; flex: 1; }
+.copy strong { font-size: 14px; font-weight: 600; color: var(--k-ink); }
+.copy span, time { color: var(--k-muted); font-size: 13px; }
+time { color: var(--k-faint); font-size: 12px; }
+.arrow { color: var(--k-faint); font-size: 22px; }
 </style>

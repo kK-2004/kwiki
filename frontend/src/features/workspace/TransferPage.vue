@@ -13,7 +13,19 @@ onMounted(validate);
 </script>
 
 <style scoped>
-.transfer-page { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: #f6faf7; color: #26352e; }
-.card { width: min(460px, 100%); padding: 30px; border: 1px solid #e0eae3; border-radius: 14px; background: #fff; box-shadow: 0 14px 50px #1d3d2b12; }
-.eyebrow { color: #1b9d61; font-size: 12px; font-weight: 700; text-transform: uppercase; } h1 { margin: 10px 0 15px; font-size: 24px; } .hint, .state { color: #718078; line-height: 1.7; } .error { color: #b24a4a; } button { margin-top: 14px; padding: 10px 16px; border: 0; border-radius: 8px; background: #1b9d61; color: #fff; cursor: pointer; } button:disabled { opacity: .55; } .result { color: #187b4a; }
+/* 统一页面骨架：独立落地页，卡片居中 */
+.transfer-page { min-height: 100vh; max-width: 960px; margin: 0 auto; display: grid; place-items: center; padding: 40px 40px 80px; color: var(--k-ink); }
+.card { width: min(460px, 100%); padding: 32px; border: 1px solid var(--k-line); border-radius: var(--k-r-lg); background: var(--k-canvas); box-shadow: var(--k-shadow); }
+h1 { margin: 10px 0 15px; }
+.hint { color: var(--k-muted); line-height: 1.7; }
+
+.eyebrow { margin: 0; color: var(--k-muted); font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; }
+h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.5px; color: var(--k-ink); }
+.state { color: var(--k-muted); line-height: 1.7; }
+.error { color: var(--k-danger); }
+/* 主按钮：浅色黑底白字，深色白底黑字 */
+button { margin-top: 14px; min-height: 36px; padding: 8px 16px; border: 1px solid var(--k-primary); border-radius: var(--k-r); background: var(--k-primary); color: var(--k-on-primary); font-weight: 500; cursor: pointer; }
+button:hover:not(:disabled) { background: var(--k-primary-hover); border-color: var(--k-primary-hover); }
+button:disabled { opacity: .5; }
+.result { margin-top: 15px; padding: 10px 14px; border-radius: var(--k-r); background: var(--k-green-soft); color: var(--k-green-deep); font-size: 13px; }
 </style>
