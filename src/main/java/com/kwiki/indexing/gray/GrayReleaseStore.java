@@ -23,15 +23,16 @@ public interface GrayReleaseStore {
     /** 返回给定知识库中已在未结束灰度里的：kbId → releaseId。 */
     Map<Long, Long> activeReleaseByKb(Collection<Long> kbIds);
 
-    void updateStatus(long id, GrayReleaseStatus status, String lastError);
+    /** 比较后更新：仅当当前状态为 expected 时改为 next 并写入 lastError，返回是否更新成功。 */
+    boolean transition(long id, GrayReleaseStatus expected, GrayReleaseStatus next, String lastError);
 
     void rename(long id, String name);
 
-    /** 进入 SWITCHED 并记录切换时间。 */
-    void markSwitched(long id);
+    /** 仅当当前为 SYNCED 时进入 SWITCHED 并记录切换时间，返回是否更新成功。 */
+    boolean markSwitched(long id);
 
-    /** 进入 ENDED、记录结束时间并释放 active_kb_id。 */
-    void end(long id);
+    /** 仅当当前状态为 expected 时进入 ENDED、记录结束时间并释放 active_kb_id，返回是否更新成功。 */
+    boolean end(long id, GrayReleaseStatus expected);
 
     /** 所有 SWITCHED 灰度的「物理索引名 → 解析器 → 知识库」。 */
     List<SwitchedRoute> switchedRoutes();

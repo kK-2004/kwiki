@@ -91,9 +91,9 @@ public class JdbcGrayReleaseStore implements GrayReleaseStore {
     }
 
     @Override
-    public void updateStatus(long id, GrayReleaseStatus status, String lastError) {
-        jdbc.update("UPDATE index_gray_release SET status = ?, last_error = ? WHERE id = ?",
-                status.name(), lastError, id);
+    public boolean transition(long id, GrayReleaseStatus expected, GrayReleaseStatus next, String lastError) {
+        return jdbc.update("UPDATE index_gray_release SET status = ?, last_error = ? WHERE id = ? AND status = ?",
+                next.name(), lastError, id, expected.name()) == 1;
     }
 
     @Override
@@ -102,15 +102,20 @@ public class JdbcGrayReleaseStore implements GrayReleaseStore {
     }
 
     @Override
-    public void markSwitched(long id) {
-        jdbc.update("UPDATE index_gray_release SET status = 'SWITCHED', last_error = NULL,"
-                + " switched_at = CURRENT_TIMESTAMP(6) WHERE id = ?", id);
+    public boolean markSwitched(long id) {
+        return jdbc.update("UPDATE index_gray_release SET status = 'SWITCHED', last_error = NULL,"
+                + " switched_at = CURRENT_TIMESTAMP(6) WHERE id = ? AND status = 'SYNCED'", id) == 1;
     }
 
     @Override
-    public void end(long id) {
-        jdbc.update("UPDATE index_gray_release SET status = 'ENDED', ended_at = CURRENT_TIMESTAMP(6) WHERE id = ?", id);
+    public boolean end(long id, GrayReleaseStatus expected) {
+        int updated = jdbc.update("UPDATE index_gray_release SET status = 'ENDED', ended_at = CURRENT_TIMESTAMP(6)"
+                + " WHERE id = ? AND status = ?", id, expected.name());
+        if (updated != 1) {
+            return false;
+        }
         jdbc.update("UPDATE index_gray_release_kb SET active_kb_id = NULL WHERE release_id = ?", id);
+        return true;
     }
 
     @Override

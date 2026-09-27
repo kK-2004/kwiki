@@ -71,7 +71,16 @@ class InMemoryGrayReleaseStore implements GrayReleaseStore {
     }
 
     @Override
-    public void updateStatus(long id, GrayReleaseStatus status, String lastError) {
+    public boolean transition(long id, GrayReleaseStatus expected, GrayReleaseStatus next, String lastError) {
+        if (releases.get(id).status() != expected) {
+            return false;
+        }
+        setStatus(id, next, lastError);
+        return true;
+    }
+
+    /** 仅供测试准备数据：无条件设置状态。 */
+    void setStatus(long id, GrayReleaseStatus status, String lastError) {
         GrayRelease r = releases.get(id);
         releases.put(id, new GrayRelease(r.id(), r.name(), r.parserVersion(), r.indexVersionNumber(), status,
                 lastError, r.createdBy(), r.createdAt(), r.switchedAt(), r.endedAt(), r.kbs()));
@@ -85,19 +94,27 @@ class InMemoryGrayReleaseStore implements GrayReleaseStore {
     }
 
     @Override
-    public void markSwitched(long id) {
+    public boolean markSwitched(long id) {
         GrayRelease r = releases.get(id);
+        if (r.status() != GrayReleaseStatus.SYNCED) {
+            return false;
+        }
         releases.put(id, new GrayRelease(r.id(), r.name(), r.parserVersion(), r.indexVersionNumber(),
                 GrayReleaseStatus.SWITCHED, null, r.createdBy(), r.createdAt(), Instant.EPOCH, r.endedAt(), r.kbs()));
+        return true;
     }
 
     @Override
-    public void end(long id) {
+    public boolean end(long id, GrayReleaseStatus expected) {
         GrayRelease r = releases.get(id);
+        if (r.status() != expected) {
+            return false;
+        }
         releases.put(id, new GrayRelease(r.id(), r.name(), r.parserVersion(), r.indexVersionNumber(),
                 GrayReleaseStatus.ENDED, r.lastError(), r.createdBy(), r.createdAt(), r.switchedAt(), Instant.EPOCH,
                 r.kbs()));
         activeKb.values().removeIf(releaseId -> releaseId == id);
+        return true;
     }
 
     @Override

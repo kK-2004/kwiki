@@ -100,7 +100,7 @@ public class GrayReleaseService {
                 throw new ConflictException("另一个索引重建正在进行，请稍后再开始同步");
             }
         }
-        store.updateStatus(id, GrayReleaseStatus.SYNCING, null);
+        requireTransition(store.transition(id, release.status(), GrayReleaseStatus.SYNCING, null));
         return find(id);
     }
 
@@ -120,15 +120,16 @@ public class GrayReleaseService {
             return release;
         }
         if (run.state() != RebuildRunState.COMPLETED) {
-            store.updateStatus(id, GrayReleaseStatus.SYNCING, "同步失败：" + safe(run.getErrorSummary())
-                    + "。可点击「开始同步」重试");
+            // 返回 false 说明灰度已被并发改变状态（如已结束），视为无操作。
+            store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
+                    "同步失败：" + safe(run.getErrorSummary()) + "。可点击「开始同步」重试");
             return find(id);
         }
         try {
             advanceCompletedRun(id, number, run);
         } catch (RuntimeException failure) {
-            store.updateStatus(id, GrayReleaseStatus.SYNCING, "同步失败：" + safe(failure.getMessage())
-                    + "。可点击「开始同步」重试");
+            store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
+                    "同步失败：" + safe(failure.getMessage()) + "。可点击「开始同步」重试");
         }
         return find(id);
     }
@@ -138,13 +139,14 @@ public class GrayReleaseService {
             case NONE -> preparations.prepare(number);
             case READY -> {
                 if (validations.currentReadyReport(number).isPresent()) {
-                    store.updateStatus(id, GrayReleaseStatus.SYNCED, null);
+                    store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCED, null);
                 } else {
                     SearchIndexValidationReport report = validations.validate(number);
                     if ("PASS".equals(report.getStatus())) {
-                        store.updateStatus(id, GrayReleaseStatus.SYNCED, null);
+                        store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCED, null);
                     } else {
-                        store.updateStatus(id, GrayReleaseStatus.SYNCING, "校验未通过：" + safe(report.getSummary()));
+                        store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
+                                "校验未通过：" + safe(report.getSummary()));
                     }
                 }
             }
@@ -152,7 +154,10 @@ public class GrayReleaseService {
         }
     }
 
-    /** 校验报告失效时回到同步中的状态更新必须保留，故 ConflictException 不回滚事务。 */
+    /**
+     * 校验报告失效时回到同步中的状态更新必须保留，故 ConflictException 不回滚事务。
+     * 回到同步中时不写 lastError，以便 advance 下一轮自动重新校验。
+     */
     @Transactional(noRollbackFor = ConflictException.class)
     public GrayRelease switchTo(long id) {
         GrayRelease release = find(id);
@@ -160,10 +165,10 @@ public class GrayReleaseService {
             throw new ConflictException("只有同步完成的灰度才能切换");
         }
         if (validations.currentReadyReport(release.indexVersionNumber()).isEmpty()) {
-            store.updateStatus(id, GrayReleaseStatus.SYNCING, "校验报告已失效，正在重新校验");
-            throw new ConflictException("校验报告已失效，已重新进入同步，请稍后再切换");
+            requireTransition(store.transition(id, GrayReleaseStatus.SYNCED, GrayReleaseStatus.SYNCING, null));
+            throw new ConflictException("校验报告已失效，已重新进入同步，系统会自动重新校验，请稍后再切换");
         }
-        store.markSwitched(id);
+        requireTransition(store.markSwitched(id));
         return find(id);
     }
 
@@ -173,7 +178,7 @@ public class GrayReleaseService {
         if (release.status() != GrayReleaseStatus.SWITCHED) {
             throw new ConflictException("灰度未处于已切换状态");
         }
-        store.updateStatus(id, GrayReleaseStatus.SYNCED, null);
+        requireTransition(store.transition(id, GrayReleaseStatus.SWITCHED, GrayReleaseStatus.SYNCED, null));
         return find(id);
     }
 
@@ -192,9 +197,22 @@ public class GrayReleaseService {
         // 无论写入当前是否开启都做管理员停用，防止之后的全局切换准备重新开启灰度版本写入。
         versions.findByVersionNumber(number)
                 .filter(version -> !version.isAdminDisabled())
-                .ifPresent(version -> enablement.disable(version.getVersionNumber()));
-        store.end(id);
+                .ifPresent(version -> {
+                    try {
+                        enablement.disable(version.getVersionNumber());
+                    } catch (IllegalStateException justStarted) {
+                        // 读取最新 run 之后恰好有重建或补齐开始，disable 的空闲检查会拒绝
+                        throw new ConflictException("同步刚刚开始，请稍后再结束灰度");
+                    }
+                });
+        requireTransition(store.end(id, release.status()));
         return find(id);
+    }
+
+    private static void requireTransition(boolean updated) {
+        if (!updated) {
+            throw new ConflictException("灰度状态已变化，请刷新后重试");
+        }
     }
 
     private static String safe(String value) {

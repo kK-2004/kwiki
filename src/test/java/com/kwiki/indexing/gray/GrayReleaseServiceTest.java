@@ -85,7 +85,7 @@ class GrayReleaseServiceTest {
     @Test
     void 推进_重建完成后补齐_补齐就绪后校验_通过即已同步() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
 
         SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
         when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
@@ -105,7 +105,7 @@ class GrayReleaseServiceTest {
     @Test
     void 推进_重建失败时停留在同步中并记录原因() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
         SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
         when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
         when(run.state()).thenReturn(RebuildRunState.FAILED);
@@ -118,7 +118,7 @@ class GrayReleaseServiceTest {
     @Test
     void 推进_校验未通过时记录摘要() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
         SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
         when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
         when(run.state()).thenReturn(RebuildRunState.COMPLETED);
@@ -138,7 +138,7 @@ class GrayReleaseServiceTest {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
         assertThatThrownBy(() -> service.switchTo(created.id())).isInstanceOf(ConflictException.class);
 
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCED, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCED, null);
         when(validations.currentReadyReport(2)).thenReturn(Optional.of(mock(SearchIndexValidationReport.class)));
         assertThat(service.switchTo(created.id()).status()).isEqualTo(GrayReleaseStatus.SWITCHED);
         assertThat(service.switchBack(created.id()).status()).isEqualTo(GrayReleaseStatus.SYNCED);
@@ -148,7 +148,7 @@ class GrayReleaseServiceTest {
     @Test
     void 切换前校验报告已失效则拒绝() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCED, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCED, null);
         when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.switchTo(created.id())).isInstanceOf(ConflictException.class);
     }
@@ -156,7 +156,7 @@ class GrayReleaseServiceTest {
     @Test
     void 结束灰度_停用写入并释放知识库_索引保留() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SWITCHED, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SWITCHED, null);
         SearchIndexVersion version = versionWrites(true);
         when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
         GrayRelease ended = service.end(created.id());
@@ -167,17 +167,75 @@ class GrayReleaseServiceTest {
     }
 
     @Test
-    void 切换被拒时保留回到同步中的状态与原因() throws Exception {
+    void 切换被拒时回到同步中且不停放() throws Exception {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCED, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCED, null);
         when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.switchTo(created.id())).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> service.switchTo(created.id())).isInstanceOf(ConflictException.class)
+                .hasMessageContaining("自动重新校验");
         GrayRelease after = service.find(created.id());
         assertThat(after.status()).isEqualTo(GrayReleaseStatus.SYNCING);
-        assertThat(after.lastError()).isNotBlank();
+        assertThat(after.lastError()).isNull();
         Transactional tx = GrayReleaseService.class.getMethod("switchTo", long.class)
                 .getAnnotation(Transactional.class);
         assertThat(tx.noRollbackFor()).contains(ConflictException.class);
+    }
+
+    @Test
+    void 切换被拒后下一轮推进自动重新校验并回到已同步() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCED, null);
+        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.switchTo(created.id())).isInstanceOf(ConflictException.class);
+
+        SearchIndexRebuildRun run = completedRun(IndexSwitchState.READY);
+        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
+        SearchIndexValidationReport passed = mock(SearchIndexValidationReport.class);
+        when(passed.getStatus()).thenReturn("PASS");
+        when(validations.validate(2)).thenReturn(passed);
+        assertThat(service.advance(created.id()).status()).isEqualTo(GrayReleaseStatus.SYNCED);
+        verify(validations).validate(2);
+    }
+
+    @Test
+    void 推进期间灰度被结束则保持已结束() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        SearchIndexRebuildRun run = completedRun(IndexSwitchState.READY);
+        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
+        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
+        SearchIndexValidationReport passed = mock(SearchIndexValidationReport.class);
+        when(passed.getStatus()).thenReturn("PASS");
+        when(validations.validate(2)).thenAnswer(invocation -> {
+            store.end(created.id(), GrayReleaseStatus.SYNCING);
+            return passed;
+        });
+        assertThat(service.advance(created.id()).status()).isEqualTo(GrayReleaseStatus.ENDED);
+        assertThat(service.find(created.id()).status()).isEqualTo(GrayReleaseStatus.ENDED);
+    }
+
+    @Test
+    void 用户操作时状态已被并发改变则拒绝() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCED, null);
+        when(validations.currentReadyReport(2)).thenAnswer(invocation -> {
+            store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+            return Optional.of(mock(SearchIndexValidationReport.class));
+        });
+        assertThatThrownBy(() -> service.switchTo(created.id())).isInstanceOf(ConflictException.class)
+                .hasMessageContaining("状态已变化");
+        assertThat(service.find(created.id()).status()).isEqualTo(GrayReleaseStatus.SYNCING);
+    }
+
+    @Test
+    void 停用时恰好开始同步则转为冲突() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        SearchIndexVersion version = versionWrites(false);
+        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
+        when(enablement.disable(2)).thenThrow(new IllegalStateException("version 2 has an active rebuild"));
+        assertThatThrownBy(() -> service.end(created.id())).isInstanceOf(ConflictException.class)
+                .hasMessageContaining("同步刚刚开始");
+        assertThat(service.find(created.id()).status()).isEqualTo(GrayReleaseStatus.CREATED);
     }
 
     @Test
@@ -194,7 +252,7 @@ class GrayReleaseServiceTest {
     @Test
     void 已记录失败原因时推进停在原地() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, "校验未通过：x");
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, "校验未通过：x");
         SearchIndexRebuildRun run = completedRun(IndexSwitchState.NONE);
         when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
         GrayRelease after = service.advance(created.id());
@@ -205,7 +263,7 @@ class GrayReleaseServiceTest {
     @Test
     void 补齐抛异常时记录失败原因() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
         SearchIndexRebuildRun run = completedRun(IndexSwitchState.NONE);
         when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
         when(preparations.prepare(2)).thenThrow(new IllegalStateException("barrier missing"));
@@ -217,7 +275,7 @@ class GrayReleaseServiceTest {
     @Test
     void 校验未通过后再次推进不会重复校验() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
         SearchIndexRebuildRun run = completedRun(IndexSwitchState.READY);
         when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
         when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
@@ -242,7 +300,7 @@ class GrayReleaseServiceTest {
     @Test
     void 重建进行中时拒绝结束() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
         SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
         when(run.state()).thenReturn(RebuildRunState.RUNNING);
         when(run.switchState()).thenReturn(IndexSwitchState.NONE);
@@ -255,7 +313,7 @@ class GrayReleaseServiceTest {
     @Test
     void 补齐进行中时拒绝结束() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.updateStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
         SearchIndexRebuildRun run = completedRun(IndexSwitchState.PREPARING);
         when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
         assertThatThrownBy(() -> service.end(created.id())).isInstanceOf(ConflictException.class);
