@@ -4,12 +4,12 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
-import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.rag.retrieval.ChildRecallPort;
 import com.kwiki.rag.retrieval.EntityLinkingStatus;
 import com.kwiki.rag.retrieval.ScopeFilter;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -26,11 +26,21 @@ public class Bm25RecallAdapter implements ChildRecallPort {
 
     private final ElasticsearchClient client;
     private final com.kwiki.rag.retrieval.RetrievalLifecycleService lifecycle;
+    private final com.kwiki.indexing.gray.GrayReadRoutes routes;
 
     public Bm25RecallAdapter(ObjectProvider<ElasticsearchClient> client,
                              com.kwiki.rag.retrieval.RetrievalLifecycleService lifecycle) {
+        this(client, lifecycle, null);
+    }
+
+    /** 带灰度读路由：已切换灰度的知识库读取其灰度物理索引，其余仍经全局别名。 */
+    @Autowired
+    public Bm25RecallAdapter(ObjectProvider<ElasticsearchClient> client,
+                             com.kwiki.rag.retrieval.RetrievalLifecycleService lifecycle,
+                             @org.springframework.lang.Nullable com.kwiki.indexing.gray.GrayReadRoutes routes) {
         this.client = client.getIfAvailable();
         this.lifecycle = lifecycle;
+        this.routes = routes;
     }
 
     @Override
@@ -40,17 +50,23 @@ public class Bm25RecallAdapter implements ChildRecallPort {
             return List.of();
         }
         try {
+            // 无灰度路由时 indices 仅为 ElasticsearchIndexManager.ALIAS，且不追加过滤
+            com.kwiki.indexing.gray.ReadRouting routing = routes == null
+                    ? com.kwiki.indexing.gray.ReadRouting.none() : routes.current();
             SearchResponse<Map> response = client.search(request -> request
-                            .index(ElasticsearchIndexManager.ALIAS)
+                            .index(EsReadRouting.indices(routing))
                             .size(topK)
-                            .query(query -> query.bool(bool -> bool
-                                    .filter(filter -> filter.term(
-                                            term -> term.field("chunkLevel").value("CHILD")))
-                                    .filter(EsScopeFilterBuilder.build(
-                                            scopeFilter, lifecycle.exclusions()))
-                                    .must(must -> must.match(
-                                            match -> match.field("content")
-                                                    .query(effectiveQuery))))),
+                            .query(query -> query.bool(bool -> {
+                                bool.filter(filter -> filter.term(
+                                                term -> term.field("chunkLevel").value("CHILD")))
+                                        .filter(EsScopeFilterBuilder.build(
+                                                scopeFilter, lifecycle.exclusions()))
+                                        .must(must -> must.match(
+                                                match -> match.field("content")
+                                                        .query(effectiveQuery)));
+                                EsReadRouting.filter(routing).ifPresent(bool::filter);
+                                return bool;
+                            })),
                     Map.class);
             return toHits(response.hits().hits());
         } catch (Exception e) {

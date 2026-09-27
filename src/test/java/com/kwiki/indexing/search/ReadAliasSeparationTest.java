@@ -36,9 +36,17 @@ class ReadAliasSeparationTest {
                 }
             }
             String source = Files.readString(Path.of(adapter));
-            if (!source.contains("ElasticsearchIndexManager.ALIAS")) {
+            // 灰度读路由：经 EsReadRouting.indices 读取（首项恒为别名，灰度物理名来自数据库而非字面量）
+            if (!source.contains("ElasticsearchIndexManager.ALIAS")
+                    && !source.contains("EsReadRouting.indices(")) {
                 violations.add(adapter + " does not read through ElasticsearchIndexManager.ALIAS");
             }
+        }
+        String routing = Files.readString(Path.of(
+                "src/main/java/com/kwiki/infrastructure/elasticsearch/EsReadRouting.java"));
+        if (!routing.contains("indices.add(ElasticsearchIndexManager.ALIAS)")
+                || routing.contains("kwiki-chunks-v")) {
+            violations.add("EsReadRouting must start from the alias and never name a physical index");
         }
         assertThat(violations)
                 .as("retrieval reads must stay on the kwiki-chunks alias")

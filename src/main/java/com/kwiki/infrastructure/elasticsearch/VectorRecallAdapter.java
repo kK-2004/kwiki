@@ -2,11 +2,11 @@ package com.kwiki.infrastructure.elasticsearch;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.search.Hit;
-import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.rag.retrieval.ChildRecallPort;
 import com.kwiki.rag.retrieval.ScopeFilter;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -21,11 +21,21 @@ public class VectorRecallAdapter implements ChildRecallPort {
 
     private final ElasticsearchClient client;
     private final com.kwiki.rag.retrieval.RetrievalLifecycleService lifecycle;
+    private final com.kwiki.indexing.gray.GrayReadRoutes routes;
 
     public VectorRecallAdapter(ObjectProvider<ElasticsearchClient> client,
                                com.kwiki.rag.retrieval.RetrievalLifecycleService lifecycle) {
+        this(client, lifecycle, null);
+    }
+
+    /** 带灰度读路由：已切换灰度的知识库读取其灰度物理索引，其余仍经全局别名。 */
+    @Autowired
+    public VectorRecallAdapter(ObjectProvider<ElasticsearchClient> client,
+                               com.kwiki.rag.retrieval.RetrievalLifecycleService lifecycle,
+                               @org.springframework.lang.Nullable com.kwiki.indexing.gray.GrayReadRoutes routes) {
         this.client = client.getIfAvailable();
         this.lifecycle = lifecycle;
+        this.routes = routes;
     }
 
     @Override
@@ -39,16 +49,24 @@ public class VectorRecallAdapter implements ChildRecallPort {
             for (float value : queryVector) {
                 vector.add(value);
             }
+            // 无灰度路由时 indices 仅为 ElasticsearchIndexManager.ALIAS，且不追加过滤
+            com.kwiki.indexing.gray.ReadRouting routing = routes == null
+                    ? com.kwiki.indexing.gray.ReadRouting.none() : routes.current();
+            co.elastic.clients.elasticsearch._types.query_dsl.Query scope = EsScopeFilterBuilder.build(
+                    scopeFilter, lifecycle.exclusions());
+            co.elastic.clients.elasticsearch._types.query_dsl.Query knnFilter = EsReadRouting.filter(routing)
+                    .map(route -> co.elastic.clients.elasticsearch._types.query_dsl.Query.of(q -> q.bool(b -> b
+                            .filter(scope).filter(route))))
+                    .orElse(scope);
             List<Hit<Map>> hits = client.search(request -> request
-                            .index(ElasticsearchIndexManager.ALIAS)
+                            .index(EsReadRouting.indices(routing))
                             .size(topK)
                             .knn(knn -> knn
                                     .field("vector")
                                     .queryVector(vector)
                                     .numCandidates(topK * 10)
                                     .k(topK)
-                                    .filter(EsScopeFilterBuilder.build(
-                                            scopeFilter, lifecycle.exclusions()))),
+                                    .filter(knnFilter)),
                     Map.class)
                     .hits()
                     .hits();

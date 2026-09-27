@@ -5,6 +5,7 @@ import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.rag.retrieval.EntityLinkingStatus;
 import com.kwiki.wiki.api.CitationService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -19,9 +20,18 @@ import java.util.Optional;
 public class EsChunkLookup implements CitationService.ChunkLookup {
 
     private final ElasticsearchClient client;
+    private final com.kwiki.indexing.gray.GrayReadRoutes routes;
 
     public EsChunkLookup(ObjectProvider<ElasticsearchClient> client) {
+        this(client, null);
+    }
+
+    /** 带灰度读路由：已切换灰度的知识库从其灰度物理索引解析引用块。 */
+    @Autowired
+    public EsChunkLookup(ObjectProvider<ElasticsearchClient> client,
+                         @org.springframework.lang.Nullable com.kwiki.indexing.gray.GrayReadRoutes routes) {
         this.client = client.getIfAvailable();
+        this.routes = routes;
     }
 
     @Override
@@ -30,11 +40,20 @@ public class EsChunkLookup implements CitationService.ChunkLookup {
             return Optional.empty();
         }
         try {
-            Map<?, ?> source = client.get(get -> get
-                            .index(com.kwiki.indexing.search.ElasticsearchIndexManager.ALIAS)
-                            .id(childChunkKey),
-                    Map.class)
-                    .source();
+            // 别名可能指向多个物理索引且需叠加灰度索引，故改为按 id 搜索并附加路由过滤；
+            // 无灰度路由时 indices 仅为 ElasticsearchIndexManager.ALIAS
+            com.kwiki.indexing.gray.ReadRouting routing = routes == null
+                    ? com.kwiki.indexing.gray.ReadRouting.none() : routes.current();
+            List<co.elastic.clients.elasticsearch.core.search.Hit<Map>> hits = client.search(request -> request
+                            .index(EsReadRouting.indices(routing))
+                            .size(1)
+                            .query(query -> query.bool(bool -> {
+                                bool.filter(filter -> filter.ids(ids -> ids.values(childChunkKey)));
+                                EsReadRouting.filter(routing).ifPresent(bool::filter);
+                                return bool;
+                            })),
+                    Map.class).hits().hits();
+            Map<?, ?> source = hits.isEmpty() ? null : hits.get(0).source();
             if (source == null) {
                 return Optional.empty();
             }
