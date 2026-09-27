@@ -22,8 +22,8 @@ const progressText = computed(() => {
 
 const CONFIRM: Record<"switch" | "switch-back" | "end", string> = {
   switch: "这些知识库的检索将立即改为读取灰度索引，旧索引继续双写保鲜，可随时切回。",
-  "switch-back": "这些知识库的检索将立即改回读取全局索引，灰度索引继续双写，可再次切换。",
-  end: "这些知识库将回到全局索引，并停止向灰度索引写入。灰度索引会保留，需要时在「全局索引」页手动删除。",
+  "switch-back": "这些知识库的检索将立即改回读取全局索引，灰度索引继续双写，可再次切换。切换期间导入的 PDF 已按灰度解析器生成页面正文，不会随切回改变。",
+  end: "这些知识库将回到全局索引，并停止向灰度索引写入。灰度索引会保留，需要时在「全局索引」页手动删除。切换期间导入的 PDF 已按灰度解析器生成页面正文，不会随切回改变。",
 };
 
 async function run(action: "sync" | "switch" | "switch-back" | "end") {
