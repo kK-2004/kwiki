@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../auth/store';
+import ThemeSwitcher from '../../theme/ThemeSwitcher.vue';
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -212,6 +213,14 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
+        <section class="profile-card appearance" aria-labelledby="appearance-title">
+          <div>
+            <h2 id="appearance-title">外观</h2>
+            <p>选择白天、黑夜，或跟随系统设置自动切换。</p>
+          </div>
+          <ThemeSwitcher variant="segmented" />
+        </section>
+
         <div class="profile-settings-list">
           <section class="profile-setting-row"><div class="profile-setting-icon"><i class="i-lucide-key-round" /></div><div class="profile-setting-info"><strong>密码与安全</strong><span>定期更新密码，保护账号安全。</span></div><button class="profile-btn" @click="passwordModalOpen = true">修改密码</button></section>
           <section class="profile-setting-row"><div class="profile-setting-icon is-danger"><i class="i-lucide-log-out" /></div><div class="profile-setting-info"><strong>退出登录</strong><span>退出当前设备上的登录状态，不会影响其他设备。</span></div><button class="profile-btn profile-btn-danger" @click="logout">退出登录</button></section>
@@ -263,4 +272,27 @@ onBeforeUnmount(() => {
 .profile-modal-layer { position: fixed; inset: 0; z-index: 100; padding: 24px; background: rgba(19,30,23,.28); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; }.profile-modal { width: min(92vw,520px); max-height: calc(100vh - 28px); overflow: auto; border: 1px solid rgba(218,228,221,.9); border-radius: 18px; background: white; box-shadow: 0 22px 70px rgba(22,45,32,.17); }.profile-modal-large { width: min(90vw,560px); }.profile-modal-head { padding: 20px 22px 12px; display: flex; align-items: flex-start; gap: 12px; }.profile-modal-head > div:first-child { flex: 1; }.profile-modal-head h3 { margin: 0; font-size: 19px; }.profile-modal-head p { margin: 6px 0 0; color: #6f7d74; font-size: 12.5px; line-height: 1.5; }.profile-close { width: 34px; height: 34px; border: 0; border-radius: 9px; background: transparent; color: #4c5951; cursor: pointer; }.profile-modal-body { padding: 10px 22px 24px; }.profile-modal-foot { padding: 14px 22px; border-top: 1px solid #e5ebe7; border-radius: 0 0 18px 18px; background: #fbfcfb; display: flex; justify-content: space-between; gap: 10px; }.profile-modal-right { display: flex; gap: 10px; }.avatar-edit-layout { display: flex; gap: 32px; }.crop-section { flex: 1; display: flex; flex-direction: column; align-items: center; }.preview-section { width: 170px; padding-left: 32px; border-left: 1px solid #e5ebe7; display: flex; flex-direction: column; align-items: center; justify-content: center; }.crop-stage { width: 260px; height: 260px; position: relative; overflow: hidden; border: 1px solid #dfe7e2; border-radius: 12px; background: #e9efeb; touch-action: none; }.crop-stage.is-draggable { cursor: grab; }.crop-stage.is-dragging { cursor: grabbing; }.crop-image { position: absolute; inset: -10%; background: linear-gradient(140deg,rgba(8,36,24,.12),rgba(255,255,255,.12)),linear-gradient(145deg,#edf5f0,#dbeae1) center/cover; background-position: center; background-size: cover; transition: transform .08s linear; }.crop-placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: #2b6744; font-size: 82px; font-weight: 780; pointer-events: none; }.crop-mask { position: absolute; inset: 10%; pointer-events: none; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 999px rgba(7,18,12,.35),0 0 0 1px rgba(0,0,0,.08); }.crop-mask::before,.crop-mask::after { content: ''; position: absolute; background: rgba(255,255,255,.42); }.crop-mask::before { left: 33.33%; top: 0; bottom: 0; width: 1px; box-shadow: calc((100% - 1px)/3) 0 rgba(255,255,255,.42); }.crop-mask::after { top: 33.33%; left: 0; right: 0; height: 1px; box-shadow: 0 calc((100% - 1px)/3) rgba(255,255,255,.42); }.zoom-row { width: 260px; margin-top: 16px; display: grid; grid-template-columns: 28px 1fr 28px; gap: 12px; align-items: center; }.zoom-row input[type='range'] { width: 100%; accent-color: #1f5d3a; cursor: pointer; }.zoom-btn { width: 28px; height: 28px; border: 1px solid #d9e2dc; border-radius: 50%; background: white; color: #5f6e64; display: grid; place-items: center; cursor: pointer; }.preview-title { margin-bottom: 16px; color: #7b887f; font-size: 13px; font-weight: 600; }.preview-circle-large { width: 110px; height: 110px; position: relative; overflow: hidden; margin-bottom: 20px; border: 2px solid white; border-radius: 50%; background: linear-gradient(145deg,#edf5f0,#dbeae1); box-shadow: 0 6px 18px rgba(0,0,0,.08),0 0 0 1px #e5ebe7; display: grid; place-items: center; color: #2b6744; font-size: 42px; font-weight: 780; }.preview-image { position: absolute; inset: -10%; background: linear-gradient(145deg,#edf5f0,#dbeae1) center/cover; background-position: center; background-size: cover; }.preview-circle-large > span { position: relative; z-index: 1; }.upload-tip { margin-bottom: 14px; color: #98a29b; font-size: 11.5px; line-height: 1.5; text-align: center; }.upload-btn { width: 100%; padding: 0; font-size: 13px; }.password-fields { display: grid; gap: 15px; }.password-input { position: relative; }.password-input .profile-input { padding-right: 42px; }.eye-btn { position: absolute; top: 50%; right: 8px; width: 30px; height: 30px; transform: translateY(-50%); border: 0; border-radius: 8px; background: transparent; color: #728077; display: grid; place-items: center; cursor: pointer; }.strength { margin-top: 7px; display: grid; grid-template-columns: repeat(4,1fr); gap: 4px; }.strength span { height: 4px; border-radius: 999px; background: #e7ece9; }.strength span.on { background: #55a46f; }.password-rules { margin-top: 9px; color: #8b9890; font-size: 11.5px; }.profile-toast { position: fixed; left: 50%; bottom: 28px; z-index: 200; padding: 10px 14px; border-radius: 10px; background: #15221a; color: white; box-shadow: 0 10px 30px rgba(0,0,0,.18); opacity: 0; pointer-events: none; transform: translate(-50%,20px); transition: .22s ease; font-size: 13px; }.profile-toast.show { opacity: 1; transform: translate(-50%,0); }
 @media (max-width: 720px) { .profile-page { padding: 24px 14px 80px; }.profile-page-head h1 { font-size: 27px; }.profile-card-head { padding: 20px 18px 0; }.profile-body { display: block; padding: 18px; }.profile-side { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 14px; margin-bottom: 18px; padding: 0 0 18px; border-right: 0; border-bottom: 1px solid #e5ebe7; }.profile-avatar-wrap { margin: 0; }.profile-avatar { width: 72px; height: 72px; border-radius: 20px; font-size: 25px; }.profile-identity strong { font-size: 15px; }.profile-setting-row { min-height: 88px; padding: 16px; }.profile-setting-row .profile-btn { padding: 0 13px; }.avatar-edit-layout { flex-direction: column; gap: 24px; }.preview-section { width: 100%; padding: 24px 0 0; border-top: 1px solid #e5ebe7; border-left: 0; }.preview-circle-large { width: 90px; height: 90px; }.profile-modal-foot { flex-direction: column; }.profile-modal-right { display: grid; grid-template-columns: 1fr 1fr; }.profile-modal-foot > .profile-btn { width: 100%; } }
 @media (max-width: 480px) { .profile-actions { display: grid; grid-template-columns: 1fr 1fr; }.profile-actions .profile-btn { width: 100%; }.profile-setting-row { align-items: flex-start; flex-wrap: wrap; }.profile-setting-info { min-width: calc(100% - 70px); }.profile-setting-row > .profile-btn { margin-left: 64px; } }
+
+.appearance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  /* profile-card 本身无内边距，这里补齐 */
+  padding: 20px 26px;
+}
+
+.appearance h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--k-ink);
+}
+
+.appearance p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--k-muted);
+}
 </style>
