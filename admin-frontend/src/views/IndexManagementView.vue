@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { api, ApiError, type Audit, type Config, type CommunityVersion, type MultimodalReadiness, type Run, type Validation, type Version } from "../api";
 import { statusLabel, statusType } from "../status";
 import { useAuth } from "../auth";
+import CurrentIndexCards from "../components/CurrentIndexCards.vue";
 
 const auth = useAuth();
 const versions = ref<Version[]>([]);
@@ -203,6 +204,7 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
           <el-radio-button value="COMMUNITY">COMMUNITY 索引</el-radio-button>
         </el-radio-group>
       </section>
+      <CurrentIndexCards v-if="indexKind === 'CHUNK'" :versions="versions" :alias-targets="alias" @select="openSelect" />
 
       <template v-if="indexKind === 'COMMUNITY'">
         <section class="cards" v-if="communityState === 'ready'">
@@ -266,11 +268,6 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
           </div>
         </section>
         <section class="cards">
-          <div class="metric">
-            <span class="metric-label">当前别名</span>
-            <strong class="metric-text">{{ alias[0] || "不可用" }}</strong>
-            <div class="hint">线上读请求实际命中的物理索引</div>
-          </div>
           <div class="metric">
             <span class="metric-label">可写版本数</span>
             <strong>{{ versions.filter(v => v.writeEnabled).length }}</strong>
