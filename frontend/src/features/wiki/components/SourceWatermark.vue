@@ -12,7 +12,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 /**
  * 源文件预览水印：铺满父容器（父容器需为定位元素），不随文档缩放或滚动。
  * 平铺数量按容器实际尺寸计算，保证任意宽高下都没有空白区域。
- * 文本为「身份 · 当前时间」，时间精确到分钟并随时钟实时刷新，用于泄漏溯源。
+ * 文本为「身份 · 当前时间」，时间精确到秒并随时钟实时刷新，用于泄漏溯源。
  */
 const props = defineProps<{ identity: string }>();
 
@@ -27,22 +27,21 @@ const rootEl = ref<HTMLElement | null>(null);
 const size = ref({ ...FALLBACK_SIZE });
 const now = ref(new Date());
 let observer: ResizeObserver | null = null;
-let minuteTimer: ReturnType<typeof setTimeout> | undefined;
+let tickTimer: ReturnType<typeof setTimeout> | undefined;
 
 const pad = (value: number) => String(value).padStart(2, '0');
 const text = computed(() => {
   const date = now.value;
-  const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   return `${props.identity} · ${stamp}`;
 });
 
-/** 对齐到下一个整分钟刷新，显示的分钟与系统时钟一致，而不是相对打开时刻漂移 */
+/** 对齐到下一个整秒刷新，显示的秒数与系统时钟一致，不会随定时器误差累积漂移 */
 function scheduleTick() {
-  clearTimeout(minuteTimer);
+  clearTimeout(tickTimer);
   const current = new Date();
   now.value = current;
-  const msToNextMinute = 60_000 - (current.getSeconds() * 1000 + current.getMilliseconds());
-  minuteTimer = setTimeout(scheduleTick, msToNextMinute);
+  tickTimer = setTimeout(scheduleTick, 1000 - current.getMilliseconds());
 }
 
 /** 后台标签页的定时器会被浏览器节流，切回前台时立即校准一次 */
@@ -86,7 +85,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   observer?.disconnect();
-  clearTimeout(minuteTimer);
+  clearTimeout(tickTimer);
   document.removeEventListener('visibilitychange', onVisibilityChange);
 });
 </script>

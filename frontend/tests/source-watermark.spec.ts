@@ -24,25 +24,25 @@ describe('SourceWatermark 预览水印', () => {
     expect(root.getAttribute('aria-hidden')).toBe('true');
     const tiles = root.querySelectorAll('span');
     expect(tiles.length).toBeGreaterThan(0);
-    tiles.forEach(tile => expect(tile.textContent).toBe('张三 zhangsan · 2026-09-27 10:05'));
+    tiles.forEach(tile => expect(tile.textContent).toBe('张三 zhangsan · 2026-09-27 10:05:30'));
   });
 
-  it('时间随时钟走动：跨过整分钟后水印刷新', async () => {
+  it('时间随时钟逐秒走动，且始终对齐系统时钟', async () => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
-    vi.setSystemTime(new Date(2026, 8, 27, 10, 5, 30));
+    vi.setSystemTime(new Date(2026, 8, 27, 10, 5, 58, 400));
     const view = render(SourceWatermark, { props: { identity: 'zhangsan' } });
     const firstTile = () => view.getByTestId('source-watermark').querySelector('span')!.textContent;
-    expect(firstTile()).toBe('zhangsan · 2026-09-27 10:05');
+    expect(firstTile()).toBe('zhangsan · 2026-09-27 10:05:58');
 
-    // 30 秒后跨入下一分钟
-    await vi.advanceTimersByTimeAsync(30_000);
+    // 600ms 后进入下一整秒
+    await vi.advanceTimersByTimeAsync(600);
     await nextTick();
-    expect(firstTile()).toBe('zhangsan · 2026-09-27 10:06');
+    expect(firstTile()).toBe('zhangsan · 2026-09-27 10:05:59');
 
-    // 之后每分钟继续刷新
-    await vi.advanceTimersByTimeAsync(60_000);
+    // 再过 1 秒跨分钟
+    await vi.advanceTimersByTimeAsync(1000);
     await nextTick();
-    expect(firstTile()).toBe('zhangsan · 2026-09-27 10:07');
+    expect(firstTile()).toBe('zhangsan · 2026-09-27 10:06:00');
   });
 
   it('卸载后停止计时，不再保留定时器', () => {
