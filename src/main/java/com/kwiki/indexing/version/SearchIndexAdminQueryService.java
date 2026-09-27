@@ -140,6 +140,12 @@ public class SearchIndexAdminQueryService {
         actions.put("disable",!version.isSelected()&&!version.isAdminDisabled()&&!activeRun&&!preparing);
         actions.put("reenable",version.isAdminDisabled()&&!activeRun&&!preparing);
         actions.put("delete",cleanupCandidate&&!activeRun&&!preparing);
+        if (scoped) {
+            // 灰度版本的生命周期由灰度发布管理，全局页只保留灰度结束后的清理删除
+            for (String lifecycle : List.of("edit","rebuild","prepare","select","disable","reenable")) {
+                actions.put(lifecycle,false);
+            }
+        }
         EditableIndexConfig config=version.editableConfig();
         return new VersionView(version.getVersionNumber(),version.getPhysicalName(),config,
                 version.getConfigRevision(),version.getBuiltConfigRevision(),snapshot.dirty(),
