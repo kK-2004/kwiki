@@ -13,3 +13,23 @@ spring:
         username: ${KWIKI_NACOS_USERNAME:kwiki}
         password: ${KWIKI_NACOS_PASSWORD:}
         refresh-enabled: true
+  ai:
+    mcp:
+      server:
+        # MCP Server 总开关跟随 kwiki.mcp.enabled：关闭时既不装配
+        # Spring AI 的 /mcp 端点，也不装配 kwiki.mcp.* 的安全与工具层。
+        enabled: ${kwiki.mcp.enabled:false}
+        name: kwiki-mcp
+        version: 0.1.0
+        type: sync
+        protocol: STREAMABLE
+        capabilities:
+          tool: true
+          resource: false
+          prompt: false
+          completion: false
+        # 工具经 McpSyncServerCustomizer 显式注册，不使用注解扫描
+        annotation-scanner:
+          enabled: false
+        streamable-http:
+          mcp-endpoint: /mcp
