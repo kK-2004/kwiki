@@ -34,9 +34,10 @@ const form = reactive({
   scopeKind: "KNOWLEDGE_BASE" as "KNOWLEDGE_BASE" | "ALL",
   kbId: null as number | null,
   chunkIndexVersion: 0,
-  mappingSchemaVersion: 3,
-  entityLinkingVersion: "v1",
 });
+/** 结构版本、物理索引名与实体链接版本由服务端按所选 Chunk 版本推导，这里只做展示与预检 */
+const targetVersion = computed(() => chunkVersions.value.find(v => v.versionNumber === form.chunkIndexVersion));
+const targetSchemaTooOld = computed(() => (targetVersion.value?.configuration.mappingSchemaVersion ?? 0) < 3);
 
 function dualBadge(batch: GraphBatch) {
   return `CHUNK v${batch.chunkIndexVersion} / COMMUNITY v${batch.communityIndexVersion}`;
@@ -125,10 +126,6 @@ async function submit() {
       scopeKind: form.scopeKind,
       knowledgeBaseIds: form.scopeKind === "KNOWLEDGE_BASE" ? [form.kbId] : [],
       chunkIndexVersion: target.versionNumber,
-      chunkPhysicalIndex: target.physicalName,
-      mappingSchemaVersion: form.mappingSchemaVersion,
-      configRevision: target.configRevision,
-      entityLinkingVersion: form.entityLinkingVersion,
     });
     ElMessage.success(`已提交批次 ${result.batchId}（${dualBadge({
       chunkIndexVersion: target.versionNumber,
@@ -267,7 +264,7 @@ function showError(error: unknown) {
                   <el-radio value="KNOWLEDGE_BASE">指定知识库</el-radio>
                   <el-radio value="ALL">全部知识库</el-radio>
                 </el-radio-group>
-                <div class="hint">每个批次只针对一个知识库；多个知识库请分别提交。</div>
+                <div class="hint">「全部知识库」由服务端展开为当前所有活跃知识库；「指定知识库」每次只针对一个。</div>
               </el-form-item>
               <el-form-item v-if="form.scopeKind === 'KNOWLEDGE_BASE'" label="知识库">
                 <el-select v-model="form.kbId" filterable placeholder="选择要构建图谱的知识库" style="width:100%">
@@ -284,16 +281,14 @@ function showError(error: unknown) {
                 </el-select>
                 <div class="hint">图谱从该 CHUNK 版本抽取实体；默认使用当前线上读别名指向的版本。</div>
               </el-form-item>
-              <el-form-item label="Mapping schema">
-                <el-input-number v-model="form.mappingSchemaVersion" :min="1"/>
-                <div class="hint">图谱索引 mapping 结构代际；仅当图谱结构升级时才调高，日常保持默认。</div>
-              </el-form-item>
-              <el-form-item label="实体映射代际">
-                <el-input v-model="form.entityLinkingVersion" placeholder="如 v1"/>
-                <div class="hint">实体抽取 / 提示词 / 消歧器的整体代际标识，用于追溯哪套逻辑产出了这份图谱。</div>
+              <el-form-item v-if="targetVersion" label="结构版本">
+                <span>v{{ targetVersion.configuration.mappingSchemaVersion }}</span>
+                <div class="hint">取自所选 Chunk 版本；物理索引名与实体链接版本同样由服务端推导，无需填写。</div>
+                <el-alert v-if="targetSchemaTooOld" type="warning" :closable="false" show-icon class="dialog-alert"
+                  title="该 Chunk 版本的结构版本低于 v3，不含实体映射字段，无法用于图构建" />
               </el-form-item>
               <el-form-item>
-                <el-button type="primary" @click="submit">提交构建批次</el-button>
+                <el-button type="primary" :disabled="!targetVersion || targetSchemaTooOld" @click="submit">提交构建批次</el-button>
               </el-form-item>
             </el-form>
           </el-tab-pane>

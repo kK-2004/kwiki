@@ -22,7 +22,8 @@ class CurrentChunkScheduledBatchFactoryTest {
 
     private final SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    private final CurrentChunkScheduledBatchFactory factory = new CurrentChunkScheduledBatchFactory(versions, jdbc);
+    private final CurrentChunkScheduledBatchFactory factory =
+            new CurrentChunkScheduledBatchFactory(new GraphBuildTargets(versions, jdbc), false);
     private final LocalDate today = LocalDate.of(2026, 9, 28);
 
     private void selected(int schema) {

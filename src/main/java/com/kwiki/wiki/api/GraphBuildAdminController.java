@@ -11,7 +11,6 @@ import com.kwiki.security.CurrentUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -44,17 +43,30 @@ public class GraphBuildAdminController {
     private final GraphAdminCommandService commands;
     private final GraphBuildRepository repository;
     private final GraphProperties graphProperties;
+    /** 批次目标解析；为 null（仅用于不涉及提交的测试装配）时提交接口不可用。 */
+    private final com.kwiki.graph.persistence.GraphBuildTargets targets;
 
     public GraphBuildAdminController(GraphBuildBatchService batches,
                                      GraphAdminQueryService queries,
                                      GraphAdminCommandService commands,
                                      GraphBuildRepository repository,
                                      GraphProperties graphProperties) {
+        this(batches, queries, commands, repository, graphProperties, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public GraphBuildAdminController(GraphBuildBatchService batches,
+                                     GraphAdminQueryService queries,
+                                     GraphAdminCommandService commands,
+                                     GraphBuildRepository repository,
+                                     GraphProperties graphProperties,
+                                     com.kwiki.graph.persistence.GraphBuildTargets targets) {
         this.batches = batches;
         this.queries = queries;
         this.commands = commands;
         this.repository = repository;
         this.graphProperties = graphProperties;
+        this.targets = targets;
     }
 
     @PostMapping("/batches")
@@ -62,12 +74,19 @@ public class GraphBuildAdminController {
             @AuthenticationPrincipal CurrentUser user,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody SubmitRequest request) {
-        var result = batches.submit(new GraphBuildBatchRequest(
-                idempotencyKey, request.scopeKind(), request.knowledgeBaseIds(),
-                request.chunkIndexVersion(), request.chunkPhysicalIndex(),
-                request.mappingSchemaVersion(), request.configRevision(),
-                request.entityLinkingVersion(), graphProperties.autoPublish(),
-                user.username(), request.scheduleDate()));
+        if (targets == null) {
+            throw new IllegalStateException("graph build targets are unavailable");
+        }
+        // 只采信范围与 Chunk 版本号；物理索引名、结构版本、配置修订号与实体链接版本由服务端推导
+        GraphBuildBatchRequest batch;
+        try {
+            batch = targets.request(idempotencyKey, request.scopeKind(), request.knowledgeBaseIds(),
+                    request.chunkIndexVersion(), request.entityLinkingVersion(),
+                    graphProperties.autoPublish(), user.username(), request.scheduleDate());
+        } catch (IllegalArgumentException invalid) {
+            throw new ConflictException(invalid.getMessage());
+        }
+        var result = batches.submit(batch);
         return TransDTO.success(Map.of(
                 "batchId", result.batchId(),
                 "communityIndexVersion", result.communityIndexVersion(),
@@ -198,14 +217,19 @@ public class GraphBuildAdminController {
                 user.username(), null, null, () -> commands.cleanup(snapshotId)));
     }
 
+    /**
+     * 提交构建批次。ALL 范围忽略 knowledgeBaseIds，由服务端展开为全部活跃知识库；
+     * chunkPhysicalIndex / mappingSchemaVersion / configRevision 为兼容旧客户端保留，服务端不再采信；
+     * entityLinkingVersion 可省略，若提供必须与流水线当前版本一致。
+     */
     public record SubmitRequest(
             @NotBlank String scopeKind,
-            @NotEmpty List<@Min(1) Long> knowledgeBaseIds,
+            List<@Min(1) Long> knowledgeBaseIds,
             @Min(1) int chunkIndexVersion,
-            @NotBlank String chunkPhysicalIndex,
-            @Min(1) int mappingSchemaVersion,
-            @Min(1) long configRevision,
-            @NotBlank String entityLinkingVersion,
+            String chunkPhysicalIndex,
+            Integer mappingSchemaVersion,
+            Long configRevision,
+            String entityLinkingVersion,
             LocalDate scheduleDate) {
     }
 
