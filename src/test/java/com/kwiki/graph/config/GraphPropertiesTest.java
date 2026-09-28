@@ -64,6 +64,34 @@ class GraphPropertiesTest {
         properties.requireUsableWhenEnabled(graph);
     }
 
+    @Test
+    void 图功能开启但未锁定版本号时仍可启动_视为未锁定() {
+        GraphProperties graph = new GraphProperties(true,
+                GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
+                "0 0 2 * * *", "Asia/Shanghai", false, Duration.ofMinutes(10), 2,
+                Duration.ofMinutes(30), GraphProperties.Capacity.defaults());
+        for (String version : new String[] {null, "", "  "}) {
+            ArcadeDbProperties properties = new ArcadeDbProperties(
+                    URI.create("https://arcadedb.internal"), "kwiki", "arcade-contract-token",
+                    Duration.ofSeconds(3), Duration.ofMillis(1500), Duration.ofSeconds(30),
+                    Duration.ofMinutes(15), 8,
+                    new ArcadeDbProperties.Tls(true, true), "kwiki_leiden_", version);
+
+            properties.requireUsableWhenEnabled(graph);
+            assertThat(properties.serverVersionPinned()).isFalse();
+        }
+    }
+
+    @Test
+    void 填写版本号即视为已锁定() {
+        ArcadeDbProperties properties = new ArcadeDbProperties(
+                URI.create("https://arcadedb.internal"), "kwiki", "arcade-contract-token",
+                Duration.ofSeconds(3), Duration.ofMillis(1500), Duration.ofSeconds(30),
+                Duration.ofMinutes(15), 8,
+                new ArcadeDbProperties.Tls(true, true), "kwiki_leiden_", "24.6");
+        assertThat(properties.serverVersionPinned()).isTrue();
+    }
+
     private static ArcadeDbProperties empty() {
         return new ArcadeDbProperties(null, null, null,
                 Duration.ofSeconds(3), Duration.ofMillis(1500), Duration.ofSeconds(30),

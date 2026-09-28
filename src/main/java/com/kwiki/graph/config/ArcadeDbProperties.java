@@ -55,7 +55,13 @@ public record ArcadeDbProperties(
         if (temporaryDatabasePrefix == null || temporaryDatabasePrefix.isBlank()) {
             throw new IllegalStateException("kwiki.external.arcadedb.temporary-database-prefix 不能为空");
         }
-        requireText(requiredServerVersion, "kwiki.external.arcadedb.required-server-version");
+        // 锁定版本号可选：未填写时跳过版本比对（启动期由 GraphConfigurationGuard 打告警），
+        // 填写后健康探测按前缀比对实际版本，不一致即判定图构建不可用。
+    }
+
+    /** 是否锁定了兼容的 ArcadeDB 服务版本；未锁定时能力探测跳过版本比对。 */
+    public boolean serverVersionPinned() {
+        return requiredServerVersion != null && !requiredServerVersion.isBlank();
     }
 
     private static void requireText(String value, String field) {

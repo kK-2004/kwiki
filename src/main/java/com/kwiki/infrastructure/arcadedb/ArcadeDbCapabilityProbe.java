@@ -31,7 +31,9 @@ public final class ArcadeDbCapabilityProbe {
             ArcadeDbResponse response = client.health();
             JsonNode root = objectMapper.readTree(response.body());
             String version = text(root, "serverVersion", text(root, "version", ""));
-            boolean versionCompatible = versionMatches(version, properties.requiredServerVersion());
+            // 未锁定版本号时不做版本比对，只校验下面的算法/schema/建库能力
+            boolean versionCompatible = !properties.serverVersionPinned()
+                    || versionMatches(version, properties.requiredServerVersion());
             JsonNode capabilities = root.path("capabilities");
             boolean leiden = capabilities.path("leiden").asBoolean(false)
                     && capabilities.path("leidenInputOutput").asBoolean(false);

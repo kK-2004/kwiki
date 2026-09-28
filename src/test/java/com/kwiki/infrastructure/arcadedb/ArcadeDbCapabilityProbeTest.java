@@ -51,10 +51,47 @@ class ArcadeDbCapabilityProbeTest {
         assertThat(report.failureCode()).isEqualTo("leiden-capability-missing");
     }
 
+    @Test
+    void 未锁定版本号时跳过版本比对_其余能力仍需满足() throws Exception {
+        server = new MockWebServer();
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("""
+                {"version":"25.9.1","capabilities":{"leiden":true,
+                "leidenInputOutput":true,"schema":true,"databaseCreate":true}}
+                """));
+        server.start();
+        var properties = properties(server.url("/").toString(), "");
+        var report = new ArcadeDbCapabilityProbe(
+                new ArcadeDbHttpAdapter(properties, new ObjectMapper()), properties, new ObjectMapper()).probe();
+
+        assertThat(report.versionCompatible()).isTrue();
+        assertThat(report.buildEnabled()).isTrue();
+        assertThat(report.serverVersion()).isEqualTo("25.9.1");
+    }
+
+    @Test
+    void 已锁定版本号但实际版本不符时仍拒绝构建() throws Exception {
+        server = new MockWebServer();
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("""
+                {"version":"25.9.1","capabilities":{"leiden":true,
+                "leidenInputOutput":true,"schema":true,"databaseCreate":true}}
+                """));
+        server.start();
+        var properties = properties(server.url("/").toString());
+        var report = new ArcadeDbCapabilityProbe(
+                new ArcadeDbHttpAdapter(properties, new ObjectMapper()), properties, new ObjectMapper()).probe();
+
+        assertThat(report.buildEnabled()).isFalse();
+        assertThat(report.failureCode()).isEqualTo("unsupported-server-version");
+    }
+
     private static ArcadeDbProperties properties(String endpoint) {
+        return properties(endpoint, "24.6");
+    }
+
+    private static ArcadeDbProperties properties(String endpoint, String requiredServerVersion) {
         return new ArcadeDbProperties(URI.create(endpoint), "kwiki", "arcade-contract-token",
                 Duration.ofSeconds(3), Duration.ofMillis(1500), Duration.ofSeconds(30),
                 Duration.ofMinutes(15), 8, new ArcadeDbProperties.Tls(false, true),
-                "kwiki_leiden_", "24.6");
+                "kwiki_leiden_", requiredServerVersion);
     }
 }

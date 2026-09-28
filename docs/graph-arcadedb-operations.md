@@ -11,7 +11,7 @@
 
 开启前必须由运维独立部署 ArcadeDB 服务（本项目不生成、不启动数据库），并完成：
 
-1. 锁定服务版本（建议固定到一个已验证的发行版，写入 `KWIKI_ARCADEDB_REQUIRED_SERVER_VERSION`）；
+1. 锁定服务版本（可选，生产环境建议固定到一个已验证的发行版，写入 `KWIKI_ARCADEDB_REQUIRED_SERVER_VERSION`；不填写时跳过版本兼容性检查，启动时打印告警）；
 2. 生成一个访问 token：该 token 需同时具备在线读与建库/临时库权限（创建/删除数据库，临时投影库需要）；不细分读/构建两组凭据；
 3. 通过能力契约验收（见第 7 节）。
 
@@ -35,7 +35,7 @@
 | `KWIKI_ARCADEDB_BATCH_WRITE_TIMEOUT` | `30s` | 批写上限 |
 | `KWIKI_ARCADEDB_ALGORITHM_TIMEOUT` | `15m` | Leiden 单次执行上限 |
 | `KWIKI_ARCADEDB_TEMPORARY_DATABASE_PREFIX` | `kwiki_leiden_` | 临时投影库前缀 |
-| `KWIKI_ARCADEDB_REQUIRED_SERVER_VERSION` | 空 | 锁定的兼容服务版本 |
+| `KWIKI_ARCADEDB_REQUIRED_SERVER_VERSION` | 空 | 锁定的兼容服务版本（前缀匹配，如 `24.6` 匹配 `24.6.x`）；为空时不检查版本，仅打印告警 |
 
 容量限额（`KWIKI_GRAPH_MAX_ENTITIES` 等，见 `GraphProperties.Capacity`）：每库 50,000 实体、250,000 语义关系、1,000,000 来源记录、5,000 社区摘要；20,000 实体 / 100,000 关系起预警。超限明确失败，不会删孤点或截断来源伪装成功。调整限额需在容量演练（第 7 节）后进行并同步到后台展示。
 
