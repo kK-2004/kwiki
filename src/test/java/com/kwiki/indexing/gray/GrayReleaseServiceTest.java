@@ -42,6 +42,32 @@ class GrayReleaseServiceTest {
                 SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", globalConfig, hash)));
         when(admin.createVersion(any())).thenAnswer(invocation -> SearchIndexVersion.bootstrapped(
                 2, "kwiki-chunks-v2", invocation.getArgument(0), hash));
+        // 解析器目录按结构清单生成灰度配置；此处模拟清单结构版本与全局一致的情形
+        when(parsers.configFor(any(), any())).thenAnswer(invocation -> {
+            EditableIndexConfig base = invocation.getArgument(1);
+            return Optional.of(new EditableIndexConfig(invocation.getArgument(0), base.chunkerVersion(),
+                    base.embeddingProvider(), base.embeddingModel(), base.embeddingDimensions(),
+                    base.mappingSchemaVersion()));
+        });
+    }
+
+    @Test
+    void 创建灰度_使用解析器目录按清单给出的配置() {
+        EditableIndexConfig fromManifest =
+                new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, 2);
+        org.mockito.Mockito.doReturn(Optional.of(fromManifest))
+                .when(parsers).configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"), any());
+        service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        verify(admin).createVersion(fromManifest);
+    }
+
+    @Test
+    void 没有兼容的结构清单时拒绝创建且不建版本() {
+        org.mockito.Mockito.doReturn(Optional.empty())
+                .when(parsers).configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"), any());
+        assertThatThrownBy(() -> service.create(null, "kwiki-parse-2", List.of(7L), "admin"))
+                .isInstanceOf(ConflictException.class).hasMessageContaining("kwiki.indexing.manifests");
+        verify(admin, never()).createVersion(any());
     }
 
     @Test

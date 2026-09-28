@@ -158,6 +158,19 @@ class SearchIndexGrayReleaseControllerTest {
     }
 
     @Test
+    void 下层配置不受支持异常映射为可操作的中文冲突() {
+        executeDirectly();
+        when(service.create(any(), eq("kwiki-parse-2"), eq(List.of(7L)), eq("admin")))
+                .thenThrow(new IllegalArgumentException(
+                        "unsupported index configuration: configuration does not match any supported manifest"));
+        var request = new SearchIndexGrayReleaseController.CreateRequest(null, "kwiki-parse-2", List.of(7L));
+        assertThatThrownBy(() -> controller.create(admin, "k4", request))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("kwiki.indexing.manifests")
+                .hasMessageNotContaining("unsupported");
+    }
+
+    @Test
     void 其他下层状态或参数异常映射为通用中文冲突() {
         executeDirectly();
         when(service.find(1)).thenReturn(release(GrayReleaseStatus.SYNCED));

@@ -85,9 +85,9 @@ public class GrayReleaseService {
         EditableIndexConfig base = versions.findBySelectedTrue()
                 .orElseThrow(() -> new ConflictException("尚无已发布的全局索引版本，无法创建灰度"))
                 .editableConfig();
-        EditableIndexConfig config = new EditableIndexConfig(parserVersion, base.chunkerVersion(),
-                base.embeddingProvider(), base.embeddingModel(), base.embeddingDimensions(),
-                base.mappingSchemaVersion());
+        EditableIndexConfig config = parsers.configFor(parserVersion, base).orElseThrow(() -> new ConflictException(
+                "当前部署没有为 " + ParserCatalog.label(parserVersion) + " 登记与全局版本（模型 " + base.embeddingModel()
+                        + "，" + base.embeddingDimensions() + " 维）兼容的索引结构清单，请在 kwiki.indexing.manifests 中登记"));
         SearchIndexVersion version = admin.createVersion(config);
         scope.register(version.getVersionNumber(), distinct);
         long id = store.insert("pending", parserVersion, version.getVersionNumber(), operator);

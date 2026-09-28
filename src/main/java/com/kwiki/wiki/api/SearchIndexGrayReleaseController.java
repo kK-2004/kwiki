@@ -163,6 +163,9 @@ public class SearchIndexGrayReleaseController {
         if (text.contains("mutations")) {
             return "索引管理写操作已被关闭（kwiki.indexing.management.mutations-enabled）";
         }
+        if (text.contains("unsupported index configuration")) {
+            return "当前部署不支持该解析器与全局索引配置的组合，请检查 kwiki.indexing.manifests 中登记的结构清单";
+        }
         if (text.contains("capacity")) {
             return "索引容量不足，请先清理不再使用的索引版本";
         }

@@ -41,4 +41,53 @@ class ParserCatalogTest {
         assertThat(ParserCatalog.label("kwiki-parse-2")).isEqualTo("pdfbox-v2");
         assertThat(ParserCatalog.label("custom")).isEqualTo("custom");
     }
+
+    private static com.kwiki.indexing.config.IndexingProperties.Manifest manifest(
+            String parser, String model, int dims, int schema) {
+        return new com.kwiki.indexing.config.IndexingProperties.Manifest(
+                parser + "-" + schema, parser, "kwiki-chunk-1", "default", model, dims, schema);
+    }
+
+    private static ParserCatalog catalogWith(List<com.kwiki.indexing.config.IndexingProperties.Manifest> manifests,
+                                             com.kwiki.indexing.version.EditableIndexConfig selected) {
+        MultimodalSwitchReadiness readiness = mock(MultimodalSwitchReadiness.class);
+        when(readiness.ready()).thenReturn(true);
+        com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines =
+                mock(com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry.class);
+        when(pipelines.effectiveManifests()).thenReturn(manifests);
+        when(pipelines.supports(org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        com.kwiki.indexing.version.SearchIndexVersionRepository versions =
+                mock(com.kwiki.indexing.version.SearchIndexVersionRepository.class);
+        com.kwiki.indexing.version.SearchIndexVersion version = mock(com.kwiki.indexing.version.SearchIndexVersion.class);
+        when(version.editableConfig()).thenReturn(selected);
+        when(versions.findBySelectedTrue()).thenReturn(java.util.Optional.of(version));
+        return new ParserCatalog(readiness, pipelines, versions);
+    }
+
+    @Test
+    void 灰度配置取目标解析器的受支持清单_而不是沿用全局的结构版本() {
+        var base = new com.kwiki.indexing.version.EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "qwen", 1024, 1);
+        ParserCatalog catalog = catalogWith(List.of(manifest("kwiki-parse-1", "qwen", 1024, 1),
+                manifest("kwiki-parse-2", "qwen", 1024, 2)), base);
+
+        var config = catalog.configFor("kwiki-parse-2", base).orElseThrow();
+
+        assertThat(config.parserVersion()).isEqualTo("kwiki-parse-2");
+        assertThat(config.mappingSchemaVersion()).isEqualTo(2);
+        assertThat(config.embeddingModel()).isEqualTo("qwen");
+        assertThat(config.embeddingDimensions()).isEqualTo(1024);
+    }
+
+    @Test
+    void 没有与全局向量配置兼容的清单时解析器不可用并说明原因() {
+        var base = new com.kwiki.indexing.version.EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "qwen", 1024, 1);
+        ParserCatalog catalog = catalogWith(List.of(manifest("kwiki-parse-1", "qwen", 1024, 1),
+                manifest("kwiki-parse-2", "other-model", 768, 2)), base);
+
+        assertThat(catalog.configFor("kwiki-parse-2", base)).isEmpty();
+        var option = catalog.options().stream().filter(item -> item.id().equals("kwiki-parse-2")).findFirst().orElseThrow();
+        assertThat(option.available()).isFalse();
+        assertThat(option.unavailableReason()).contains("qwen").contains("1024").contains("kwiki.indexing.manifests");
+        assertThatThrownBy(() -> catalog.requireAvailable("kwiki-parse-2")).isInstanceOf(ConflictException.class);
+    }
 }
