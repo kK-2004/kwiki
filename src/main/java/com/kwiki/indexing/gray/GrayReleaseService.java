@@ -12,8 +12,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 灰度发布状态机：创建（建限定范围的索引版本）→ 同步（重建 → 补齐 → 校验，由 advance 推进）
- * → 切换 / 切回 → 结束（停用灰度版本写入，索引保留待手动删除）。
+ * 灰度发布状态机：创建（建限定范围的索引版本）→ 同步（开启双写 → 存量迁移 → 校验，由 advance 推进）
+ * → 切换 / 切回 → 结束（关闭灰度版本写入，索引保留待手动删除）。
+ * 存量迁移只在双写开启后发起，截止到双写起点，保证历史与增量之间没有缺口。
  */
 @Service
 public class GrayReleaseService {
@@ -22,10 +23,9 @@ public class GrayReleaseService {
     private final SearchIndexAdminService admin;
     private final SearchIndexVersionRepository versions;
     private final IndexVersionKbScope scope;
-    private final ManualIndexRebuildService rebuilds;
-    private final SwitchPreparationService preparations;
+    private final IndexVersionWriteService writes;
+    private final IndexMigrationService migrations;
     private final SearchIndexValidationService validations;
-    private final IndexVersionEnablementService enablement;
     private final SearchIndexRebuildRunRepository runs;
     private final ParserCatalog parsers;
     /** 管理写操作开关；为 null（离线测试）时不检查。 */
@@ -33,17 +33,17 @@ public class GrayReleaseService {
 
     public GrayReleaseService(GrayReleaseStore store, SearchIndexAdminService admin,
                               SearchIndexVersionRepository versions, IndexVersionKbScope scope,
-                              ManualIndexRebuildService rebuilds, SwitchPreparationService preparations,
-                              SearchIndexValidationService validations, IndexVersionEnablementService enablement,
+                              IndexVersionWriteService writes, IndexMigrationService migrations,
+                              SearchIndexValidationService validations,
                               SearchIndexRebuildRunRepository runs, ParserCatalog parsers) {
-        this(store, admin, versions, scope, rebuilds, preparations, validations, enablement, runs, parsers, null);
+        this(store, admin, versions, scope, writes, migrations, validations, runs, parsers, null);
     }
 
     @Autowired
     public GrayReleaseService(GrayReleaseStore store, SearchIndexAdminService admin,
                               SearchIndexVersionRepository versions, IndexVersionKbScope scope,
-                              ManualIndexRebuildService rebuilds, SwitchPreparationService preparations,
-                              SearchIndexValidationService validations, IndexVersionEnablementService enablement,
+                              IndexVersionWriteService writes, IndexMigrationService migrations,
+                              SearchIndexValidationService validations,
                               SearchIndexRebuildRunRepository runs, ParserCatalog parsers,
                               IndexingProperties properties) {
         this.properties = properties;
@@ -51,10 +51,9 @@ public class GrayReleaseService {
         this.admin = admin;
         this.versions = versions;
         this.scope = scope;
-        this.rebuilds = rebuilds;
-        this.preparations = preparations;
+        this.writes = writes;
+        this.migrations = migrations;
         this.validations = validations;
-        this.enablement = enablement;
         this.runs = runs;
         this.parsers = parsers;
     }
@@ -101,40 +100,34 @@ public class GrayReleaseService {
         return find(id);
     }
 
-    @Transactional
+    /**
+     * 开始同步 / 失败重试：写入未开启时先开启双写（清空灰度索引并记录起点 E），
+     * 再发起截止到 E 的存量迁移；写入已开启时保留双写，只在本会话没有可用迁移时重新发起。
+     */
     public GrayRelease sync(long id, String operator) {
         requireMutationsEnabled();
         GrayRelease release = find(id);
         if (release.status() != GrayReleaseStatus.CREATED && release.status() != GrayReleaseStatus.SYNCING) {
             throw new ConflictException("当前状态不能开始同步：" + release.status());
         }
-        SearchIndexVersion version = versions.findByVersionNumber(release.indexVersionNumber())
+        int number = release.indexVersionNumber();
+        SearchIndexVersion version = versions.findByVersionNumber(number)
                 .orElseThrow(() -> new ConflictException("灰度索引版本不存在"));
-        // 以最新重建记录判断：当前配置已重建完成且已进入（或完成）切换准备时，只需清除失败原因重新推进校验；
-        // 不能以写入是否开启判断，写入可能被其他路径开启而索引并未构建。
-        SearchIndexRebuildRun run = runs.findFirstByVersionNumberOrderByIdDesc(release.indexVersionNumber())
-                .orElse(null);
-        boolean builtAndPrepared = run != null
-                && run.state() == RebuildRunState.COMPLETED
-                && run.getConfigRevision() == version.getConfigRevision()
-                && (run.switchState() == IndexSwitchState.READY || run.switchState() == IndexSwitchState.PREPARING);
-        if (!builtAndPrepared) {
-            if (version.isWriteEnabled()) {
-                throw new ConflictException("灰度索引版本写入已开启但尚未完成构建，无法重新同步，请结束该灰度后重新创建");
-            }
-            VersionRebuildCoordinator.StartResult result = rebuilds.rebuild(release.indexVersionNumber(), operator);
-            if (result == null || !result.accepted()) {
-                throw new ConflictException("另一个索引重建正在进行，请稍后再开始同步");
+        if (!version.isWriteEnabled()) {
+            try {
+                version = writes.enable(number);
+            } catch (IllegalStateException failure) {
+                throw new ConflictException("开启灰度双写失败：" + safe(failure.getMessage()));
             }
         }
         requireTransition(store.transition(id, release.status(), GrayReleaseStatus.SYNCING, null));
+        startMigrationIfNeeded(number, version, operator);
         return find(id);
     }
 
     /**
-     * 由同步驱动器定时调用：按重建 → 补齐 → 校验推进一步。
-     * 不开外层事务：补齐与校验各有自己的事务，外层事务会因其内部异常被标记为只回滚而丢失失败原因。
-     * 已记录失败原因（lastError 非空）的灰度停在原地，等待用户点击「开始同步」重试，避免反复失败重跑。
+     * 由同步驱动器定时调用：确认双写已开启 → 本会话迁移 → 校验，每次推进一步。
+     * 不开外层事务：迁移与校验各有自己的事务。已记录失败原因的灰度停在原地等待用户重试。
      */
     public GrayRelease advance(long id) {
         GrayRelease release = find(id);
@@ -142,18 +135,32 @@ public class GrayReleaseService {
             return release;
         }
         int number = release.indexVersionNumber();
-        SearchIndexRebuildRun run = runs.findFirstByVersionNumberOrderByIdDesc(number).orElse(null);
-        if (run == null || run.state().active()) {
+        SearchIndexVersion version = versions.findByVersionNumber(number).orElse(null);
+        if (version == null || !version.isWriteEnabled() || version.getWriteEnabledEventId() == null) {
+            store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
+                    "同步失败：灰度索引双写未开启，存量迁移必须在开启双写之后进行。可点击「开始同步」重试");
+            return find(id);
+        }
+        SearchIndexRebuildRun run = sessionRun(number, version.getWriteEnabledEventId()).orElse(null);
+        if (run == null) {
+            try {
+                startMigration(number, release.createdBy());
+            } catch (RuntimeException failure) {
+                store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
+                        "同步失败：" + safe(failure.getMessage()) + "。可点击「开始同步」重试");
+            }
+            return find(id);
+        }
+        if (run.state().active()) {
             return release;
         }
         if (run.state() != RebuildRunState.COMPLETED) {
-            // 返回 false 说明灰度已被并发改变状态（如已结束），视为无操作。
             store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
                     "同步失败：" + safe(run.getErrorSummary()) + "。可点击「开始同步」重试");
             return find(id);
         }
         try {
-            advanceCompletedRun(id, number, run);
+            validateMigrated(id, number);
         } catch (RuntimeException failure) {
             store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
                     "同步失败：" + safe(failure.getMessage()) + "。可点击「开始同步」重试");
@@ -161,23 +168,39 @@ public class GrayReleaseService {
         return find(id);
     }
 
-    private void advanceCompletedRun(long id, int number, SearchIndexRebuildRun run) {
-        switch (run.switchState()) {
-            case NONE -> preparations.prepare(number);
-            case READY -> {
-                if (validations.currentReadyReport(number).isPresent()) {
-                    store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCED, null);
-                } else {
-                    SearchIndexValidationReport report = validations.validate(number);
-                    if ("PASS".equals(report.getStatus())) {
-                        store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCED, null);
-                    } else {
-                        store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
-                                "校验未通过：" + safe(report.getSummary()) + "。如多次重试仍失败，请结束该灰度后重新创建");
-                    }
-                }
-            }
-            default -> { /* PREPARING：补齐进行中，等待下一轮 */ }
+    private void validateMigrated(long id, int number) {
+        if (validations.currentReadyReport(number).isPresent()) {
+            store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCED, null);
+            return;
+        }
+        SearchIndexValidationReport report = validations.validate(number);
+        if ("PASS".equals(report.getStatus())) {
+            store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCED, null);
+        } else {
+            store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
+                    "校验未通过：" + safe(report.getSummary()) + "。如多次重试仍失败，请结束该灰度后重新创建");
+        }
+    }
+
+    /** 本写入会话（起点 E）发起的最近一次迁移 run；上一个会话的 run 不算。 */
+    private java.util.Optional<SearchIndexRebuildRun> sessionRun(int number, long writeEnabledEventId) {
+        return runs.findFirstByVersionNumberOrderByIdDesc(number)
+                .filter(run -> run.kind() == RebuildRunKind.MIGRATION
+                        && run.getBuildStartEventId() == writeEnabledEventId);
+    }
+
+    private void startMigrationIfNeeded(int number, SearchIndexVersion version, String operator) {
+        SearchIndexRebuildRun run = sessionRun(number, version.getWriteEnabledEventId()).orElse(null);
+        if (run != null && (run.state().active() || run.state() == RebuildRunState.COMPLETED)) {
+            return;
+        }
+        startMigration(number, operator);
+    }
+
+    private void startMigration(int number, String operator) {
+        VersionRebuildCoordinator.StartResult result = migrations.migrate(number, operator);
+        if (result == null || !result.accepted()) {
+            throw new ConflictException("另一个索引迁移正在进行，请稍后再开始同步");
         }
     }
 
@@ -221,18 +244,17 @@ public class GrayReleaseService {
         }
         int number = release.indexVersionNumber();
         runs.findFirstByVersionNumberOrderByIdDesc(number)
-                .filter(run -> run.state().active() || run.switchState() == IndexSwitchState.PREPARING)
+                .filter(run -> run.state().active())
                 .ifPresent(run -> {
-                    throw new ConflictException("同步正在进行，请等待当前重建或补齐结束后再结束灰度");
+                    throw new ConflictException("同步正在进行，请等待当前迁移结束后再结束灰度");
                 });
-        // 无论写入当前是否开启都做管理员停用，防止之后的全局切换准备重新开启灰度版本写入。
         versions.findByVersionNumber(number)
-                .filter(version -> !version.isAdminDisabled())
+                .filter(SearchIndexVersion::isWriteEnabled)
                 .ifPresent(version -> {
                     try {
-                        enablement.disable(version.getVersionNumber());
+                        writes.disable(version.getVersionNumber());
                     } catch (IllegalStateException justStarted) {
-                        // 读取最新 run 之后恰好有重建或补齐开始，disable 的空闲检查会拒绝
+                        // 读取最新 run 之后恰好有迁移开始，关闭写入的空闲检查会拒绝
                         throw new ConflictException("同步刚刚开始，请稍后再结束灰度");
                     }
                 });

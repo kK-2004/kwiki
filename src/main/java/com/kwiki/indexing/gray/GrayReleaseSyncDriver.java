@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 
-/** 定时推进同步中的灰度：重建完成 → 补齐 → 校验。单个灰度失败只记录日志。 */
+/** 定时推进同步中的灰度：确认双写 → 存量迁移 → 校验。单个灰度失败只记录日志。 */
 @Component
 public class GrayReleaseSyncDriver {
 
@@ -35,8 +35,8 @@ public class GrayReleaseSyncDriver {
     }
 
     /**
-     * 多实例部署时各实例都会触发本任务；若两个实例同时看到切换状态为 NONE 并各自调用
-     * prepare()，后者会静默重置 dualWriteStartEventId，因此整轮推进必须在分布式锁下串行。
+     * 多实例部署时各实例都会触发本任务；若两个实例同时看到本会话尚无迁移并各自发起，
+     * 会重复提交迁移，因此整轮推进必须在分布式锁下串行。
      * 未抢到锁说明其它实例正在推进，直接跳过本轮。
      * 锁服务不可用（SDK 关闭或未装配）时 acquire 恒返回 null，此时视为单实例部署，
      * 无锁推进，否则灰度将永远无法自动完成同步。

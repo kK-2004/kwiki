@@ -22,10 +22,9 @@ class GrayReleaseServiceTest {
     private final SearchIndexAdminService admin = mock(SearchIndexAdminService.class);
     private final SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
     private final IndexVersionKbScope scope = mock(IndexVersionKbScope.class);
-    private final ManualIndexRebuildService rebuilds = mock(ManualIndexRebuildService.class);
-    private final SwitchPreparationService preparations = mock(SwitchPreparationService.class);
+    private final IndexVersionWriteService writes = mock(IndexVersionWriteService.class);
+    private final IndexMigrationService migrations = mock(IndexMigrationService.class);
     private final SearchIndexValidationService validations = mock(SearchIndexValidationService.class);
-    private final IndexVersionEnablementService enablement = mock(IndexVersionEnablementService.class);
     private final SearchIndexRebuildRunRepository runs = mock(SearchIndexRebuildRunRepository.class);
     private final ParserCatalog parsers = mock(ParserCatalog.class);
     private GrayReleaseService service;
@@ -35,8 +34,8 @@ class GrayReleaseServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GrayReleaseService(store, admin, versions, scope, rebuilds, preparations,
-                validations, enablement, runs, parsers);
+        service = new GrayReleaseService(store, admin, versions, scope, writes, migrations,
+                validations, runs, parsers);
         String hash = new ChunkMappingBuilder().mappingHash(1024, 3);
         when(versions.findBySelectedTrue()).thenReturn(Optional.of(
                 SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", globalConfig, hash)));
@@ -99,65 +98,92 @@ class GrayReleaseServiceTest {
     }
 
     @Test
-    void 开始同步_发起重建并进入同步中() {
+    void 开始同步_先开启双写再发起存量迁移() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        SearchIndexVersion version = versionWrites(false);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-        when(rebuilds.rebuild(2, "admin")).thenReturn(accepted());
+        grayVersion(false, null);
+        SearchIndexVersion enabled = mock(SearchIndexVersion.class);
+        when(enabled.isWriteEnabled()).thenReturn(true);
+        when(enabled.getWriteEnabledEventId()).thenReturn(42L);
+        when(writes.enable(2)).thenReturn(enabled);
+        when(migrations.migrate(2, "admin")).thenReturn(acceptedMigration());
+
         GrayRelease syncing = service.sync(created.id(), "admin");
-        verify(rebuilds).rebuild(2, "admin");
+
+        org.mockito.InOrder order = inOrder(writes, migrations);
+        order.verify(writes).enable(2);
+        order.verify(migrations).migrate(2, "admin");
         assertThat(syncing.status()).isEqualTo(GrayReleaseStatus.SYNCING);
     }
 
     @Test
-    void 推进_重建完成后补齐_补齐就绪后校验_通过即已同步() {
+    void 重试同步_写入仍开启时保留双写只重新迁移() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, "同步失败：x");
+        grayVersion(true, 42L);
+        migrationRun(42L, RebuildRunState.FAILED);
+        when(migrations.migrate(2, "admin")).thenReturn(acceptedMigration());
+
+        GrayRelease syncing = service.sync(created.id(), "admin");
+
+        verify(writes, never()).enable(anyInt());
+        verify(migrations).migrate(2, "admin");
+        assertThat(syncing.lastError()).isNull();
+    }
+
+    @Test
+    void 推进_双写未开启时拒绝迁移并记录原因() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
         store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        grayVersion(false, null);
 
-        SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        when(run.state()).thenReturn(RebuildRunState.COMPLETED);
-        when(run.switchState()).thenReturn(IndexSwitchState.NONE);
+        GrayRelease advanced = service.advance(created.id());
+
+        verify(migrations, never()).migrate(anyInt(), any());
+        assertThat(advanced.lastError()).contains("双写未开启");
+    }
+
+    @Test
+    void 推进_本会话尚无迁移时发起迁移() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        grayVersion(true, 42L);
+        migrationRun(7L, RebuildRunState.COMPLETED); // 上一个写入会话的迁移
+        when(migrations.migrate(eq(2), any())).thenReturn(acceptedMigration());
+
         service.advance(created.id());
-        verify(preparations).prepare(2);
 
-        when(run.switchState()).thenReturn(IndexSwitchState.READY);
-        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
-        SearchIndexValidationReport passed = mock(SearchIndexValidationReport.class);
-        when(passed.getStatus()).thenReturn("PASS");
-        when(validations.validate(2)).thenReturn(passed);
-        assertThat(service.advance(created.id()).status()).isEqualTo(GrayReleaseStatus.SYNCED);
+        verify(migrations).migrate(eq(2), any());
     }
 
     @Test
-    void 推进_重建失败时停留在同步中并记录原因() {
+    void 推进_本会话迁移完成后校验_通过即已同步() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
         store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
-        SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        when(run.state()).thenReturn(RebuildRunState.FAILED);
-        when(run.getErrorSummary()).thenReturn("embedding timeout");
-        GrayRelease after = service.advance(created.id());
-        assertThat(after.status()).isEqualTo(GrayReleaseStatus.SYNCING);
-        assertThat(after.lastError()).contains("embedding timeout");
+        grayVersion(true, 42L);
+        migrationRun(42L, RebuildRunState.COMPLETED);
+        SearchIndexValidationReport report = mock(SearchIndexValidationReport.class);
+        when(report.getStatus()).thenReturn("PASS");
+        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
+        when(validations.validate(2)).thenReturn(report);
+
+        GrayRelease advanced = service.advance(created.id());
+
+        verify(migrations, never()).migrate(anyInt(), any());
+        assertThat(advanced.status()).isEqualTo(GrayReleaseStatus.SYNCED);
     }
 
     @Test
-    void 推进_校验未通过时记录摘要() {
+    void 推进_本会话迁移失败_记录原因等待重试() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
         store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
-        SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        when(run.state()).thenReturn(RebuildRunState.COMPLETED);
-        when(run.switchState()).thenReturn(IndexSwitchState.READY);
-        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
-        SearchIndexValidationReport failed = mock(SearchIndexValidationReport.class);
-        when(failed.getStatus()).thenReturn("FAIL");
-        when(failed.getSummary()).thenReturn("missingResources=3");
-        when(validations.validate(2)).thenReturn(failed);
-        GrayRelease after = service.advance(created.id());
-        assertThat(after.status()).isEqualTo(GrayReleaseStatus.SYNCING);
-        assertThat(after.lastError()).contains("missingResources=3");
+        grayVersion(true, 42L);
+        SearchIndexRebuildRun run = migrationRun(42L, RebuildRunState.FAILED);
+        when(run.getErrorSummary()).thenReturn("boom");
+
+        GrayRelease advanced = service.advance(created.id());
+
+        assertThat(advanced.lastError()).contains("boom");
+        verify(migrations, never()).migrate(anyInt(), any());
     }
 
     @Test
@@ -181,19 +207,6 @@ class GrayReleaseServiceTest {
     }
 
     @Test
-    void 结束灰度_停用写入并释放知识库_索引保留() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SWITCHED, null);
-        SearchIndexVersion version = versionWrites(true);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-        GrayRelease ended = service.end(created.id());
-        verify(enablement).disable(2);
-        assertThat(ended.status()).isEqualTo(GrayReleaseStatus.ENDED);
-        assertThat(store.activeReleaseByKb(List.of(7L))).isEmpty();
-        assertThatThrownBy(() -> service.end(created.id())).isInstanceOf(ConflictException.class);
-    }
-
-    @Test
     void 切换被拒时回到同步中且不停放() throws Exception {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
         store.setStatus(created.id(), GrayReleaseStatus.SYNCED, null);
@@ -206,39 +219,6 @@ class GrayReleaseServiceTest {
         Transactional tx = GrayReleaseService.class.getMethod("switchTo", long.class)
                 .getAnnotation(Transactional.class);
         assertThat(tx.noRollbackFor()).contains(ConflictException.class);
-    }
-
-    @Test
-    void 切换被拒后下一轮推进自动重新校验并回到已同步() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCED, null);
-        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.switchTo(created.id())).isInstanceOf(ConflictException.class);
-
-        SearchIndexRebuildRun run = completedRun(IndexSwitchState.READY);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        SearchIndexValidationReport passed = mock(SearchIndexValidationReport.class);
-        when(passed.getStatus()).thenReturn("PASS");
-        when(validations.validate(2)).thenReturn(passed);
-        assertThat(service.advance(created.id()).status()).isEqualTo(GrayReleaseStatus.SYNCED);
-        verify(validations).validate(2);
-    }
-
-    @Test
-    void 推进期间灰度被结束则保持已结束() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
-        SearchIndexRebuildRun run = completedRun(IndexSwitchState.READY);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
-        SearchIndexValidationReport passed = mock(SearchIndexValidationReport.class);
-        when(passed.getStatus()).thenReturn("PASS");
-        when(validations.validate(2)).thenAnswer(invocation -> {
-            store.end(created.id(), GrayReleaseStatus.SYNCING);
-            return passed;
-        });
-        assertThat(service.advance(created.id()).status()).isEqualTo(GrayReleaseStatus.ENDED);
-        assertThat(service.find(created.id()).status()).isEqualTo(GrayReleaseStatus.ENDED);
     }
 
     @Test
@@ -255,96 +235,23 @@ class GrayReleaseServiceTest {
     }
 
     @Test
-    void 停用时恰好开始同步则转为冲突() {
+    void 结束灰度_关闭写入() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        SearchIndexVersion version = versionWrites(false);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-        when(enablement.disable(2)).thenThrow(new IllegalStateException("version 2 has an active rebuild"));
-        assertThatThrownBy(() -> service.end(created.id())).isInstanceOf(ConflictException.class)
-                .hasMessageContaining("同步刚刚开始");
-        assertThat(service.find(created.id()).status()).isEqualTo(GrayReleaseStatus.CREATED);
+        grayVersion(true, 42L);
+        migrationRun(42L, RebuildRunState.COMPLETED);
+
+        service.end(created.id());
+
+        verify(writes).disable(2);
     }
 
     @Test
-    void 重建未被受理时拒绝同步且状态不变() {
+    void 结束灰度_迁移进行中拒绝() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        SearchIndexVersion version = versionWrites(false);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-        when(rebuilds.rebuild(2, "admin"))
-                .thenReturn(new VersionRebuildCoordinator.StartResult(false, 3L, false, "BUSY"));
-        assertThatThrownBy(() -> service.sync(created.id(), "admin")).isInstanceOf(ConflictException.class);
-        assertThat(service.find(created.id()).status()).isEqualTo(GrayReleaseStatus.CREATED);
-    }
-
-    @Test
-    void 已记录失败原因时推进停在原地() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, "校验未通过：x");
-        SearchIndexRebuildRun run = completedRun(IndexSwitchState.NONE);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        GrayRelease after = service.advance(created.id());
-        assertThat(after.lastError()).isEqualTo("校验未通过：x");
-        verifyNoInteractions(preparations, validations);
-    }
-
-    @Test
-    void 补齐抛异常时记录失败原因() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
-        SearchIndexRebuildRun run = completedRun(IndexSwitchState.NONE);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        when(preparations.prepare(2)).thenThrow(new IllegalStateException("barrier missing"));
-        GrayRelease after = service.advance(created.id());
-        assertThat(after.status()).isEqualTo(GrayReleaseStatus.SYNCING);
-        assertThat(after.lastError()).contains("barrier missing");
-    }
-
-    @Test
-    void 校验未通过后再次推进不会重复校验() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
-        SearchIndexRebuildRun run = completedRun(IndexSwitchState.READY);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
-        SearchIndexValidationReport failed = mock(SearchIndexValidationReport.class);
-        when(failed.getStatus()).thenReturn("FAIL");
-        when(failed.getSummary()).thenReturn("missingResources=3");
-        when(validations.validate(2)).thenReturn(failed);
-        service.advance(created.id());
-        service.advance(created.id());
-        verify(validations, times(1)).validate(2);
-    }
-
-    @Test
-    void 从已创建结束也会停用灰度版本() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        SearchIndexVersion version = versionWrites(false);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-        assertThat(service.end(created.id()).status()).isEqualTo(GrayReleaseStatus.ENDED);
-        verify(enablement).disable(2);
-    }
-
-    @Test
-    void 重建进行中时拒绝结束() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
-        SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
-        when(run.state()).thenReturn(RebuildRunState.RUNNING);
-        when(run.switchState()).thenReturn(IndexSwitchState.NONE);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
+        grayVersion(true, 42L);
+        migrationRun(42L, RebuildRunState.RUNNING);
         assertThatThrownBy(() -> service.end(created.id())).isInstanceOf(ConflictException.class);
-        verifyNoInteractions(enablement);
-        assertThat(service.find(created.id()).status()).isEqualTo(GrayReleaseStatus.SYNCING);
-    }
-
-    @Test
-    void 补齐进行中时拒绝结束() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
-        SearchIndexRebuildRun run = completedRun(IndexSwitchState.PREPARING);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        assertThatThrownBy(() -> service.end(created.id())).isInstanceOf(ConflictException.class);
-        verifyNoInteractions(enablement);
+        verify(writes, never()).disable(anyInt());
     }
 
     @Test
@@ -352,110 +259,6 @@ class GrayReleaseServiceTest {
         assertThatThrownBy(() -> service.create("x".repeat(121), "kwiki-parse-2", List.of(7L), "admin"))
                 .isInstanceOf(ConflictException.class).hasMessageContaining("120");
         verify(admin, never()).createVersion(any());
-    }
-
-    @Test
-    void 开始同步_已完成重建且切换准备就绪时只清除失败原因重新校验() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, "校验未通过：x");
-        SearchIndexVersion version = versionWrites(true);
-        when(version.getConfigRevision()).thenReturn(3L);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-        SearchIndexRebuildRun run = completedRun(IndexSwitchState.READY);
-        when(run.getConfigRevision()).thenReturn(3L);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-
-        GrayRelease after = service.sync(created.id(), "admin");
-
-        verify(rebuilds, never()).rebuild(anyInt(), any());
-        assertThat(after.status()).isEqualTo(GrayReleaseStatus.SYNCING);
-        assertThat(after.lastError()).isNull();
-    }
-
-    @Test
-    void 开始同步_补齐进行中视为已构建不重建() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, "同步失败：x");
-        SearchIndexVersion version = versionWrites(true);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-        SearchIndexRebuildRun preparing = completedRun(IndexSwitchState.PREPARING);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(preparing));
-
-        assertThat(service.sync(created.id(), "admin").lastError()).isNull();
-        verify(rebuilds, never()).rebuild(anyInt(), any());
-    }
-
-    @Test
-    void 开始同步_写入被其他路径开启但未构建时拒绝并提示重建灰度() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        SearchIndexVersion version = versionWrites(true);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-
-        assertThatThrownBy(() -> service.sync(created.id(), "admin"))
-                .isInstanceOf(ConflictException.class).hasMessageContaining("结束该灰度后重新创建");
-        verify(rebuilds, never()).rebuild(anyInt(), any());
-        assertThat(service.find(created.id()).status()).isEqualTo(GrayReleaseStatus.CREATED);
-    }
-
-    @Test
-    void 开始同步_最新重建失败时重新发起重建() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, "同步失败：x");
-        SearchIndexVersion version = versionWrites(false);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-        SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
-        when(run.state()).thenReturn(RebuildRunState.FAILED);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        when(rebuilds.rebuild(2, "admin")).thenReturn(accepted());
-
-        assertThat(service.sync(created.id(), "admin").lastError()).isNull();
-        verify(rebuilds).rebuild(2, "admin");
-    }
-
-    @Test
-    void 开始同步_重建完成但尚未切换准备时重新发起重建() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, "同步失败：barrier");
-        SearchIndexVersion version = versionWrites(false);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-        SearchIndexRebuildRun notPrepared = completedRun(IndexSwitchState.NONE);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(notPrepared));
-        when(rebuilds.rebuild(2, "admin")).thenReturn(accepted());
-
-        service.sync(created.id(), "admin");
-        verify(rebuilds).rebuild(2, "admin");
-    }
-
-    @Test
-    void 开始同步_配置已修改的旧重建记录不算已构建() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, "校验未通过：x");
-        SearchIndexVersion version = versionWrites(false);
-        when(version.getConfigRevision()).thenReturn(4L);
-        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
-        SearchIndexRebuildRun run = completedRun(IndexSwitchState.READY);
-        when(run.getConfigRevision()).thenReturn(3L);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
-        when(rebuilds.rebuild(2, "admin")).thenReturn(accepted());
-
-        service.sync(created.id(), "admin");
-        verify(rebuilds).rebuild(2, "admin");
-    }
-
-    @Test
-    void 校验未通过时提示多次失败后结束并重建灰度() {
-        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
-        SearchIndexRebuildRun ready = completedRun(IndexSwitchState.READY);
-        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(ready));
-        when(validations.currentReadyReport(2)).thenReturn(Optional.empty());
-        SearchIndexValidationReport failed = mock(SearchIndexValidationReport.class);
-        when(failed.getStatus()).thenReturn("FAIL");
-        when(failed.getSummary()).thenReturn("missingResources=3");
-        when(validations.validate(2)).thenReturn(failed);
-
-        assertThat(service.advance(created.id()).lastError())
-                .isEqualTo("校验未通过：missingResources=3。如多次重试仍失败，请结束该灰度后重新创建");
     }
 
     @Test
@@ -473,8 +276,8 @@ class GrayReleaseServiceTest {
     @Test
     void 管理写操作关闭时拒绝创建同步切换切回与结束() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        GrayReleaseService readOnly = new GrayReleaseService(store, admin, versions, scope, rebuilds, preparations,
-                validations, enablement, runs, parsers,
+        GrayReleaseService readOnly = new GrayReleaseService(store, admin, versions, scope, writes, migrations,
+                validations, runs, parsers,
                 new com.kwiki.indexing.config.IndexingProperties(null, null, null, null, null,
                         new com.kwiki.indexing.config.IndexingProperties.Management(false)));
         String message = "索引管理写操作已被关闭";
@@ -492,25 +295,29 @@ class GrayReleaseServiceTest {
         assertThatThrownBy(() -> readOnly.end(created.id()))
                 .isInstanceOf(ConflictException.class).hasMessageContaining(message);
         assertThat(store.find(created.id()).orElseThrow().status()).isEqualTo(GrayReleaseStatus.SWITCHED);
-        verify(rebuilds, never()).rebuild(anyInt(), any());
-        verifyNoInteractions(enablement);
+        verify(migrations, never()).migrate(anyInt(), any());
+        verifyNoInteractions(writes);
     }
 
-    private static VersionRebuildCoordinator.StartResult accepted() {
-        return new VersionRebuildCoordinator.StartResult(true, 1L, false, "ACCEPTED");
+    private SearchIndexVersion grayVersion(boolean writeEnabled, Long eventId) {
+        SearchIndexVersion version = mock(SearchIndexVersion.class);
+        when(version.getVersionNumber()).thenReturn(2);
+        when(version.isWriteEnabled()).thenReturn(writeEnabled);
+        when(version.getWriteEnabledEventId()).thenReturn(eventId);
+        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
+        return version;
     }
 
-    private static SearchIndexRebuildRun completedRun(IndexSwitchState switchState) {
+    private SearchIndexRebuildRun migrationRun(long startEventId, RebuildRunState state) {
         SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
-        when(run.state()).thenReturn(RebuildRunState.COMPLETED);
-        when(run.switchState()).thenReturn(switchState);
+        when(run.kind()).thenReturn(RebuildRunKind.MIGRATION);
+        when(run.getBuildStartEventId()).thenReturn(startEventId);
+        when(run.state()).thenReturn(state);
+        when(runs.findFirstByVersionNumberOrderByIdDesc(2)).thenReturn(Optional.of(run));
         return run;
     }
 
-    private SearchIndexVersion versionWrites(boolean writeEnabled) {
-        SearchIndexVersion version = mock(SearchIndexVersion.class);
-        when(version.isWriteEnabled()).thenReturn(writeEnabled);
-        when(version.getVersionNumber()).thenReturn(2);
-        return version;
+    private static VersionRebuildCoordinator.StartResult acceptedMigration() {
+        return new VersionRebuildCoordinator.StartResult(true, 9L, false, "ACCEPTED");
     }
 }
