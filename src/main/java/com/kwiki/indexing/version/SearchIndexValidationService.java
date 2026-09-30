@@ -71,7 +71,9 @@ public class SearchIndexValidationService {
         long missing=resources.stream().filter(resource -> !present(version,resource)).count();
         boolean coverage=missing==0;
         Diagnostics diagnostics=diagnostics(version,resources);
-        boolean synchronizedState=synchronizedState(run);
+        // 屏障：校验时刻的事件水位；此前的双写目标都必须已完成
+        long barrier=scalarLong("SELECT COALESCE(MAX(id),0) FROM search_index_change_event");
+        boolean synchronizedState=synchronizedState(run,version,barrier);
         boolean smoke=smoke(version);
         String cursors=cursorFingerprint(run);
         String alias=aliasFingerprint();
@@ -89,7 +91,7 @@ public class SearchIndexValidationService {
                 revision,manifest,mapping,vectorDimension,requiredFields,
                 coverage,resources.size(),missing,diagnostics.valid,diagnostics.stale,
                 diagnostics.orphans,diagnostics.vectors,diagnostics.mixed,
-                synchronizedState,smoke,run==null?null:run.getCatchupBarrierEventId(),
+                synchronizedState,smoke,barrier,
                 cursors,alias,summary,now));
         version.recordValidation(summary,now);
         return report;
@@ -107,11 +109,10 @@ public class SearchIndexValidationService {
                 ||report.getConfigRevision()!=version.getConfigRevision()
                 ||!version.isPipelineSupported()||version.getNeedsAttentionReason()!=null)return Optional.empty();
         SearchIndexRebuildRun run=report.getRunId()==null?null:runs.findById(report.getRunId()).orElse(null);
-        if(run==null||run.switchState()!=IndexSwitchState.READY
-                ||!Objects.equals(report.getBarrierEventId(),run.getCatchupBarrierEventId())
+        if(run==null||report.getBarrierEventId()==null
                 ||!Objects.equals(report.getCursorFingerprint(),cursorFingerprint(run))
                 ||!Objects.equals(report.getAliasFingerprint(),aliasFingerprint())
-                ||!synchronizedState(run))return Optional.empty();
+                ||!synchronizedState(run,version,report.getBarrierEventId()))return Optional.empty();
         return Optional.of(report);
     }
 
@@ -180,31 +181,34 @@ public class SearchIndexValidationService {
         }catch(Exception failure){return new Diagnostics(false,0,0,0,0);}
     }
 
-    private boolean synchronizedState(SearchIndexRebuildRun run){
-        if(run==null||run.switchState()!=IndexSwitchState.READY||!run.replayComplete()
-                ||run.getCatchupBarrierEventId()==null)return false;
-        if(ranges.findByRunIdOrderByResourceType(run.getId()).stream()
-                .anyMatch(range->!range.tailComplete()))return false;
+    /** 本写入会话的迁移已完成、版本已追平，且屏障前的双写目标与迁移目标全部完成。 */
+    boolean synchronizedState(SearchIndexRebuildRun run,SearchIndexVersion version,long barrier){
+        if(run==null||run.kind()!=RebuildRunKind.MIGRATION
+                ||run.state()!=RebuildRunState.COMPLETED||!version.isWriteEnabled()
+                ||!Objects.equals(version.getWriteEnabledEventId(),run.getBuildStartEventId())
+                ||!IndexCatchupStatus.CURRENT.name().equals(version.getCatchupStatus()))return false;
         Long unresolved=jdbc.queryForObject("""
                 SELECT COUNT(*) FROM indexing_job_target t JOIN indexing_job j ON j.id=t.job_id
                 WHERE t.target_version=? AND t.state<>'COMPLETED'
                   AND (t.event_id<=? OR j.idempotency_key LIKE ?)
-                """,Long.class,run.getVersionNumber(),run.getCatchupBarrierEventId(),
-                "CATCHUP:"+run.getId()+":TAIL:%");
+                """,Long.class,run.getVersionNumber(),barrier,"REBUILD:"+run.getId()+":%");
         return unresolved!=null&&unresolved==0;
+    }
+
+    /** 报告与写入会话绑定：会话重开（E 变化）后旧报告自动失效。 */
+    private String cursorFingerprint(SearchIndexRebuildRun run){
+        return run==null?null:"write-session:"+run.getBuildStartEventId();
+    }
+
+    private long scalarLong(String sql){
+        Long value=jdbc.queryForObject(sql,Long.class);
+        return value==null?0L:value;
     }
 
     private boolean smoke(SearchIndexVersion version){
         try{indexes.runValidationSmokeQueries(version.getPhysicalName(),
                 version.editableConfig().embeddingDimensions());return true;}
         catch(Exception failure){return false;}
-    }
-
-    private String cursorFingerprint(SearchIndexRebuildRun run){
-        if(run==null)return null;
-        return ranges.findByRunIdOrderByResourceType(run.getId()).stream()
-                .map(range->range.getResourceType()+":"+range.getTailLastSeenId()+":"+range.getTailMaxId())
-                .sorted().collect(java.util.stream.Collectors.joining("|"));
     }
 
     private String aliasFingerprint(){

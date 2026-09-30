@@ -37,16 +37,12 @@ class SearchIndexValidationServiceTest {
         String hash=mappings.mappingHash(1024, 1);
         SearchIndexVersion version=SearchIndexVersion.bootstrapped(2,"kwiki-chunks-v2",config,hash);
         BuildManifestSnapshot manifest=version.buildManifestSnapshot();
-        SearchIndexRebuildRun run=SearchIndexRebuildRun.create(2,1,RebuildRunKind.INITIAL,1,
+        // 前置：本写入会话的迁移 run 已完成，迁移起点等于版本写入会话起点（E），版本已追平
+        SearchIndexRebuildRun run=SearchIndexRebuildRun.create(2,1,RebuildRunKind.MIGRATION,1,
                 new ObjectMapper().writeValueAsString(manifest),"admin","owner",
                 Duration.ofMinutes(1),0,Instant.EPOCH);
         run.complete(Instant.EPOCH);
-        run.startSwitchPreparation(0,Instant.EPOCH);
-        run.captureCatchupBarrier(0,Instant.EPOCH);
-        run.markSwitchReady(Instant.EPOCH);
         ReflectionTestUtils.setField(run,"id",91L);
-        SearchIndexRebuildRange range=new SearchIndexRebuildRange(91,"PAGE",0,0);
-        range.captureTailUpperBound(0);
         when(versions.findByVersionNumberForUpdate(2)).thenReturn(Optional.of(version));
         when(runs.findFirstByVersionNumberAndConfigRevisionAndStateOrderByIdDesc(2,1,"COMPLETED"))
                 .thenReturn(Optional.of(run));
@@ -58,7 +54,6 @@ class SearchIndexValidationServiceTest {
                         2,List.of(validDocument("PARENT",null),
                                 validDocument("CHILD","parent")),false));
         when(reports.save(any())).thenAnswer(invocation->invocation.getArgument(0));
-        when(ranges.findByRunIdOrderByResourceType(91L)).thenReturn(List.of(range));
         when(jdbc.queryForObject(any(String.class),org.mockito.ArgumentMatchers.eq(Long.class),
                 any(Object[].class))).thenReturn(0L);
         when(jdbc.query(contains("FROM wiki_page"),
