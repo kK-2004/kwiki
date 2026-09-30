@@ -136,15 +136,15 @@ class SearchIndexAdminServiceTest {
     void editKeepsTheNumberAndMarksPendingRebuild() {
         SearchIndexVersion offline = SearchIndexVersion.bootstrapped(
                 2, "kwiki-chunks-v2", config(1024), "hash");
-        offline.applySnapshot(IndexVersionStatusPolicy.disableWrites(
-                IndexVersionStatusPolicy.unpublish(offline.toSnapshot(false, false))));
+        offline.applySnapshot(IndexVersionStatusPolicy.unpublish(offline.toSnapshot(false)));
+        offline.endWriteSession();
         rows.put(2, offline);
 
         SearchIndexVersion edited = service.editVersion(2, config(2048));
 
         assertThat(edited.getVersionNumber()).isEqualTo(2);
         assertThat(edited.getConfigRevision()).isEqualTo(2);
-        assertThat(edited.toSnapshot(false, false).dirty()).isTrue();
+        assertThat(edited.toSnapshot(false).dirty()).isTrue();
     }
 
     @Test

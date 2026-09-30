@@ -47,7 +47,7 @@ public class IndexPipelineSupportReconciler implements ApplicationRunner {
             boolean shouldSupport = registry.supports(version.editableConfig());
             if (version.isPipelineSupported() != shouldSupport) {
                 IndexVersionSnapshot snapshot = IndexVersionStatusPolicy.pipelineSupportChanged(
-                        version.toSnapshot(false, false), shouldSupport);
+                        version.toSnapshot(false), shouldSupport);
                 version.applySnapshot(snapshot);
                 repository.save(version);
                 changed++;

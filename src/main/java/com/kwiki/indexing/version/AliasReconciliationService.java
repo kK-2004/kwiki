@@ -2,6 +2,8 @@ package com.kwiki.indexing.version;
 
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -11,6 +13,7 @@ import java.time.Duration;
 /** ES 别名是读目标事实源；修复 ES 已提交但数据库未提交的崩溃窗口。 */
 @Service
 public class AliasReconciliationService implements ApplicationRunner {
+    private static final Logger log = LoggerFactory.getLogger(AliasReconciliationService.class);
     private final KwikiDistributedLocks locks; private final ElasticsearchIndexManager indexes;
     private final SearchIndexVersionRepository versions; private final SearchIndexSelectionRegistry selection;
     private final SearchIndexAuditRepository audits;
@@ -41,6 +44,10 @@ public class AliasReconciliationService implements ApplicationRunner {
                     recorded==null?"<missing>":recorded.getPhysicalName()));
             selection.select(actual.getVersionNumber());
             audit.recovered(actual.getPhysicalName()); audits.save(audit); return true;
-        }catch(Exception failure){return false;}
+        }catch(Exception failure){
+            // 对账失败不能静默：留下 warn 线索，等待下个周期自动重试
+            log.warn("别名对账失败：ES 读目标与数据库选中版本未收敛，稍后重试", failure);
+            return false;
+        }
     }
 }

@@ -103,6 +103,6 @@ public class SearchIndexAdminService {
         }
         return repository.findByVersionNumber(versionNumber)
                 .map(version -> IndexVersionStatusPolicy.displayStatus(
-                        version.toSnapshot(false, false)));
+                        version.toSnapshot(false)));
     }
 }

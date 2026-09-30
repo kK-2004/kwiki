@@ -18,8 +18,8 @@ public class SearchIndexSelectionRegistry {
             throw new IllegalStateException("target version must accept writes before selection");
         for(SearchIndexVersion version:all){
             if(version.isSelected()) version.applySnapshot(IndexVersionStatusPolicy.unpublish(
-                    version.toSnapshot(false,false)));
+                    version.toSnapshot(false)));
         }
-        target.applySnapshot(IndexVersionStatusPolicy.publish(target.toSnapshot(false,false)));
+        target.applySnapshot(IndexVersionStatusPolicy.publish(target.toSnapshot(false)));
     }
 }

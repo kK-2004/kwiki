@@ -49,13 +49,13 @@ class SearchIndexDeletionServiceTest {
         reject(selected, "kwiki-chunks-v1", "selected version");
 
         SearchIndexVersion writable = builtVersion(2, "kwiki-chunks-v2");
-        writable.enableForSwitchPreparation();
+        writable.startWriteSession(1L);
         reject(writable, "kwiki-chunks-v2", "write-enabled version");
 
         SearchIndexVersion busy = disabledVersion(3, "kwiki-chunks-v3");
         when(runs.existsByVersionNumberAndStateIn(3, List.of("RUNNING", "PAUSED")))
                 .thenReturn(true);
-        reject(busy, "kwiki-chunks-v3", "active rebuild or catch-up");
+        reject(busy, "kwiki-chunks-v3", "active migration");
 
         SearchIndexVersion malformed = disabledVersion(4, "other-index");
         reject(malformed, "other-index", "not exact");
@@ -93,6 +93,21 @@ class SearchIndexDeletionServiceTest {
     }
 
     @Test
+    void neverWriteEnabledVersionIsDeletableWithoutAdminDisable() throws Exception {
+        // 正向用例：从未开启写入（adminDisabled=false 且写关闭）的已构建版本即可删除
+        SearchIndexVersion version = builtVersion(8, "kwiki-chunks-v8");
+        assertThat(version.isAdminDisabled()).isFalse();
+        when(versions.findByVersionNumberForUpdate(8)).thenReturn(Optional.of(version));
+        when(indexes.deletePhysicalIndex("kwiki-chunks-v8")).thenReturn(true);
+
+        SearchIndexDeletionService.DeletionResult result = service.delete(
+                8, "kwiki-chunks-v8", "delete-8", "admin");
+
+        assertThat(result.outcome()).isEqualTo("SUCCESS:ACKNOWLEDGED");
+        verify(indexes).deletePhysicalIndex("kwiki-chunks-v8");
+    }
+
+    @Test
     void repeatedIdempotencyKeyReplaysOutcomeWithoutDeletingAgain() throws Exception {
         SearchIndexIdempotency prior = SearchIndexIdempotency.pending(
                 "delete-7", "DELETE_PHYSICAL_INDEX", 7, "admin");
@@ -116,14 +131,14 @@ class SearchIndexDeletionServiceTest {
 
     private static SearchIndexVersion disabledVersion(int number, String physicalName) {
         SearchIndexVersion version = builtVersion(number, physicalName);
-        version.disableByAdministrator();
+        version.endWriteSession();
         return version;
     }
 
     private static SearchIndexVersion builtVersion(int number, String physicalName) {
         SearchIndexVersion version = new SearchIndexVersion(number, physicalName, CONFIG, "mapping");
         version.applySnapshot(IndexVersionStatusPolicy.completeBuild(
-                version.toSnapshot(false, false), 1));
+                version.toSnapshot(false), 1));
         return version;
     }
 }

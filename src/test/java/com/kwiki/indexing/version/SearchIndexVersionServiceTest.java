@@ -144,16 +144,15 @@ class SearchIndexVersionServiceTest {
     private static SearchIndexVersion builtOffline(int number, String mappingHash) {
         SearchIndexVersion version = SearchIndexVersion.bootstrapped(
                 number, "kwiki-chunks-v" + number, config(1024), mappingHash);
-        IndexVersionSnapshot snapshot = IndexVersionStatusPolicy.disableWrites(
-                IndexVersionStatusPolicy.unpublish(version.toSnapshot(false, false)));
-        version.applySnapshot(snapshot);
+        version.applySnapshot(IndexVersionStatusPolicy.unpublish(version.toSnapshot(false)));
+        version.endWriteSession();
         return version;
     }
 
     /** 测试桥接：dirty 派生事实。 */
     private static final class IndexVersionStatusPolicyTestBridge {
         boolean dirty(SearchIndexVersion version) {
-            return version.toSnapshot(false, false).dirty();
+            return version.toSnapshot(false).dirty();
         }
     }
 }

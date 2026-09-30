@@ -67,7 +67,7 @@ public class SearchIndexVersionService {
         SearchIndexVersion version = registry().findByVersionNumber(versionNumber)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "unknown index version: " + versionNumber));
-        IndexVersionStatusPolicy.editConfig(version.toSnapshot(false, false), null);
+        IndexVersionStatusPolicy.editConfig(version.toSnapshot(false), null);
         version.applyConfigEdit(config,
                 mappingBuilder.mappingHash(config.embeddingDimensions(),
                         config.mappingSchemaVersion()));

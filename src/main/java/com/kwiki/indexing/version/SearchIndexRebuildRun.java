@@ -140,54 +140,6 @@ public class SearchIndexRebuildRun {
     public long getResourcesSkipped() { return resourcesSkipped; }
     public long getResourcesFailed() { return resourcesFailed; }
 
-    void startSwitchPreparation(long eventId, Instant now) {
-        if (state() != RebuildRunState.COMPLETED) {
-            throw new IllegalStateException("baseline rebuild is not complete");
-        }
-        if (eventId < buildStartEventId) {
-            throw new IllegalArgumentException("dual-write watermark precedes build watermark");
-        }
-        dualWriteStartEventId = eventId;
-        catchupBarrierEventId = null;
-        switchState = IndexSwitchState.PREPARING.name();
-        updatedAt = now;
-    }
-
-    void advanceReplayCursor(long eventId) {
-        if (dualWriteStartEventId == null) {
-            throw new IllegalStateException("switch preparation has not started");
-        }
-        if (eventId < replayEventId || eventId > dualWriteStartEventId) {
-            throw new IllegalArgumentException("event replay cursor is outside its watermarks");
-        }
-        replayEventId = eventId;
-    }
-
-    public boolean replayComplete() {
-        return dualWriteStartEventId != null && replayEventId >= dualWriteStartEventId;
-    }
-
-    void captureCatchupBarrier(long eventId, Instant now) {
-        if (switchState() != IndexSwitchState.PREPARING || !replayComplete()) {
-            throw new IllegalStateException("switch catch-up is not ready for a barrier");
-        }
-        if (eventId < dualWriteStartEventId) {
-            throw new IllegalArgumentException("catch-up barrier precedes dual-write watermark");
-        }
-        if (catchupBarrierEventId == null) {
-            catchupBarrierEventId = eventId;
-            updatedAt = now;
-        }
-    }
-
-    void markSwitchReady(Instant now) {
-        if (catchupBarrierEventId == null) {
-            throw new IllegalStateException("catch-up barrier has not been captured");
-        }
-        switchState = IndexSwitchState.READY.name();
-        updatedAt = now;
-    }
-
     void requestPause(Instant now) {
         if (!state().active()) throw new IllegalStateException("terminal run cannot be paused");
         pauseRequested = true;

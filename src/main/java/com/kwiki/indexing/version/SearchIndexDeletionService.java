@@ -101,10 +101,8 @@ public class SearchIndexDeletionService {
         if (version.isSelected()) throw new IllegalStateException("selected version cannot be deleted");
         if (version.isWriteEnabled()) throw new IllegalStateException("write-enabled version cannot be deleted");
         if (IndexBuildState.BUILDING.name().equals(version.getBuildState())
-                || runs.existsByVersionNumberAndStateIn(version.getVersionNumber(), ACTIVE_RUN_STATES)
-                || runs.existsByVersionNumberAndSwitchState(version.getVersionNumber(),
-                IndexSwitchState.PREPARING.name())) {
-            throw new IllegalStateException("version has an active rebuild or catch-up");
+                || runs.existsByVersionNumberAndStateIn(version.getVersionNumber(), ACTIVE_RUN_STATES)) {
+            throw new IllegalStateException("version has an active migration");
         }
         if (graphBuilds != null
                 && graphBuilds.hasActiveRunReferencingChunkIndex(version.getVersionNumber())) {

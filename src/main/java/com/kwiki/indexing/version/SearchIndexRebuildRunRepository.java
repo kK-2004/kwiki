@@ -29,12 +29,7 @@ public interface SearchIndexRebuildRunRepository
     @Query("select r from SearchIndexRebuildRun r where r.id = :id")
     Optional<SearchIndexRebuildRun> findByIdForUpdate(@Param("id") long id);
 
-    List<SearchIndexRebuildRun>
-    findByStateAndSwitchStateOrderByIdAsc(String state, String switchState);
-
     boolean existsByVersionNumberAndStateIn(int versionNumber, Collection<String> states);
-
-    boolean existsByVersionNumberAndSwitchState(int versionNumber, String switchState);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<SearchIndexRebuildRun>

@@ -22,30 +22,6 @@ class RebuildTargetEnqueuer {
         enqueue(runId, version, physicalName, "ATTACHMENT", attachmentId, null, null);
     }
 
-    void enqueueTailPage(long runId, int version, String physicalName, long pageId,
-                         long revisionId, long lifecycleVersion) {
-        enqueue("CATCHUP:" + runId + ":TAIL", null, version, physicalName,
-                "UPSERT", "PAGE", pageId, revisionId, lifecycleVersion);
-    }
-
-    void enqueueTailAttachment(long runId, int version, String physicalName, long attachmentId) {
-        enqueue("CATCHUP:" + runId + ":TAIL", null, version, physicalName,
-                "UPSERT", "ATTACHMENT", attachmentId, null, null);
-    }
-
-    void replayEvent(long runId, int version, String physicalName, ChangeEvent event) {
-        String operation = switch (event.operation()) {
-            case "ARCHIVE" -> "DELETE";
-            case "RESTORE" -> "UPSERT";
-            case "UPSERT", "DELETE" -> event.operation();
-            default -> throw new IllegalArgumentException(
-                    "unsupported change-event operation: " + event.operation());
-        };
-        enqueue("CATCHUP:" + runId + ":EVENT:" + event.id(), event.id(), version,
-                physicalName, operation, event.resourceType(), event.resourceId(),
-                event.revisionId(), event.lifecycleVersion());
-    }
-
     private void enqueue(long runId, int version, String physicalName, String resourceType,
                          long resourceId, Long revisionId, Long lifecycleVersion) {
         enqueue("REBUILD:" + runId, null, version, physicalName, "UPSERT", resourceType,
@@ -75,7 +51,4 @@ class RebuildTargetEnqueuer {
                 ON DUPLICATE KEY UPDATE physical_name=VALUES(physical_name)
                 """, jobId, eventId, version, physicalName, key + ":v" + version);
     }
-
-    record ChangeEvent(long id, String resourceType, long resourceId, Long revisionId,
-                       String operation, long lifecycleVersion) { }
 }

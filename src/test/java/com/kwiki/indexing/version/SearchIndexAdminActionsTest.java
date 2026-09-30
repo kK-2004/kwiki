@@ -14,7 +14,7 @@ class SearchIndexAdminActionsTest {
     private SearchIndexAdminQueryService.Actions actions(SearchIndexVersion version, boolean activeRun,
                                                          boolean scoped) {
         return SearchIndexAdminQueryService.actionsFor(version,
-                version.toSnapshot(activeRun, false), activeRun, scoped, false, true);
+                version.toSnapshot(activeRun), activeRun, scoped, false, true);
     }
 
     @Test

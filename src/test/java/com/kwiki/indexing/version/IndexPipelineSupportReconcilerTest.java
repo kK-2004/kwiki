@@ -50,7 +50,7 @@ class IndexPipelineSupportReconcilerTest {
 
         assertThat(changed).isEqualTo(1);
         assertThat(selected.isPipelineSupported()).isFalse();
-        assertThat(selected.toSnapshot(false, false).selectable()).isFalse();
+        assertThat(selected.toSnapshot(false).selectable()).isFalse();
     }
 
     @Test
@@ -58,7 +58,7 @@ class IndexPipelineSupportReconcilerTest {
         SearchIndexVersion marked = SearchIndexVersion.bootstrapped(
                 2, "kwiki-chunks-v2", config(), "hash");
         marked.applySnapshot(IndexVersionStatusPolicy.pipelineSupportChanged(
-                marked.toSnapshot(false, false), false));
+                marked.toSnapshot(false), false));
         when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc())
                 .thenReturn(List.of(marked));
         when(registry.supports(config())).thenReturn(true);

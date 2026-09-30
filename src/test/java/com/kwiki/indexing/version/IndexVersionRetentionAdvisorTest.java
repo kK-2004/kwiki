@@ -19,9 +19,9 @@ class IndexVersionRetentionAdvisorTest {
         SearchIndexVersion selected = SearchIndexVersion.bootstrapped(
                 1, "kwiki-chunks-v1", CONFIG, "mapping");
         SearchIndexVersion v2 = builtVersion(2);
-        v2.disableByAdministrator();
+        v2.endWriteSession();
         SearchIndexVersion v3 = builtVersion(3);
-        v3.disableByAdministrator();
+        v3.endWriteSession();
         when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc())
                 .thenReturn(List.of(selected, v2, v3));
 
@@ -47,7 +47,7 @@ class IndexVersionRetentionAdvisorTest {
                 1, "kwiki-chunks-v1", CONFIG, "mapping");
         SearchIndexVersion v2 = builtVersion(2);
         SearchIndexVersion v3 = builtVersion(3);
-        v3.disableByAdministrator();
+        v3.endWriteSession();
         when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc())
                 .thenReturn(List.of(selected, v2, v3));
         com.kwiki.indexing.gray.IndexVersionKbScope scope =
@@ -66,7 +66,7 @@ class IndexVersionRetentionAdvisorTest {
         SearchIndexVersion version = new SearchIndexVersion(
                 versionNumber, "kwiki-chunks-v" + versionNumber, CONFIG, "mapping");
         version.applySnapshot(IndexVersionStatusPolicy.completeBuild(
-                version.toSnapshot(false, false), 1));
+                version.toSnapshot(false), 1));
         return version;
     }
 }

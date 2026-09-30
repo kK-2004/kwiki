@@ -124,14 +124,12 @@ public class SearchIndexAdminQueryService {
     private VersionView view(SearchIndexVersion version, boolean cleanupCandidate) {
         boolean activeRun = runs.existsByVersionNumberAndStateIn(version.getVersionNumber(),
                 List.of(RebuildRunState.RUNNING.name(), RebuildRunState.PAUSED.name()));
-        boolean preparing = runs.existsByVersionNumberAndSwitchState(version.getVersionNumber(),
-                IndexSwitchState.PREPARING.name());
-        IndexVersionSnapshot snapshot=version.toSnapshot(activeRun,preparing);
+        IndexVersionSnapshot snapshot=version.toSnapshot(activeRun);
         boolean multimodalBlocked = multimodalReadiness.isMultimodal(
                 version.editableConfig().parserVersion()) && !multimodalReadiness.ready();
         // 灰度版本只服务范围内知识库，生命周期由灰度发布管理
         boolean scoped = kbScope != null && kbScope.isScoped(version.getVersionNumber());
-        Actions actions = actionsFor(version, snapshot, activeRun || preparing, scoped,
+        Actions actions = actionsFor(version, snapshot, activeRun, scoped,
                 multimodalBlocked, cleanupCandidate);
         EditableIndexConfig config=version.editableConfig();
         return new VersionView(version.getVersionNumber(),version.getPhysicalName(),config,

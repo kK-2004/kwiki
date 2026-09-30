@@ -64,8 +64,8 @@ class JpaRebuildRunRegistry implements RebuildRunRegistry {
                         "unknown index version: " + request.versionNumber()));
         boolean migration = request.kind() == RebuildRunKind.MIGRATION;
         IndexVersionSnapshot building = migration
-                ? IndexVersionStatusPolicy.startMigration(version.toSnapshot(false, false))
-                : IndexVersionStatusPolicy.startBuild(version.toSnapshot(false, false));
+                ? IndexVersionStatusPolicy.startMigration(version.toSnapshot(false))
+                : IndexVersionStatusPolicy.startBuild(version.toSnapshot(false));
         BuildManifestSnapshot manifest = version.buildManifestSnapshot();
         // 迁移 run 的起点固化为写入会话起点 E：扫描只补入 E 之后没有再变更的资源
         long eventId;
@@ -99,7 +99,7 @@ class JpaRebuildRunRegistry implements RebuildRunRegistry {
                         "rebuild run lease ownership changed: " + runId));
         run.complete(clock.instant());
         versions.findByVersionNumberForUpdate(run.getVersionNumber()).ifPresent(version -> {
-            IndexVersionSnapshot current = version.toSnapshot(true, false);
+            IndexVersionSnapshot current = version.toSnapshot(true);
             if (run.kind() == RebuildRunKind.MIGRATION) {
                 // 迁移期间写入会话被重开（E 变化）时，本次结果不属于当前会话
                 boolean sameSession = java.util.Objects.equals(
@@ -121,7 +121,7 @@ class JpaRebuildRunRegistry implements RebuildRunRegistry {
             run.fail(failure, clock.instant());
             versions.findByVersionNumberForUpdate(run.getVersionNumber()).ifPresent(version ->
                     version.applySnapshot(IndexVersionStatusPolicy.failBuild(
-                            version.toSnapshot(true, false))));
+                            version.toSnapshot(true))));
         });
     }
 
@@ -132,7 +132,7 @@ class JpaRebuildRunRegistry implements RebuildRunRegistry {
             run.cancel(clock.instant());
             versions.findByVersionNumberForUpdate(run.getVersionNumber()).ifPresent(version ->
                     version.applySnapshot(IndexVersionStatusPolicy.failBuild(
-                            version.toSnapshot(true, false))));
+                            version.toSnapshot(true))));
         });
     }
 

@@ -26,13 +26,6 @@ class ScopedIndexingTest {
     }
 
     @Test
-    void 补齐尾部扫描的页面与附件查询都带范围过滤() throws Exception {
-        String catchup = source("indexing/version/SwitchCatchupProcessor.java");
-        assertThat(catchup).contains("IndexVersionKbScope.sqlFilter(\"p.kb_id\")")
-                .contains("IndexVersionKbScope.sqlFilter(\"a.kb_id\")");
-    }
-
-    @Test
     void 校验资源清单带范围过滤() throws Exception {
         String validation = source("indexing/version/SearchIndexValidationService.java");
         assertThat(validation).contains("IndexVersionKbScope.sqlFilter(\"p.kb_id\")")

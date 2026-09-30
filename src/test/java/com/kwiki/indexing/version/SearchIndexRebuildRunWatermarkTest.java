@@ -6,45 +6,8 @@ import java.time.Duration;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SearchIndexRebuildRunWatermarkTest {
-
-    @Test
-    void eventReplayCursorAdvancesMonotonicallyAndResumesAtPersistedPosition() {
-        SearchIndexRebuildRun run = SearchIndexRebuildRun.create(2, 1,
-                RebuildRunKind.INITIAL, 1, "{}", "admin", "owner",
-                Duration.ofMinutes(1), 10, Instant.EPOCH);
-        run.complete(Instant.EPOCH);
-        run.startSwitchPreparation(30, Instant.EPOCH);
-
-        run.advanceReplayCursor(18);
-        run.advanceReplayCursor(30);
-
-        assertThat(run.getReplayEventId()).isEqualTo(30);
-        assertThat(run.replayComplete()).isTrue();
-        assertThatThrownBy(() -> run.advanceReplayCursor(29))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> run.advanceReplayCursor(31))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void barrierKeepsPreparingUntilExplicitlyMarkedReady() {
-        SearchIndexRebuildRun run = SearchIndexRebuildRun.create(2, 1,
-                RebuildRunKind.INITIAL, 1, "{}", "admin", "owner",
-                Duration.ofMinutes(1), 10, Instant.EPOCH);
-        run.complete(Instant.EPOCH);
-        run.startSwitchPreparation(20, Instant.EPOCH);
-        run.advanceReplayCursor(20);
-
-        run.captureCatchupBarrier(27, Instant.EPOCH);
-        assertThat(run.switchState()).isEqualTo(IndexSwitchState.PREPARING);
-        assertThat(run.getCatchupBarrierEventId()).isEqualTo(27);
-
-        run.markSwitchReady(Instant.EPOCH);
-        assertThat(run.switchState()).isEqualTo(IndexSwitchState.READY);
-    }
 
     @Test
     void pauseResumeAndCancelRemainDurableAtBatchBoundaries() {

@@ -71,7 +71,7 @@ public class IndexMigrationService {
             throw new IllegalStateException("version is referenced by an active graph build");
         }
         if (!admitted) {
-            IndexVersionSnapshot snapshot = version.toSnapshot(false, false);
+            IndexVersionSnapshot snapshot = version.toSnapshot(false);
             if (!snapshot.dirty() && snapshot.buildState() == IndexBuildState.BUILT
                     && snapshot.catchupStatus() == IndexCatchupStatus.CURRENT) {
                 throw new IllegalStateException("version is already migrated");

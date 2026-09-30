@@ -254,38 +254,6 @@ public class SearchIndexVersion {
         catchupStatus = IndexCatchupStatus.BEHIND.name();
     }
 
-    /** 切换准备加入未来事件多写；管理员明确停用的版本不得被隐式恢复。 */
-    void enableForSwitchPreparation() {
-        if (deletedAt != null || adminDisabled || !pipelineSupported) {
-            throw new IllegalStateException("version " + versionNumber
-                    + " is not eligible for switch-preparation writes");
-        }
-        writeEnabled = true;
-    }
-
-    /** 显式停用事实独立于临时 writeEnabled，避免后续切换准备误恢复。 */
-    void disableByAdministrator() {
-        if (selected) {
-            throw new IllegalStateException("selected version cannot be disabled");
-        }
-        adminDisabled = true;
-        writeEnabled = false;
-        catchupStatus = IndexCatchupStatus.BEHIND.name();
-    }
-
-    /** 重新纳入未来事件写入；历史缺口必须由随后的切换准备补齐。 */
-    void reenableByAdministrator() {
-        if (deletedAt != null) {
-            throw new IllegalStateException("deleted version cannot be re-enabled");
-        }
-        if (!pipelineSupported) {
-            throw new IllegalStateException("unsupported version cannot be re-enabled");
-        }
-        adminDisabled = false;
-        writeEnabled = true;
-        catchupStatus = IndexCatchupStatus.BEHIND.name();
-    }
-
     /**
      * 遗留别名目标无法安全匹配时：仍按别名事实保持 selected（读路径
      * 不受影响），但管理端因 NEEDS_ATTENTION 失败关闭，且该状态不可
@@ -299,12 +267,11 @@ public class SearchIndexVersion {
         this.writeEnabled = false;
     }
 
-    /** 供快照映射使用（活动 run / 切换准备标志来自 run 表，非本表事实）。 */
-    public IndexVersionSnapshot toSnapshot(boolean activeRun, boolean switchPreparing) {
+    /** 供快照映射使用（活动 run 标志来自 run 表，非本表事实）。 */
+    public IndexVersionSnapshot toSnapshot(boolean activeRun) {
         return new IndexVersionSnapshot(versionNumber, physicalName, configRevision,
                 builtConfigRevision, IndexBuildState.valueOf(buildState),
                 IndexCatchupStatus.valueOf(catchupStatus), writeEnabled, selected,
-                pipelineSupported, deletedAt != null, needsAttentionReason, activeRun,
-                switchPreparing);
+                pipelineSupported, deletedAt != null, needsAttentionReason, activeRun);
     }
 }
