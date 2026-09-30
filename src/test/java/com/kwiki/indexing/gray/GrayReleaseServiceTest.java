@@ -175,7 +175,7 @@ class GrayReleaseServiceTest {
     @Test
     void 推进_本会话迁移失败_记录原因等待重试() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
-        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null); // 无失败原因才会推进到迁移结果判断
         grayVersion(true, 42L);
         SearchIndexRebuildRun run = migrationRun(42L, RebuildRunState.FAILED);
         when(run.getErrorSummary()).thenReturn("boom");
@@ -184,6 +184,21 @@ class GrayReleaseServiceTest {
 
         assertThat(advanced.lastError()).contains("boom");
         verify(migrations, never()).migrate(anyInt(), any());
+    }
+
+    @Test
+    void 推进_已记录失败原因时停在原地() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, "校验未通过：x");
+        grayVersion(true, 42L);
+        migrationRun(42L, RebuildRunState.COMPLETED); // 即便本会话迁移已完成，也不得重跑校验
+
+        GrayRelease advanced = service.advance(created.id());
+
+        assertThat(advanced.status()).isEqualTo(GrayReleaseStatus.SYNCING);
+        assertThat(advanced.lastError()).isEqualTo("校验未通过：x");
+        verifyNoInteractions(migrations);
+        verify(validations, never()).validate(anyInt());
     }
 
     @Test
@@ -252,6 +267,24 @@ class GrayReleaseServiceTest {
         migrationRun(42L, RebuildRunState.RUNNING);
         assertThatThrownBy(() -> service.end(created.id())).isInstanceOf(ConflictException.class);
         verify(writes, never()).disable(anyInt());
+    }
+
+    @Test
+    void 结束灰度_置已结束并释放知识库_再次结束拒绝() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        grayVersion(true, 42L);
+        migrationRun(42L, RebuildRunState.COMPLETED); // 避免活动迁移 run 拒绝结束
+
+        GrayRelease ended = service.end(created.id());
+
+        assertThat(ended.status()).isEqualTo(GrayReleaseStatus.ENDED);
+        assertThat(ended.endedAt()).isNotNull();
+        assertThat(store.activeReleaseByKb(List.of(7L))).isEmpty();
+        // 释放占用后，同一知识库可再次创建灰度
+        assertThat(service.create(null, "kwiki-parse-2", List.of(7L), "admin").status())
+                .isEqualTo(GrayReleaseStatus.CREATED);
+        assertThatThrownBy(() -> service.end(created.id()))
+                .isInstanceOf(ConflictException.class).hasMessageContaining("已结束");
     }
 
     @Test
