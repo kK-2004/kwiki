@@ -425,7 +425,7 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
     </main>
 
     <el-dialog v-model="dialog.config" :title="dialog.editing ? '编辑 v' + dialog.editing.versionNumber : '创建新版本（自动编号）'" width="620">
-      <el-alert title="保存后为待重建；不会自动创建索引或切换别名" type="info" class="dialog-alert"/>
+      <el-alert title="保存后为待迁移；不会自动创建索引或切换别名" type="info" class="dialog-alert"/>
       <el-form label-width="150px">
         <el-form-item label="Parser 版本">
           <el-select :model-value="form.parserVersion" @change="setParserVersion">
