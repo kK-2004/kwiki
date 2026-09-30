@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import com.kwiki.indexing.version.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -35,25 +36,24 @@ import java.util.Map;
 public class SearchIndexAdminController {
     private final SearchIndexAdminQueryService queries;
     private final SearchIndexAdminService admin;
-    private final ManualIndexRebuildService rebuilds;
+    private final IndexVersionWriteService writes;
     private final RebuildRunControlService controls;
-    private final SwitchPreparationService preparations;
+    private final IndexMigrationService migrations;
     private final AliasSwitchService switches;
     private final SearchIndexValidationService validations;
-    private final IndexVersionEnablementService enablement;
     private final SearchIndexDeletionService deletion;
     private final AdminCommandIdempotency commands;
     private final SearchIndexObservability observability;
 
     public SearchIndexAdminController(SearchIndexAdminQueryService queries,
-            SearchIndexAdminService admin, ManualIndexRebuildService rebuilds,
-            RebuildRunControlService controls, SwitchPreparationService preparations,
+            SearchIndexAdminService admin, IndexVersionWriteService writes,
+            RebuildRunControlService controls, IndexMigrationService migrations,
             AliasSwitchService switches, SearchIndexValidationService validations,
-            IndexVersionEnablementService enablement, SearchIndexDeletionService deletion,
+            SearchIndexDeletionService deletion,
             AdminCommandIdempotency commands, SearchIndexObservability observability) {
-        this.queries=queries;this.admin=admin;this.rebuilds=rebuilds;this.controls=controls;
-        this.preparations=preparations;this.switches=switches;this.validations=validations;
-        this.enablement=enablement;this.deletion=deletion;this.commands=commands;
+        this.queries=queries;this.admin=admin;this.writes=writes;this.controls=controls;
+        this.migrations=migrations;this.switches=switches;this.validations=validations;
+        this.deletion=deletion;this.commands=commands;
         this.observability=observability;
     }
 
@@ -92,15 +92,14 @@ public class SearchIndexAdminController {
         return TransDTO.success(command(key,"EDIT",version,user,()->version(admin.editVersion(version,request))));
     }
 
-    @PostMapping("/versions/{version}/rebuild")
-    public ResponseEntity<TransDTO<Map<String,Object>>> rebuild(@AuthenticationPrincipal CurrentUser user,
-            @PathVariable int version,@RequestHeader("Idempotency-Key") String key){
+    @PutMapping("/versions/{version}/write")
+    public TransDTO<Map<String,Object>> write(@AuthenticationPrincipal CurrentUser user,
+            @PathVariable int version,@RequestHeader("Idempotency-Key") String key,
+            @Valid @RequestBody WriteRequest request){
         requireGlobalVersion(version);
-        Map<String,Object> body=command(key,"REBUILD",version,user,()->{
-            var result=rebuilds.rebuild(version,user.username());
-            return map("accepted",result.accepted(),"runId",result.runId(),"resumed",result.resumed(),"code",result.code());});
-        HttpStatus status=Boolean.FALSE.equals(body.get("accepted"))?HttpStatus.CONFLICT:HttpStatus.ACCEPTED;
-        return ResponseEntity.status(status).body(TransDTO.success(body));
+        boolean enabled=Boolean.TRUE.equals(request.enabled());
+        return TransDTO.success(command(key,enabled?"WRITE_ENABLE":"WRITE_DISABLE",version,user,
+                ()->version(enabled?writes.enable(version):writes.disable(version))));
     }
 
     @PostMapping("/runs/{runId}/{action:pause|resume|cancel}")
@@ -112,13 +111,15 @@ public class SearchIndexAdminController {
             return map("runId",runId,"state",action.toUpperCase()+"_REQUESTED");}));
     }
 
-    @PostMapping("/versions/{version}/prepare")
-    public TransDTO<Map<String,Object>> prepare(@AuthenticationPrincipal CurrentUser user,
+    @PostMapping("/versions/{version}/migrate")
+    public ResponseEntity<TransDTO<Map<String,Object>>> migrate(@AuthenticationPrincipal CurrentUser user,
             @PathVariable int version,@RequestHeader("Idempotency-Key") String key){
         requireGlobalVersion(version);
-        return TransDTO.success(command(key,"PREPARE",version,user,()->{
-            var value=preparations.prepare(version);
-            return map("runId",value.runId(),"dualWriteStartEventId",value.dualWriteStartEventId(),"ranges",value.ranges());}));
+        Map<String,Object> body=command(key,"MIGRATE",version,user,()->{
+            var result=migrations.migrate(version,user.username());
+            return map("accepted",result.accepted(),"runId",result.runId(),"resumed",result.resumed(),"code",result.code());});
+        HttpStatus status=Boolean.FALSE.equals(body.get("accepted"))?HttpStatus.CONFLICT:HttpStatus.ACCEPTED;
+        return ResponseEntity.status(status).body(TransDTO.success(body));
     }
 
     @PostMapping("/versions/{version}/select")
@@ -140,22 +141,6 @@ public class SearchIndexAdminController {
             return map("reportId",report.getId(),"status",report.getStatus(),"summary",report.getSummary());}));
     }
 
-    @PostMapping("/versions/{version}/disable")
-    public TransDTO<Map<String,Object>> disable(@AuthenticationPrincipal CurrentUser user,
-            @PathVariable int version,@RequestHeader("Idempotency-Key") String key){
-        requireGlobalVersion(version);
-        return TransDTO.success(command(key,"DISABLE",version,user,()->version(enablement.disable(version))));
-    }
-
-    @PostMapping("/versions/{version}/reenable")
-    public TransDTO<Map<String,Object>> reenable(@AuthenticationPrincipal CurrentUser user,
-            @PathVariable int version,@RequestHeader("Idempotency-Key") String key){
-        requireGlobalVersion(version);
-        return TransDTO.success(command(key,"REENABLE",version,user,()->{
-            var value=enablement.reenable(version);
-            return map("runId",value.runId(),"state","CATCHUP_PREPARING");}));
-    }
-
     @DeleteMapping("/versions/{version}")
     public TransDTO<SearchIndexDeletionService.DeletionResult> delete(
             @AuthenticationPrincipal CurrentUser user,@PathVariable int version,
@@ -165,7 +150,7 @@ public class SearchIndexAdminController {
     }
 
     /**
-     * 灰度版本只能由灰度发布页驱动：全局接口的编辑、重建、切换准备、停用与恢复一律拒绝。
+     * 灰度版本只能由灰度发布页驱动：全局接口的编辑、写入开关与存量迁移一律拒绝。
      * 守卫放在控制器层，灰度服务内部直接调用下层服务不受影响。
      */
     private void requireGlobalVersion(int version){
@@ -216,8 +201,10 @@ public class SearchIndexAdminController {
     private static Map<String,Object> version(SearchIndexVersion value){return map(
             "versionNumber",value.getVersionNumber(),"physicalName",value.getPhysicalName(),
             "configRevision",value.getConfigRevision(),"builtConfigRevision",value.getBuiltConfigRevision(),
-            "writeEnabled",value.isWriteEnabled(),"adminDisabled",value.isAdminDisabled());}
+            "writeEnabled",value.isWriteEnabled(),"adminDisabled",value.isAdminDisabled(),
+            "writeEnabledEventId",value.getWriteEnabledEventId());}
     private static Long longValue(Object value){return value instanceof Number number?number.longValue():null;}
     private static Map<String,Object> map(Object... values){Map<String,Object> result=new LinkedHashMap<>();for(int i=0;i<values.length;i+=2)result.put((String)values[i],values[i+1]);return result;}
     public record DeleteRequest(@NotBlank String confirmPhysicalName){}
+    public record WriteRequest(@NotNull Boolean enabled){}
 }

@@ -16,19 +16,17 @@ public final class IndexVersionStatusPolicy {
         if (snapshot.needsAttentionReason() != null) {
             return IndexDisplayStatus.NEEDS_ATTENTION;
         }
-        if (snapshot.switchPreparing()) {
-            return IndexDisplayStatus.CATCHING_UP;
-        }
         if (snapshot.activeRun()) {
-            return IndexDisplayStatus.REBUILDING;
+            return IndexDisplayStatus.MIGRATING;
         }
         if (snapshot.selected()) {
             return IndexDisplayStatus.PUBLISHED;
         }
-        if (snapshot.dirty() || snapshot.buildState() != IndexBuildState.BUILT) {
-            return IndexDisplayStatus.PENDING_REBUILD;
+        if (snapshot.dirty() || snapshot.buildState() != IndexBuildState.BUILT
+                || snapshot.catchupStatus() != IndexCatchupStatus.CURRENT) {
+            return IndexDisplayStatus.PENDING_MIGRATION;
         }
-        return IndexDisplayStatus.REBUILT;
+        return IndexDisplayStatus.MIGRATED;
     }
 
     /** 编辑配置：仅离线（非在线、非写入、非运行中）版本允许；原子递增修订。 */

@@ -53,21 +53,21 @@ public class SearchIndexAdminService {
         requireSupported(config);
         requireCapacityAllowsOneMoreIndex();
         SearchIndexVersion created = versions.createNext(config);
-        log.info("index version {} created (configRevision=1, pending rebuild)",
+        log.info("index version {} created (configRevision=1, pending migration)",
                 created.getVersionNumber());
         return created;
     }
 
     /**
      * 编辑符合条件的离线版本：保留版本号，原子递增 configRevision，
-     * 物理内容视为过期（待重建）。在线/写入/运行中版本被拒绝并建议
+     * 物理内容视为过期（待迁移）。在线/写入/运行中版本被拒绝并建议
      * 复制配置创建下一版本。
      */
     public SearchIndexVersion editVersion(int versionNumber, EditableIndexConfig config) {
         requireMutationsEnabled();
         requireSupported(config);
         SearchIndexVersion edited = versions.edit(versionNumber, config);
-        log.info("index version {} edited (configRevision={}, pending rebuild)",
+        log.info("index version {} edited (configRevision={}, pending migration)",
                 edited.getVersionNumber(), edited.getConfigRevision());
         return edited;
     }

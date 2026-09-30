@@ -27,13 +27,13 @@ class SearchIndexAdminControllerSecurityTest {
     @Configuration @EnableMethodSecurity static class MethodSecurity {
         @org.springframework.context.annotation.Bean
         SearchIndexAdminController controller(SearchIndexAdminQueryService queries,
-                SearchIndexAdminService admin,ManualIndexRebuildService rebuilds,
-                RebuildRunControlService controls,SwitchPreparationService preparations,
+                SearchIndexAdminService admin,IndexVersionWriteService writes,
+                RebuildRunControlService controls,IndexMigrationService migrations,
                 AliasSwitchService switches,SearchIndexValidationService validations,
-                IndexVersionEnablementService enablement,SearchIndexDeletionService deletion,
+                SearchIndexDeletionService deletion,
                 AdminCommandIdempotency commands,SearchIndexObservability observability){
-            return new SearchIndexAdminController(queries,admin,rebuilds,controls,preparations,
-                    switches,validations,enablement,deletion,commands,observability);
+            return new SearchIndexAdminController(queries,admin,writes,controls,migrations,
+                    switches,validations,deletion,commands,observability);
         }
     }
 
@@ -41,12 +41,11 @@ class SearchIndexAdminControllerSecurityTest {
     @MockBean SearchIndexVersionRepository versionRepository;
     @MockBean SearchIndexAdminQueryService queries;
     @MockBean SearchIndexAdminService admin;
-    @MockBean ManualIndexRebuildService rebuilds;
+    @MockBean IndexVersionWriteService writes;
     @MockBean RebuildRunControlService controls;
-    @MockBean SwitchPreparationService preparations;
+    @MockBean IndexMigrationService migrations;
     @MockBean AliasSwitchService switches;
     @MockBean SearchIndexValidationService validations;
-    @MockBean IndexVersionEnablementService enablement;
     @MockBean SearchIndexDeletionService deletion;
     @MockBean AdminCommandIdempotency commands;
     @MockBean SearchIndexObservability observability;

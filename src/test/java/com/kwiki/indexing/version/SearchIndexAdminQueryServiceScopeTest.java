@@ -42,9 +42,9 @@ class SearchIndexAdminQueryServiceScopeTest {
         var view = only(4, true);
         assertThat(view.kbScoped()).isTrue();
         assertThat(view.allowedActions())
-                .containsEntry("edit", false).containsEntry("rebuild", false)
-                .containsEntry("prepare", false).containsEntry("select", false)
-                .containsEntry("disable", false).containsEntry("reenable", false)
+                .containsEntry("edit", false).containsEntry("writeToggle", false)
+                .containsEntry("migrate", false).containsEntry("validate", false)
+                .containsEntry("select", false)
                 .containsEntry("delete", true);
     }
 
@@ -52,7 +52,7 @@ class SearchIndexAdminQueryServiceScopeTest {
     void 全局版本保持原有生命周期操作() {
         var view = only(3, false);
         assertThat(view.kbScoped()).isFalse();
-        assertThat(view.allowedActions()).containsEntry("rebuild", true).containsEntry("disable", true)
-                .containsEntry("delete", true);
+        assertThat(view.allowedActions()).containsEntry("edit", true)
+                .containsEntry("writeToggle", true).containsEntry("delete", true);
     }
 }

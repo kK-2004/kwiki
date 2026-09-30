@@ -127,25 +127,12 @@ public class SearchIndexAdminQueryService {
         boolean preparing = runs.existsByVersionNumberAndSwitchState(version.getVersionNumber(),
                 IndexSwitchState.PREPARING.name());
         IndexVersionSnapshot snapshot=version.toSnapshot(activeRun,preparing);
-        Map<String,Boolean> actions=new LinkedHashMap<>();
-        actions.put("edit",snapshot.editable());
-        actions.put("rebuild",!version.isSelected()&&!version.isWriteEnabled()&&!activeRun&&!preparing);
-        actions.put("prepare",!snapshot.dirty()&&!version.isAdminDisabled()&&!activeRun&&!preparing);
         boolean multimodalBlocked = multimodalReadiness.isMultimodal(
                 version.editableConfig().parserVersion()) && !multimodalReadiness.ready();
-        // 灰度版本只服务范围内知识库，不允许全局选择
+        // 灰度版本只服务范围内知识库，生命周期由灰度发布管理
         boolean scoped = kbScope != null && kbScope.isScoped(version.getVersionNumber());
-        actions.put("select",!version.isSelected()&&!snapshot.dirty()&&!preparing
-                && !multimodalBlocked && !scoped);
-        actions.put("disable",!version.isSelected()&&!version.isAdminDisabled()&&!activeRun&&!preparing);
-        actions.put("reenable",version.isAdminDisabled()&&!activeRun&&!preparing);
-        actions.put("delete",cleanupCandidate&&!activeRun&&!preparing);
-        if (scoped) {
-            // 灰度版本的生命周期由灰度发布管理，全局页只保留灰度结束后的清理删除
-            for (String lifecycle : List.of("edit","rebuild","prepare","select","disable","reenable")) {
-                actions.put(lifecycle,false);
-            }
-        }
+        Actions actions = actionsFor(version, snapshot, activeRun || preparing, scoped,
+                multimodalBlocked, cleanupCandidate);
         EditableIndexConfig config=version.editableConfig();
         return new VersionView(version.getVersionNumber(),version.getPhysicalName(),config,
                 version.getConfigRevision(),version.getBuiltConfigRevision(),snapshot.dirty(),
@@ -153,7 +140,8 @@ public class SearchIndexAdminQueryService {
                 version.getCatchupStatus(),version.isWriteEnabled(),version.isAdminDisabled(),
                 version.isSelected(),version.isPipelineSupported(),version.getHealthSummary(),
                 version.getNeedsAttentionReason(),version.getLastValidationAt(),
-                version.getValidationSummary(),cleanupCandidate,Map.copyOf(actions),scoped);
+                version.getValidationSummary(),cleanupCandidate,actions.allowed(),scoped,
+                version.getWriteEnabledEventId(),actions.migrateBlockedReason());
     }
 
     private List<RangeView> ranges(Long runId) { return runId==null?List.of():ranges
@@ -162,6 +150,30 @@ public class SearchIndexAdminQueryService {
                     range.getTailLastSeenId(),range.getTailMaxId(),range.getItemsScanned(),
                     range.getItemsSucceeded(),range.getItemsSkipped(),range.getItemsFailed())).toList(); }
 
+    /** 全局页可执行动作：写入由管理员开关控制，迁移只能在写入开启后发起。 */
+    static Actions actionsFor(SearchIndexVersion version, IndexVersionSnapshot snapshot,
+                              boolean activeRun, boolean scoped, boolean multimodalBlocked,
+                              boolean cleanupCandidate) {
+        boolean writeEnabled = version.isWriteEnabled();
+        boolean migrated = !snapshot.dirty() && snapshot.buildState() == IndexBuildState.BUILT
+                && snapshot.catchupStatus() == IndexCatchupStatus.CURRENT;
+        boolean idle = !activeRun;
+        Map<String,Boolean> allowed = new LinkedHashMap<>();
+        allowed.put("edit", !scoped && snapshot.editable());
+        allowed.put("writeToggle", !scoped && idle && (writeEnabled
+                ? !version.isSelected() : version.isPipelineSupported()));
+        allowed.put("migrate", !scoped && idle && writeEnabled && !migrated
+                && version.isPipelineSupported());
+        allowed.put("validate", !scoped && idle && writeEnabled && migrated);
+        allowed.put("select", !scoped && idle && !version.isSelected() && writeEnabled
+                && migrated && !multimodalBlocked);
+        allowed.put("delete", cleanupCandidate && idle && !writeEnabled);
+        String blocked = !scoped && idle && !writeEnabled && !migrated ? "请先开启写入" : null;
+        return new Actions(Map.copyOf(allowed), blocked);
+    }
+
+    record Actions(Map<String,Boolean> allowed, String migrateBlockedReason) {}
+
     public record AliasTruth(String alias,List<String> targets){}
     public record MultimodalReadinessView(boolean ready,List<String> missingConfiguration){}
     public record VersionView(int versionNumber,String physicalName,EditableIndexConfig configuration,
@@ -169,7 +181,8 @@ public class SearchIndexAdminQueryService {
             String buildState,String catchupStatus,boolean writeEnabled,boolean adminDisabled,
             boolean selected,boolean pipelineSupported,String healthSummary,String attentionReason,
             Instant lastValidationAt,String validationSummary,boolean cleanupCandidate,
-            Map<String,Boolean> allowedActions,boolean kbScoped){}
+            Map<String,Boolean> allowedActions,boolean kbScoped,
+            Long writeEnabledEventId,String migrateBlockedReason){}
     public record RangeView(String resourceType,long minId,long maxId,long lastSeenId,
             long tailLastSeenId,Long tailMaxId,long scanned,long succeeded,long skipped,long failed){}
     public record RunView(Long runId,int versionNumber,long buildGeneration,String kind,String state,

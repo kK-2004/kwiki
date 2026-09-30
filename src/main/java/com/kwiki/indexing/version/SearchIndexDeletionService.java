@@ -100,7 +100,6 @@ public class SearchIndexDeletionService {
         }
         if (version.isSelected()) throw new IllegalStateException("selected version cannot be deleted");
         if (version.isWriteEnabled()) throw new IllegalStateException("write-enabled version cannot be deleted");
-        if (!version.isAdminDisabled()) throw new IllegalStateException("version must be explicitly disabled before deletion");
         if (IndexBuildState.BUILDING.name().equals(version.getBuildState())
                 || runs.existsByVersionNumberAndStateIn(version.getVersionNumber(), ACTIVE_RUN_STATES)
                 || runs.existsByVersionNumberAndSwitchState(version.getVersionNumber(),

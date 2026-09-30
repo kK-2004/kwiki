@@ -25,10 +25,9 @@ import static org.mockito.Mockito.*;
 class SearchIndexAdminControllerGrayGuardTest {
 
     private final SearchIndexAdminService admin = mock(SearchIndexAdminService.class);
-    private final ManualIndexRebuildService rebuilds = mock(ManualIndexRebuildService.class);
-    private final SwitchPreparationService preparations = mock(SwitchPreparationService.class);
+    private final IndexVersionWriteService writes = mock(IndexVersionWriteService.class);
+    private final IndexMigrationService migrations = mock(IndexMigrationService.class);
     private final AliasSwitchService switches = mock(AliasSwitchService.class);
-    private final IndexVersionEnablementService enablement = mock(IndexVersionEnablementService.class);
     private final SearchIndexDeletionService deletion = mock(SearchIndexDeletionService.class);
     private final AdminCommandIdempotency commands = mock(AdminCommandIdempotency.class);
     private final IndexVersionKbScope scope = mock(IndexVersionKbScope.class);
@@ -42,9 +41,9 @@ class SearchIndexAdminControllerGrayGuardTest {
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {
-        controller = new SearchIndexAdminController(mock(SearchIndexAdminQueryService.class), admin, rebuilds,
-                mock(RebuildRunControlService.class), preparations, switches,
-                mock(SearchIndexValidationService.class), enablement, deletion, commands,
+        controller = new SearchIndexAdminController(mock(SearchIndexAdminQueryService.class), admin, writes,
+                mock(RebuildRunControlService.class), migrations, switches,
+                mock(SearchIndexValidationService.class), deletion, commands,
                 mock(SearchIndexObservability.class));
         controller.setKbScope(scope);
         controller.setGrayReleases(grays);
@@ -55,20 +54,19 @@ class SearchIndexAdminControllerGrayGuardTest {
     }
 
     @Test
-    void 灰度版本的编辑_重建_切换准备_停用与恢复一律拒绝且不调用服务() {
+    void 灰度版本的编辑_写入开关_存量迁移一律拒绝且不调用服务() {
         assertGrayRejected(() -> controller.edit(user, 9, "k1", config));
-        assertGrayRejected(() -> controller.rebuild(user, 9, "k2"));
-        assertGrayRejected(() -> controller.prepare(user, 9, "k3"));
-        assertGrayRejected(() -> controller.disable(user, 9, "k4"));
-        assertGrayRejected(() -> controller.reenable(user, 9, "k5"));
-        verifyNoInteractions(admin, rebuilds, preparations, enablement, commands);
+        assertGrayRejected(() -> controller.migrate(user, 9, "k2"));
+        assertGrayRejected(() -> controller.write(user, 9, "k3", new SearchIndexAdminController.WriteRequest(false)));
+        assertGrayRejected(() -> controller.write(user, 9, "k4", new SearchIndexAdminController.WriteRequest(true)));
+        verifyNoInteractions(admin, writes, migrations, commands);
     }
 
     @Test
     void 全局版本不受灰度守卫影响() {
-        when(enablement.disable(3)).thenReturn(SearchIndexVersion.bootstrapped(3, "kwiki-chunks-v3", config, "h"));
-        controller.disable(user, 3, "k1");
-        verify(enablement).disable(3);
+        when(writes.disable(3)).thenReturn(SearchIndexVersion.bootstrapped(3, "kwiki-chunks-v3", config, "h"));
+        controller.write(user, 3, "k1", new SearchIndexAdminController.WriteRequest(false));
+        verify(writes).disable(3);
     }
 
     @Test

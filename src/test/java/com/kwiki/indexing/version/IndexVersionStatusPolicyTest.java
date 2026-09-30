@@ -38,13 +38,9 @@ class IndexVersionStatusPolicyTest {
                 false, false, "alias mismatch", false)))
                 .isEqualTo(IndexDisplayStatus.NEEDS_ATTENTION);
         assertThat(IndexVersionStatusPolicy.displayStatus(snapshot(1, null,
-                IndexBuildState.NEW, IndexCatchupStatus.BEHIND, false, false, true,
-                false, true, null, false)))
-                .isEqualTo(IndexDisplayStatus.CATCHING_UP);
-        assertThat(IndexVersionStatusPolicy.displayStatus(snapshot(1, null,
-                IndexBuildState.BUILDING, IndexCatchupStatus.BEHIND, false, false, true,
+                IndexBuildState.BUILDING, IndexCatchupStatus.BEHIND, true, false, true,
                 true, false, null, false)))
-                .isEqualTo(IndexDisplayStatus.REBUILDING);
+                .isEqualTo(IndexDisplayStatus.MIGRATING);
         assertThat(IndexVersionStatusPolicy.displayStatus(snapshot(2, 2L,
                 IndexBuildState.BUILT, IndexCatchupStatus.CURRENT, true, true, true,
                 false, false, null, false)))
@@ -52,15 +48,15 @@ class IndexVersionStatusPolicyTest {
         assertThat(IndexVersionStatusPolicy.displayStatus(snapshot(1, null,
                 IndexBuildState.NEW, IndexCatchupStatus.BEHIND, false, false, true,
                 false, false, null, false)))
-                .isEqualTo(IndexDisplayStatus.PENDING_REBUILD);
-        assertThat(IndexVersionStatusPolicy.displayStatus(snapshot(2, 1L,
-                IndexBuildState.BUILT, IndexCatchupStatus.BEHIND, false, false, true,
-                false, false, null, false)))
-                .isEqualTo(IndexDisplayStatus.PENDING_REBUILD);
+                .isEqualTo(IndexDisplayStatus.PENDING_MIGRATION);
         assertThat(IndexVersionStatusPolicy.displayStatus(snapshot(2, 2L,
                 IndexBuildState.BUILT, IndexCatchupStatus.BEHIND, false, false, true,
                 false, false, null, false)))
-                .isEqualTo(IndexDisplayStatus.REBUILT);
+                .isEqualTo(IndexDisplayStatus.PENDING_MIGRATION);
+        assertThat(IndexVersionStatusPolicy.displayStatus(snapshot(2, 2L,
+                IndexBuildState.BUILT, IndexCatchupStatus.CURRENT, true, false, true,
+                false, false, null, false)))
+                .isEqualTo(IndexDisplayStatus.MIGRATED);
     }
 
     @Test
@@ -68,7 +64,7 @@ class IndexVersionStatusPolicyTest {
         var rebuilt = snapshot(2, 2L, IndexBuildState.BUILT, IndexCatchupStatus.BEHIND,
                 false, false, true, false, false, null, false);
         assertThat(IndexVersionStatusPolicy.displayStatus(rebuilt))
-                .isEqualTo(IndexDisplayStatus.REBUILT);
+                .isEqualTo(IndexDisplayStatus.PENDING_MIGRATION);
     }
 
     @Test
