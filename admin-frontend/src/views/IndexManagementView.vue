@@ -23,7 +23,7 @@ const selectedRun = ref<number | null>(Number(localStorage.getItem("kwiki_admin_
 let timer: number | undefined;
 let pollDelay = 2000;
 
-const activeRuns = computed(() => runs.value.filter(r => ["RUNNING", "PAUSED"].includes(r.state) || r.switchState === "PREPARING"));
+const activeRuns = computed(() => runs.value.filter(r => ["RUNNING", "PAUSED"].includes(r.state)));
 const currentRun = computed(() => runs.value.find(r => r.runId === selectedRun.value) || activeRuns.value[0]);
 const totalPending = computed(() => stats.value.reduce((n, row) => n + Number(row.pending || 0) + Number(row.retrying || 0), 0));
 
@@ -96,7 +96,7 @@ async function save() {
     if (dialog.editing) await api.command(`/versions/${dialog.editing.versionNumber}`, "PUT", form);
     else await api.command("/versions", "POST", form);
     dialog.config = false;
-    ElMessage.success(dialog.editing ? "配置已保存，版本变为待重建" : "新版本已创建，版本号由服务端分配");
+    ElMessage.success(dialog.editing ? "配置已保存，版本变为待迁移" : "新版本已创建，版本号由服务端分配");
     await load();
   } catch (error) {
     showError(error);
@@ -105,20 +105,13 @@ async function save() {
 
 async function act(target: Version, action: string) {
   try {
-    if (action === "rebuild") {
-      const result = await api.command<{ accepted: boolean; runId?: number; code: string }>(`/versions/${target.versionNumber}/rebuild`);
+    if (action === "migrate") {
+      const result = await api.command<{ accepted: boolean; runId?: number; code: string }>(`/versions/${target.versionNumber}/migrate`);
       if (!result.accepted) throw new ApiError(409, `版本忙碌，当前 runId=${result.runId ?? "未知"}`);
       if (result.runId) {
         selectedRun.value = result.runId;
         localStorage.setItem("kwiki_admin_run", String(result.runId));
       }
-    } else if (action === "disable") {
-      await ElMessageBox.confirm("停用后该版本不再接收新内容写入，恢复时必须先补齐。", "停用索引版本", { type: "warning" });
-      await api.command(`/versions/${target.versionNumber}/disable`);
-    } else if (action === "reenable") {
-      await api.command(`/versions/${target.versionNumber}/reenable`);
-    } else if (action === "prepare") {
-      await api.command(`/versions/${target.versionNumber}/prepare`);
     } else if (action === "validate") {
       await api.command(`/versions/${target.versionNumber}/validate`);
     }
@@ -129,6 +122,28 @@ async function act(target: Version, action: string) {
     showError(error);
   }
 }
+
+async function toggleWrite(target: Version, enabled: boolean) {
+  try {
+    await ElMessageBox.confirm(
+      enabled
+        ? "开启后将清空该版本的物理索引并开始双写，之后需执行「开始存量迁移」补入历史数据。"
+        : "关闭后该版本不再接收新内容；重新开启需清空并重新全量迁移。",
+      enabled ? "开启写入" : "关闭写入", { type: "warning" });
+    await api.command(`/versions/${target.versionNumber}/write`, "PUT", { enabled });
+    ElMessage.success(enabled ? "写入已开启" : "写入已关闭");
+    pollDelay = 1000;
+    await load();
+  } catch (error) {
+    if (error !== "cancel") showError(error);
+  }
+}
+
+const writeToggleHint = (row: Version) =>
+  row.kbScoped ? "灰度版本的写入由灰度发布管理"
+    : row.selected ? "已发布版本不能关闭写入"
+    : row.displayStatus === "MIGRATING" ? "迁移进行中"
+    : "";
 
 function openSelect(target: Version) {
   dialog.target = target; dialog.sourceDest = ""; dialog.select = true;
@@ -195,7 +210,7 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
         <div>
           <h1>索引版本</h1>
           <p class="muted">
-            CHUNK 索引是主检索链路的正文章块向量索引；这里负责它的创建、重建、补齐与热切换。
+            CHUNK 索引是主检索链路的正文章块向量索引；这里负责它的创建、写入开关、存量迁移与热切换。
             COMMUNITY 索引是知识图谱（GraphRAG）的社区摘要索引，数据由「知识图谱任务」页产出。
           </p>
         </div>
@@ -255,12 +270,12 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
         <el-alert
           type="info" :closable="false" show-icon
           title="解析器版本说明"
-          description="kwiki-parse-1 使用现有文本解析；kwiki-parse-2 额外提取 PDF 内嵌图片及已发布 Markdown 中的图片，生成检索摘要并保留图片资源标识。PDF 导入页仍可编辑文本，初始修订的图片语义按页面权限进入索引，原图可在源文件预览查看；扫描版 PDF 不支持 OCR。切换的是已重建、补齐且通过校验的索引版本；使用显式清单的部署还需登记 v2。"/>
+          description="kwiki-parse-1 使用现有文本解析；kwiki-parse-2 额外提取 PDF 内嵌图片及已发布 Markdown 中的图片，生成检索摘要并保留图片资源标识。PDF 导入页仍可编辑文本，初始修订的图片语义按页面权限进入索引，原图可在源文件预览查看；扫描版 PDF 不支持 OCR。切换的是已开启写入、完成存量迁移且通过校验的索引版本；使用显式清单的部署还需登记 v2。"/>
         <el-alert
           v-if="multimodalReadiness && !multimodalReadiness.ready"
           type="warning" :closable="false" show-icon
           title="暂不能切换到 kwiki-parse-2"
-          :description="`缺少配置：${multimodalReadiness.missingConfiguration.join('、')}。配置完成并重启服务后，再重建、补齐和校验 v2 索引。`"/>
+          :description="`缺少配置：${multimodalReadiness.missingConfiguration.join('、')}。配置完成并重启服务后，再开启写入、存量迁移并校验 v2 索引。`"/>
         <section class="hero">
           <div style="display:flex;gap:12px">
             <el-button type="primary" @click="edit()">创建版本</el-button>
@@ -276,7 +291,7 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
           <div class="metric">
             <span class="metric-label">进行中任务</span>
             <strong>{{ activeRuns.length }}</strong>
-            <div class="hint">正在重建 / 补齐 / 切换的 run</div>
+            <div class="hint">正在迁移的 run</div>
           </div>
           <div class="metric">
             <span class="metric-label">双写待处理</span>
@@ -298,7 +313,16 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
               <el-table-column label="状态" width="120">
                 <template #default="{ row }">
                   <el-tag :type="statusType(row.displayStatus)">{{ displayLabel(row.displayStatus) }}</el-tag>
-                  <div>{{ row.writeEnabled ? "写入启用" : "写入停用" }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="写入" width="110">
+                <template #default="{ row }">
+                  <el-tooltip :content="writeToggleHint(row)" :disabled="!writeToggleHint(row)">
+                    <el-switch
+                      :model-value="row.writeEnabled"
+                      :disabled="!row.allowedActions.writeToggle"
+                      @change="(value: string | number | boolean) => toggleWrite(row, Boolean(value))"/>
+                  </el-tooltip>
                 </template>
               </el-table-column>
               <el-table-column label="配置/构建修订" width="140">
@@ -317,26 +341,26 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
                 <template #default="{ row }">
                   <div class="actions">
                     <el-button v-if="row.allowedActions.edit" @click="edit(row)">编辑</el-button>
-                    <el-button v-if="row.allowedActions.rebuild" type="primary" @click="act(row, 'rebuild')">重建</el-button>
-                    <el-button v-if="row.allowedActions.prepare" @click="act(row, 'prepare')">开始补齐</el-button>
+                    <el-button v-if="row.allowedActions.migrate" type="primary" @click="act(row, 'migrate')">开始存量迁移</el-button>
+                    <el-tooltip v-else-if="row.migrateBlockedReason" :content="row.migrateBlockedReason">
+                      <span><el-button type="primary" disabled>开始存量迁移</el-button></span>
+                    </el-tooltip>
                     <el-button v-if="row.allowedActions.validate" @click="act(row, 'validate')">校验</el-button>
                     <el-button v-if="row.allowedActions.select" type="success" @click="openSelect(row)">选择版本</el-button>
-                    <el-button v-if="row.allowedActions.disable" type="warning" @click="act(row, 'disable')">停用</el-button>
-                    <el-button v-if="row.allowedActions.reenable" @click="act(row, 'reenable')">重新启用</el-button>
                     <el-button v-if="row.allowedActions.delete" type="danger" @click="openDelete(row)">清理</el-button>
                   </div>
                 </template>
               </el-table-column>
             </el-table>
           </el-tab-pane>
-          <el-tab-pane label="重建与补齐">
-            <p class="tab-desc">重建 = 按新配置全量回填；补齐 = 把重建期间产生的新写入追加上去。两者都完成后才能切换。</p>
+          <el-tab-pane label="迁移记录">
+            <p class="tab-desc">存量迁移 = 写入开启后，按版本解析器从原始文档重建双写起点之前的历史内容；之后的变更由双写负责。</p>
             <div v-if="currentRun">
               <el-descriptions :column="4" border>
                 <el-descriptions-item label="runId">{{ currentRun.runId }}</el-descriptions-item>
                 <el-descriptions-item label="版本">v{{ currentRun.versionNumber }}</el-descriptions-item>
-                <el-descriptions-item label="状态">{{ currentRun.state }} / {{ currentRun.switchState }}</el-descriptions-item>
-                <el-descriptions-item label="事件游标">{{ currentRun.replayEventId }} / {{ currentRun.dualWriteStartEventId ?? "-" }}</el-descriptions-item>
+                <el-descriptions-item label="状态">{{ currentRun.kind }} / {{ currentRun.state }}</el-descriptions-item>
+                <el-descriptions-item label="双写起点">{{ currentRun.buildStartEventId }}</el-descriptions-item>
               </el-descriptions>
               <p>
                 <el-button @click="control('pause')">暂停</el-button>
@@ -350,9 +374,6 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
                     <el-progress :percentage="percent(row)"/>{{ row.lastSeenId }} / {{ row.maxId }}
                   </template>
                 </el-table-column>
-                <el-table-column label="补齐范围">
-                  <template #default="{ row }">{{ row.tailLastSeenId }} / {{ row.tailMaxId ?? "-" }}</template>
-                </el-table-column>
                 <el-table-column label="统计">
                   <template #default="{ row }">扫描 {{ row.scanned }} · 成功 {{ row.succeeded }} · 跳过 {{ row.skipped }} · 失败 {{ row.failed }}</template>
                 </el-table-column>
@@ -361,7 +382,7 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
             <el-empty v-else description="没有活动或最近关注的任务"/>
           </el-tab-pane>
           <el-tab-pane label="双写统计">
-            <p class="tab-desc">切换准备后新旧版本双写的实时差距；「待处理」归零才允许切换别名。</p>
+            <p class="tab-desc">各版本实时双写任务的执行情况；「待处理」归零且迁移完成后才能通过校验。</p>
             <el-table :data="stats">
               <el-table-column prop="target_version" label="版本"/>
               <el-table-column prop="total" label="总数"/>

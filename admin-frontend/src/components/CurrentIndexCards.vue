@@ -47,7 +47,7 @@ function next() {
           {{ version.physicalName }} · {{ parserLabel(version.configuration.parserVersion) }}
         </el-radio>
       </el-radio-group>
-      <el-empty v-else description="暂无可发布的版本：请先在下方新建版本并完成重建、补齐与校验" />
+      <el-empty v-else description="暂无可发布的版本：请先在下方新建版本并完成开启双写、存量迁移与校验" />
       <template #footer>
         <el-button @click="open = false">取消</el-button>
         <el-button type="primary" :disabled="!target" @click="next">下一步</el-button>
