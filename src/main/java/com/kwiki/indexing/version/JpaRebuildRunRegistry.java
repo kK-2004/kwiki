@@ -62,10 +62,21 @@ class JpaRebuildRunRegistry implements RebuildRunRegistry {
         SearchIndexVersion version = versions.findByVersionNumberForUpdate(request.versionNumber())
                 .orElseThrow(() -> new IllegalArgumentException(
                         "unknown index version: " + request.versionNumber()));
-        IndexVersionSnapshot building = IndexVersionStatusPolicy.startBuild(
-                version.toSnapshot(false, false));
+        boolean migration = request.kind() == RebuildRunKind.MIGRATION;
+        IndexVersionSnapshot building = migration
+                ? IndexVersionStatusPolicy.startMigration(version.toSnapshot(false, false))
+                : IndexVersionStatusPolicy.startBuild(version.toSnapshot(false, false));
         BuildManifestSnapshot manifest = version.buildManifestSnapshot();
-        long eventId = scalar("SELECT COALESCE(MAX(id), 0) FROM search_index_change_event");
+        // 迁移 run 的起点固化为写入会话起点 E：扫描只补入 E 之后没有再变更的资源
+        long eventId;
+        if (migration) {
+            if (version.getWriteEnabledEventId() == null) {
+                throw new IllegalStateException("version has no write session to migrate into");
+            }
+            eventId = version.getWriteEnabledEventId();
+        } else {
+            eventId = scalar("SELECT COALESCE(MAX(id), 0) FROM search_index_change_event");
+        }
         long generation = runs.findMaxBuildGeneration(request.versionNumber()) + 1;
         SearchIndexRebuildRun created = SearchIndexRebuildRun.create(
                 request.versionNumber(), generation, request.kind(),
@@ -87,9 +98,20 @@ class JpaRebuildRunRegistry implements RebuildRunRegistry {
                 .orElseThrow(() -> new IllegalStateException(
                         "rebuild run lease ownership changed: " + runId));
         run.complete(clock.instant());
-        versions.findByVersionNumberForUpdate(run.getVersionNumber()).ifPresent(version ->
+        versions.findByVersionNumberForUpdate(run.getVersionNumber()).ifPresent(version -> {
+            IndexVersionSnapshot current = version.toSnapshot(true, false);
+            if (run.kind() == RebuildRunKind.MIGRATION) {
+                // 迁移期间写入会话被重开（E 变化）时，本次结果不属于当前会话
+                boolean sameSession = java.util.Objects.equals(
+                        version.getWriteEnabledEventId(), run.getBuildStartEventId());
+                version.applySnapshot(sameSession
+                        ? IndexVersionStatusPolicy.completeMigration(current, run.getConfigRevision())
+                        : IndexVersionStatusPolicy.failBuild(current));
+            } else {
                 version.applySnapshot(IndexVersionStatusPolicy.completeBuild(
-                        version.toSnapshot(true, false), run.getConfigRevision())));
+                        current, run.getConfigRevision()));
+            }
+        });
     }
 
     @Override
@@ -133,7 +155,7 @@ class JpaRebuildRunRegistry implements RebuildRunRegistry {
         return scalar("SELECT COALESCE(" + aggregate + "(a.id), 0) FROM attachment a "
                 + "JOIN knowledge_base k ON k.id=a.kb_id WHERE a.status='STORED' "
                 + "AND k.status='ACTIVE' AND LOWER(a.content_type) IN "
-                + "('image/png','image/jpeg','image/gif','image/webp')");
+                + "('image/png','image/jpeg','image/gif','image/webp','application/pdf')");
     }
 
     private long scalar(String sql) {

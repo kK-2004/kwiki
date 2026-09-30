@@ -98,6 +98,39 @@ public final class IndexVersionStatusPolicy {
                 snapshot.needsAttentionReason(), false, snapshot.switchPreparing());
     }
 
+    /** 存量迁移开始：必须已开启写入（双写先于迁移），置 BUILDING 并标记活动。 */
+    public static IndexVersionSnapshot startMigration(IndexVersionSnapshot snapshot) {
+        if (!snapshot.writeEnabled()) {
+            throw new IllegalStateException("version " + snapshot.versionNumber()
+                    + " must accept writes before migration");
+        }
+        if (snapshot.deleted() || !snapshot.pipelineSupported() || snapshot.activeRun()) {
+            throw new IllegalStateException(
+                    "version " + snapshot.versionNumber() + " cannot start migration");
+        }
+        return new IndexVersionSnapshot(snapshot.versionNumber(), snapshot.physicalName(),
+                snapshot.configRevision(), snapshot.builtConfigRevision(),
+                IndexBuildState.BUILDING, IndexCatchupStatus.BEHIND, true,
+                snapshot.selected(), snapshot.pipelineSupported(), snapshot.deleted(),
+                snapshot.needsAttentionReason(), true, snapshot.switchPreparing());
+    }
+
+    /**
+     * 存量迁移完成：历史数据已补入且双写持续进行，因此直接追平（CURRENT）。
+     * 若期间写入被关闭或配置被换（防御路径），视为失败，需重新开启写入后再迁移。
+     */
+    public static IndexVersionSnapshot completeMigration(IndexVersionSnapshot snapshot,
+                                                         long builtRevision) {
+        if (!snapshot.writeEnabled() || builtRevision != snapshot.configRevision()) {
+            return failBuild(snapshot);
+        }
+        return new IndexVersionSnapshot(snapshot.versionNumber(), snapshot.physicalName(),
+                snapshot.configRevision(), builtRevision, IndexBuildState.BUILT,
+                IndexCatchupStatus.CURRENT, true, snapshot.selected(),
+                snapshot.pipelineSupported(), snapshot.deleted(),
+                snapshot.needsAttentionReason(), false, snapshot.switchPreparing());
+    }
+
     /** 停用写入：退出写目标集合，ES 数据保留；不再保证可直接热切换。 */
     public static IndexVersionSnapshot disableWrites(IndexVersionSnapshot snapshot) {
         if (snapshot.selected()) {

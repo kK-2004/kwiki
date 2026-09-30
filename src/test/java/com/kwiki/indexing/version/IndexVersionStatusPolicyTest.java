@@ -236,4 +236,40 @@ class IndexVersionStatusPolicyTest {
         assertThat(snapshot(2, 2L, IndexBuildState.BUILT, IndexCatchupStatus.CURRENT,
                 true, false, true, false, false, null, true).selectable()).isFalse();
     }
+
+    @Test
+    void 写入关闭时不能开始存量迁移() {
+        assertThatThrownBy(() -> IndexVersionStatusPolicy.startMigration(snapshot(1, null,
+                IndexBuildState.NEW, IndexCatchupStatus.BEHIND, false, false, true,
+                false, false, null, false))).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 开始存量迁移_进入构建中且标记活动() {
+        IndexVersionSnapshot started = IndexVersionStatusPolicy.startMigration(snapshot(1, null,
+                IndexBuildState.NEW, IndexCatchupStatus.BEHIND, true, false, true,
+                false, false, null, false));
+        assertThat(started.buildState()).isEqualTo(IndexBuildState.BUILDING);
+        assertThat(started.activeRun()).isTrue();
+    }
+
+    @Test
+    void 存量迁移完成_已构建且追平() {
+        IndexVersionSnapshot done = IndexVersionStatusPolicy.completeMigration(snapshot(1, null,
+                IndexBuildState.BUILDING, IndexCatchupStatus.BEHIND, true, false, true,
+                true, false, null, false), 1);
+        assertThat(done.buildState()).isEqualTo(IndexBuildState.BUILT);
+        assertThat(done.builtConfigRevision()).isEqualTo(1L);
+        assertThat(done.catchupStatus()).isEqualTo(IndexCatchupStatus.CURRENT);
+        assertThat(done.activeRun()).isFalse();
+    }
+
+    @Test
+    void 存量迁移完成时写入已关闭_保持落后() {
+        IndexVersionSnapshot done = IndexVersionStatusPolicy.completeMigration(snapshot(1, null,
+                IndexBuildState.BUILDING, IndexCatchupStatus.BEHIND, false, false, true,
+                true, false, null, false), 1);
+        assertThat(done.catchupStatus()).isEqualTo(IndexCatchupStatus.BEHIND);
+        assertThat(done.buildState()).isEqualTo(IndexBuildState.FAILED);
+    }
 }

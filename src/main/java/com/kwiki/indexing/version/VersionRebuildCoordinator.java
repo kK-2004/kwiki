@@ -63,6 +63,10 @@ public class VersionRebuildCoordinator {
         return start(requireKind(request, RebuildRunKind.MANUAL), work);
     }
 
+    public StartResult startMigration(Request request, RebuildWork work) {
+        return start(requireKind(request, RebuildRunKind.MIGRATION), work);
+    }
+
     private StartResult start(Request request, RebuildWork work) {
         CompletableFuture<StartResult> admission = new CompletableFuture<>();
         executor.execute(() -> coordinate(request, work, admission));
