@@ -39,6 +39,8 @@ public class SearchIndexVersion {
     private String buildState = IndexBuildState.NEW.name();
     private String catchupStatus = IndexCatchupStatus.BEHIND.name();
     private boolean writeEnabled;
+    /** 写入会话起点 E：开启写入时的变更事件水位；写入关闭时为 null。 */
+    private Long writeEnabledEventId;
     private boolean adminDisabled;
     private boolean selected;
     private boolean pipelineSupported = true;
@@ -86,6 +88,7 @@ public class SearchIndexVersion {
         entity.buildState = IndexBuildState.BUILT.name();
         entity.catchupStatus = IndexCatchupStatus.CURRENT.name();
         entity.writeEnabled = true;
+        entity.writeEnabledEventId = 0L;
         entity.selected = true;
         return entity;
     }
@@ -131,6 +134,10 @@ public class SearchIndexVersion {
 
     public boolean isWriteEnabled() {
         return writeEnabled;
+    }
+
+    public Long getWriteEnabledEventId() {
+        return writeEnabledEventId;
     }
 
     public boolean isAdminDisabled() {
@@ -211,6 +218,40 @@ public class SearchIndexVersion {
         this.deletedAt = Instant.now();
         this.writeEnabled = false;
         this.selected = false;
+        this.writeEnabledEventId = null;
+    }
+
+    /**
+     * 开启写入会话：物理索引已被清空，从事件水位 eventId 之后的变更开始双写；
+     * 历史数据需由随后的存量迁移补入，因此构建状态回到 NEW。
+     */
+    void startWriteSession(long eventId) {
+        if (deletedAt != null) {
+            throw new IllegalStateException("deleted version cannot enable writes");
+        }
+        if (!pipelineSupported) {
+            throw new IllegalStateException("unsupported version cannot enable writes");
+        }
+        if (writeEnabled) {
+            throw new IllegalStateException("version " + versionNumber + " already accepts writes");
+        }
+        writeEnabled = true;
+        adminDisabled = false;
+        writeEnabledEventId = eventId;
+        buildState = IndexBuildState.NEW.name();
+        builtConfigRevision = null;
+        catchupStatus = IndexCatchupStatus.BEHIND.name();
+    }
+
+    /** 结束写入会话：退出写目标集合；再次开启需清空并重新全量迁移。 */
+    void endWriteSession() {
+        if (selected) {
+            throw new IllegalStateException("selected version cannot disable writes");
+        }
+        writeEnabled = false;
+        adminDisabled = true;
+        writeEnabledEventId = null;
+        catchupStatus = IndexCatchupStatus.BEHIND.name();
     }
 
     /** 切换准备加入未来事件多写；管理员明确停用的版本不得被隐式恢复。 */
