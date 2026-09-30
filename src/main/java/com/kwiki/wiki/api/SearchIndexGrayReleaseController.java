@@ -123,7 +123,8 @@ public class SearchIndexGrayReleaseController {
 
     /**
      * 服务端按状态计算可执行操作，前端只按此显示按钮；与 GrayReleaseService 的守卫保持一致：
-     * 同步中只有出错后才允许重新同步，重建运行活跃或切换准备中不允许结束。
+     * 同步中只有出错后才允许重新同步；新流程中活动迁移 run 由 GrayReleaseService 的结束守卫拒绝，
+     * 这里仅对历史遗留的切换准备状态（switch_state=PREPARING）仍视为忙碌而阻止结束灰度。
      */
     static Map<String, Boolean> actions(GrayRelease release, SearchIndexRebuildRun run) {
         GrayReleaseStatus status = release.status();
