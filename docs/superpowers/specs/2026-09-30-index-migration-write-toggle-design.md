@@ -142,3 +142,31 @@
 - `GrayReleaseServiceTest`：断言顺序「开启写入 → 迁移 → 校验」；写入未开启时 advance 拒绝迁移；失败重试保留 E；结束灰度关闭写入。
 - `SearchIndexSelectionRegistry` 相关测试：选择不再隐式开启写入，写入关闭时拒绝选择。
 - 前端：`npm run build`（vue-tsc）通过。
+
+## 9. 验证记录
+
+记录日期：2026-09-30，分支 `feat/index-write-session-migration`。
+
+### 9.1 自动化验证结果
+
+- 后端：`./mvnw -q test` 全量 **Tests run: 900, Failures: 7, Errors: 3, Skipped: 44**。10 处失败全部为实施前已核实的既有环境性失败（本机无 `.env`、KWIKI_* 中间件不可达所致），与本计划无关：
+  - `ArchitectureRulesTest.kkCommonSdkIsConfinedToApprovedPackages`（ArchUnit 规则，1 失败）；
+  - `DependencyReadinessIntegrationTest`（liveness/readiness 断言 404，2 失败）；
+  - `TraceIdResponseHeaderFilterTest`（3 失败，同 404）；
+  - `CommonSdkSwitchContextTest`（1 失败 + 1 错误）；
+  - `IndexingPropertiesTest`（2 错误，`NoSuchElement: No value bound`，环境占位符缺值）。
+  除上述 5 类外无任何失败，indexing / wiki 相关测试 0 失败。
+- 前端（`admin-frontend`）：`npm run typecheck`（vue-tsc）通过；`npx vitest run` **7 个文件 21 个用例全部通过**；`npm run build` 成功（vite 7.1.7，2.00s）。
+
+### 9.2 七项手动演练的自动化覆盖映射
+
+本环境无 `.env`（仅 `.env.example`），ES 9200 / Redis 等 KWIKI_* 中间件不可达，后端与 `admin-frontend` 无法完整启动，故原计划的浏览器手动演练改为「逐项找出断言同一行为的自动化测试」，映射如下（全部经 grep 核实真实存在）：
+
+1. **新建版本待迁移、写入关闭、迁移按钮禁用并提示「请先开启写入」** → `SearchIndexAdminActionsTest#待迁移且写入关闭_只能开启写入_迁移按钮提示先开启写入`（断言 `migrateBlockedReason="请先开启写入"`）；`IndexVersionStatusPolicyTest#displayStatusFollowsTheDocumentedPriority`（NEW+BEHIND → PENDING_MIGRATION）；前端 `tests/status.spec.ts`（文案恰为「待迁移」且不含「已重建」）。
+2. **打开写入 → 确认弹窗 → 开关开启、迁移可点** → `IndexVersionWriteServiceTest#开启写入_先清空物理索引再记录双写起点`；`SearchIndexAdminActionsTest#待迁移且写入开启_可以开始存量迁移`；`SearchIndexAdminControllerGrayGuardTest#全局版本不受灰度守卫影响`（`controller.write` → `writes` 服务通路）。确认弹窗文案本身无前端测试（文案位于 `IndexManagementView.vue#toggleWrite`）。
+3. **迁移 → 迁移中 → 已迁移 → 出现「校验」「选择版本」** → `IndexVersionStatusPolicyTest#开始存量迁移_进入构建中且标记活动`、`#displayStatusFollowsTheDocumentedPriority`（BUILDING → MIGRATING、BUILT+CURRENT → MIGRATED）、`#存量迁移完成_已构建且追平`；`IndexMigrationServiceTest#写入开启时发起MIGRATION_run`、`#已迁移版本拒绝再次迁移`；双写起点 `IndexVersionWriteServiceTest#开启写入_先清空物理索引再记录双写起点`；前端 `tests/management.spec.ts`（run 71 及含 `kind`/`dualWriteStartEventId` 的明细渲染、「已迁移」状态、「开始存量迁移」按钮）。注：迁移完成态下 `SearchIndexAdminQueryService.actionsFor` 的 `validate=true`/`select=true` 分支逻辑存在但无直接断言用例。
+4. **已发布版本开关禁用、提示「已发布版本不能关闭写入」、不再显示「开始补齐」** → `SearchIndexAdminActionsTest#已发布版本不能关闭写入也不能迁移`；`IndexVersionWriteServiceTest#已发布版本拒绝关闭写入`；「开始补齐」经全仓 grep 确认已无残留，前端 `tests/status.spec.ts` 断言不含「已重建」、`tests/management.spec.ts` 断言「重新启用」不渲染。
+5. **关闭写入 → 回到待迁移** → `IndexVersionWriteServiceTest#关闭写入_清空双写起点并标记落后`；`IndexVersionStatusPolicyTest#builtButBehindVersionDisplaysPendingMigration`（BUILT+BEHIND → PENDING_MIGRATION）；`SearchIndexAdminActionsTest#迁移中不能切换写入`。
+6. **灰度先开写入、再迁移、完成后自动校验进入已同步** → `GrayReleaseServiceTest#开始同步_先开启双写再发起存量迁移`、`#推进_本会话尚无迁移时发起迁移`、`#推进_本会话迁移完成后校验_通过即已同步`、`#推进_本会话迁移失败_记录原因等待重试`、`#结束灰度_关闭写入`；前端 `tests/gray-release.spec.ts#按 allowedActions 显示操作按钮…`、`#取消确认不发出操作，确认后发出`。
+7. **审计页出现 `WRITE_ENABLE`、`MIGRATE`、`WRITE_DISABLE` 记录** → 部分覆盖：命令幂等门 `AdminCommandIdempotencyTest`（3 用例）；同机制的灰度侧动作名传递有断言 `SearchIndexGrayReleaseControllerTest#命令经幂等执行器并以灰度版本号审计`（`GRAY_SWITCH`）；底层行为 `IndexVersionWriteServiceTest`、`IndexMigrationServiceTest`。**`WRITE_ENABLE`/`WRITE_DISABLE`/`MIGRATE` 字面动作名、`SearchIndexAudit` 审计行写入与 `/audits` 列表展示无自动化覆盖，待用户环境手动演练。**
+
