@@ -58,6 +58,16 @@ public class ParserCatalog {
                 .findFirst();
     }
 
+    /** 首次部署固定默认分块器、字段格式和向量配置，只切换偏好解析器。 */
+    public java.util.Optional<com.kwiki.indexing.version.EditableIndexConfig> deploymentConfigFor(
+            String parserVersion, com.kwiki.indexing.version.EditableIndexConfig base) {
+        var candidate = new com.kwiki.indexing.version.EditableIndexConfig(parserVersion,
+                base.chunkerVersion(), base.embeddingProvider(), base.embeddingModel(),
+                base.embeddingDimensions(), base.indexSchema());
+        return pipelines == null || pipelines.supports(candidate)
+                ? java.util.Optional.of(candidate) : java.util.Optional.empty();
+    }
+
     /** 当前全局已发布版本的配置；没有时返回 null。 */
     private com.kwiki.indexing.version.EditableIndexConfig selectedConfig() {
         return versions == null ? null

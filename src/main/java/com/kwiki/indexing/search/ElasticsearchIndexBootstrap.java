@@ -143,8 +143,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
         for (String id : defaults.parsers()) {
             boolean available = parsers.options().stream().anyMatch(option -> option.id().equals(id) && option.available());
             if (!available) continue;
-            var candidate = parsers.configFor(id, base)
-                    .filter(config -> config.indexSchema().equals(defaults.indexSchema()));
+            var candidate = parsers.deploymentConfigFor(id, base);
             if (candidate.isPresent()) return candidate.get();
         }
         throw new IllegalStateException("默认解析器偏好中没有与默认字段格式兼容的受支持流水线");
