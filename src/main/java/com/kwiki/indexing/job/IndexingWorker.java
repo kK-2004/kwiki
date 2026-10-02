@@ -372,7 +372,7 @@ public class IndexingWorker {
                                    DocumentSupplier documentSupplier) {
         String documentKey = pipeline.parserVersion();
         String chunkerKey = pipeline.parserVersion() + "|" + pipeline.chunkerVersion();
-        String embeddingKey = pipeline.embeddingModel() + ":" + pipeline.embeddingDimensions();
+        String embeddingKey = chunkerKey + "|" + pipeline.embeddingModel() + ":" + pipeline.embeddingDimensions();
         StructuredDocument document = intermediates.documents.computeIfAbsent(documentKey,
                 key -> documentSupplier.load(pipeline));
         List<ParentChunk> parents = intermediates.parents.computeIfAbsent(chunkerKey,

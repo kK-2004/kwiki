@@ -251,6 +251,95 @@ class VersionedMultiWriteTest {
                 anyString(), any(Integer.class), anyLong(), anyLong(), eq(41L));
     }
 
+    @Test
+    void 不同分块器同数量不同正文分别嵌入页面() {
+        assertSeparateVectors(false, false, false);
+    }
+
+    @Test
+    void 不同分块器不同数量分别嵌入页面() {
+        assertSeparateVectors(true, false, false);
+    }
+
+    @Test
+    void 不同解析器同分块器分别嵌入页面() {
+        assertSeparateVectors(false, true, false);
+    }
+
+    @Test
+    void 不同分块器同数量不同正文分别嵌入附件() {
+        assertSeparateVectors(false, false, true);
+    }
+
+    private void assertSeparateVectors(boolean differentCount, boolean differentParser, boolean attachment) {
+        var firstParser = new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser(
+                "parser-a", java.util.Set.of("text/plain"), java.util.Set.of(), true);
+        firstParser.document = new com.kwiki.indexing.parse.StructuredDocument(List.of(), "解析甲");
+        var secondParser = differentParser ? new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser(
+                "parser-b", java.util.Set.of("text/plain"), java.util.Set.of(), true) : firstParser;
+        if (differentParser) secondParser.document = new com.kwiki.indexing.parse.StructuredDocument(List.of(), "解析乙");
+        var firstChunker = new FakeChunker("chunker-a", 1);
+        var secondChunker = differentParser ? firstChunker : new FakeChunker("chunker-b", differentCount ? 2 : 1);
+        List<List<String>> requests = new java.util.ArrayList<>();
+        ChunkEmbeddingPort recording = texts -> {
+            requests.add(List.copyOf(texts));
+            return texts.stream().map(text -> new float[]{text.hashCode(), 0, 0, 0}).toList();
+        };
+        var registry = org.mockito.Mockito.mock(VersionedIndexingPipelineRegistry.class);
+        for (int number = 4; number <= 5; number++) {
+            var parser = number == 4 ? firstParser : secondParser;
+            var chunker = number == 4 ? firstChunker : secondChunker;
+            var config = new EditableIndexConfig(parser.id(), chunker.id(), "default", "text-embedding-v4", 4, "kwiki-schema-1");
+            registerVersion(number, "kwiki-chunks-v" + number, config);
+            when(registry.resolve(config)).thenReturn(Optional.of(new VersionedIndexingPipelineRegistry.ResolvedPipeline(
+                    "test-" + number, parser.id(), chunker.id(), parser, chunker, recording, "text-embedding-v4", 4, "kwiki-schema-1", null)));
+        }
+        worker = new IndexingWorker(claimer, new IndexingJobTargetStore(provider(jdbc)), registry,
+                StandardTestProperties.providerOf(versionRepository), index, null, pages, knowledgeBases, revisions,
+                attachments, storage, new SimpleMeterRegistry(), 8, 30, 3600);
+        var shared = new IndexingWorker.JobIntermediates();
+        if (attachment) {
+            var source = new com.kwiki.wiki.domain.Attachment("attachment", KB, 1L, "正文", "text/plain", 1);
+            org.springframework.test.util.ReflectionTestUtils.setField(source, "id", 7L);
+            source.markStored(12L);
+            when(attachments.findById(7L)).thenReturn(Optional.of(source));
+            when(storage.readContent(12L)).thenReturn(new byte[]{1});
+        }
+        for (int number = 4; number <= 5; number++) {
+            var row = target(50L + number, number, "kwiki-chunks-v" + number);
+            if (attachment) { row.put("resource_type", "ATTACHMENT"); row.put("revision_id", null); }
+            worker.process(row, shared);
+        }
+        assertThat(requests).hasSize(2);
+        assertThat(requests.get(0)).isNotEqualTo(requests.get(1));
+        var written = ArgumentCaptor.forClass(IndexedVersion.class);
+        verify(index, times(2)).upsertChunks(written.capture(), anyString());
+        for (int i = 0; i < 2; i++) {
+            var version = written.getAllValues().get(i);
+            assertThat(version.children()).extracting(com.kwiki.indexing.chunk.ChildChunk::content).isEqualTo(requests.get(i));
+            assertThat(version.childVectors()).hasSameSizeAs(version.children());
+            for (int j = 0; j < version.children().size(); j++) {
+                assertThat(version.childVectors().get(j)).containsExactly((float) version.children().get(j).content().hashCode(), 0, 0, 0);
+            }
+        }
+        verify(jdbc).update(contains("indexing_job_target SET state = 'COMPLETED'"), eq(54L));
+        verify(jdbc).update(contains("indexing_job_target SET state = 'COMPLETED'"), eq(55L));
+    }
+
+    private record FakeChunker(String id, int childCount) implements com.kwiki.indexing.chunk.plugin.ChunkerPlugin {
+        public String label() { return id; }
+        public List<com.kwiki.indexing.chunk.ParentChunk> parents(String prefix, com.kwiki.indexing.parse.StructuredDocument document) {
+            return List.of(new com.kwiki.indexing.chunk.ParentChunk(prefix + ":P0", 0, List.of(), 0, 1,
+                    id + document.plainText(), com.kwiki.indexing.chunk.ParentChunk.BoundaryType.HARD));
+        }
+        public List<com.kwiki.indexing.chunk.ChildChunk> children(com.kwiki.indexing.chunk.ParentChunk parent,
+                com.kwiki.indexing.parse.StructuredDocument document) {
+            return java.util.stream.IntStream.range(0, childCount).mapToObj(i -> new com.kwiki.indexing.chunk.ChildChunk(
+                    parent.parentKey() + ":C" + i, i, parent.parentKey(), 0, 1, parent.content() + i,
+                    com.kwiki.indexing.chunk.ChildChunk.BoundaryType.HARD)).toList();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static <T> org.springframework.beans.factory.ObjectProvider<T> provider(T value) {
         return (org.springframework.beans.factory.ObjectProvider<T>)
