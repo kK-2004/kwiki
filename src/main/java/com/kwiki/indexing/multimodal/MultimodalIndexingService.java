@@ -1,7 +1,7 @@
 package com.kwiki.indexing.multimodal;
 
 import com.kwiki.indexing.config.MultimodalIndexingProperties;
-import com.kwiki.indexing.job.IndexingWorker;
+import com.kwiki.indexing.parse.plugin.PdfboxMultimodalParserV2;
 import com.kwiki.indexing.parse.MarkdownStructParser;
 import com.kwiki.indexing.parse.StructBlock;
 import com.kwiki.indexing.parse.StructuredDocument;
@@ -168,7 +168,7 @@ public class MultimodalIndexingService {
                     new ImageResourceService.DerivedUpload(
                             DerivedImageAsset.KIND_ATTACHMENT_PDF,
                             "attachment:" + attachmentId, kbId,
-                            IndexingWorker.PARSER_VERSION_MULTIMODAL, null),
+                            PdfboxMultimodalParserV2.ID, null),
                     image.pngBytes(), image.contentType(),
                     "attachment-" + attachmentId + "-image.png");
             // 首次出现页随索引写入，检索命中图片时可直接跳到来源 PDF 对应页
@@ -222,7 +222,7 @@ public class MultimodalIndexingService {
         }
         DerivedImageAsset asset = imageResources.resolveAttachmentAsset(
                 attachment.getId(), attachment.getUuid(), kbId,
-                IndexingWorker.PARSER_VERSION_MULTIMODAL, bytes,
+                PdfboxMultimodalParserV2.ID, bytes,
                 attachment.getContentCenterFileId());
         return withSummary(asset);
     }
@@ -262,7 +262,7 @@ public class MultimodalIndexingService {
                 new ImageResourceService.DerivedUpload(
                         DerivedImageAsset.KIND_EXTERNAL_URL,
                         "page:" + pageId + ":rev:" + revisionId, kbId,
-                        IndexingWorker.PARSER_VERSION_MULTIMODAL, urlHash),
+                        PdfboxMultimodalParserV2.ID, urlHash),
                 downloaded.bytes(), downloaded.contentType(),
                 "page-" + pageId + "-image." + extensionOf(downloaded.contentType()));
         return withSummary(asset);
