@@ -1,5 +1,9 @@
 package com.kwiki.graph.persistence;
 
+import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
+import com.kwiki.indexing.schema.ChunkIndexSchema;
+import com.kwiki.indexing.plugin.IndexCapability;
+
 import com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry;
 import com.kwiki.indexing.version.EditableIndexConfig;
 import com.kwiki.indexing.version.SearchIndexVersion;
@@ -23,15 +27,19 @@ public class GraphBuildTargets {
 
     public static final String SCOPE_ALL = "ALL";
     public static final String SCOPE_KNOWLEDGE_BASE = "KNOWLEDGE_BASE";
-    /** 图构建依赖实体映射字段，仅 schema v3 及以上的 Chunk 版本可作为目标。 */
-    static final int MIN_MAPPING_SCHEMA_VERSION = 3;
 
     private final SearchIndexVersionRepository versions;
     private final JdbcTemplate jdbc;
+    private final VersionedIndexingPipelineRegistry pipelines;
+    private final ChunkIndexSchemaRegistry schemas;
 
-    public GraphBuildTargets(SearchIndexVersionRepository versions, JdbcTemplate jdbc) {
+    public GraphBuildTargets(SearchIndexVersionRepository versions, JdbcTemplate jdbc,
+                             VersionedIndexingPipelineRegistry pipelines,
+                             ChunkIndexSchemaRegistry schemas) {
         this.versions = versions;
         this.jdbc = jdbc;
+        this.pipelines = pipelines;
+        this.schemas = schemas;
     }
 
     /** 当前全局已发布的 Chunk 版本。 */
@@ -65,9 +73,11 @@ public class GraphBuildTargets {
                                           SearchIndexVersion target, String requestedEntityLinkingVersion,
                                           boolean autoPublish, String requestedBy, LocalDate scheduleDate) {
         EditableIndexConfig config = target.editableConfig();
-        if (config.mappingSchemaVersion() < MIN_MAPPING_SCHEMA_VERSION) {
-            throw new IllegalArgumentException("Chunk 版本 " + target.getPhysicalName() + " 的结构版本为 v"
-                    + config.mappingSchemaVersion() + "，图构建需要 v" + MIN_MAPPING_SCHEMA_VERSION + " 及以上");
+        if (!pipelines.supportsCapability(config, IndexCapability.ENTITY_LINKING)) {
+            String label = schemas.find(config.indexSchema()).map(ChunkIndexSchema::label)
+                    .orElse(config.indexSchema());
+            throw new IllegalArgumentException("所选 Chunk 版本的字段格式 " + label + "（" + config.indexSchema()
+                    + "）不支持实体关联，无法用于图构建");
         }
         String entityLinking = VersionedIndexingPipelineRegistry.ENTITY_LINKING_VERSION;
         if (requestedEntityLinkingVersion != null && !requestedEntityLinkingVersion.isBlank()
@@ -89,7 +99,7 @@ public class GraphBuildTargets {
             throw new IllegalArgumentException("没有活跃的知识库可供构建");
         }
         return new GraphBuildBatchRequest(idempotencyKey, scopeKind, scope, target.getVersionNumber(),
-                target.getPhysicalName(), config.mappingSchemaVersion(), target.getConfigRevision(),
+                target.getPhysicalName(), config.indexSchema(), target.getConfigRevision(),
                 entityLinking, autoPublish, requestedBy, scheduleDate);
     }
 }

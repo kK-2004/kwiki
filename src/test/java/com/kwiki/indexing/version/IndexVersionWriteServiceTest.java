@@ -29,8 +29,8 @@ class IndexVersionWriteServiceTest {
     private final PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
     private final KwikiDistributedLocks locks = mock(KwikiDistributedLocks.class);
     private final EditableIndexConfig config =
-            new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, 3);
-    private final String hash = new ChunkMappingBuilder().mappingHash(1024, 3);
+            new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1");
+    private final String hash = new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, "kwiki-schema-1");
     private IndexVersionWriteService service;
 
     static IndexingProperties properties(boolean mutations) {
@@ -63,7 +63,7 @@ class IndexVersionWriteServiceTest {
         SearchIndexVersion enabled = service.enable(2);
 
         InOrder order = inOrder(indexes, jdbc);
-        order.verify(indexes).recreateOfflineVersion("kwiki-chunks-v2", 1024, 3);
+        order.verify(indexes).recreateOfflineVersion("kwiki-chunks-v2", 1024, "kwiki-schema-1");
         order.verify(jdbc).queryForObject(contains("search_index_change_event"), eq(Long.class));
         assertThat(enabled.isWriteEnabled()).isTrue();
         assertThat(enabled.getWriteEnabledEventId()).isEqualTo(42L);
@@ -76,7 +76,7 @@ class IndexVersionWriteServiceTest {
         offline();
         when(jdbc.queryForObject(contains("indexing_job_target"), eq(Long.class), anyInt())).thenReturn(3L);
         assertThatThrownBy(() -> service.enable(2)).isInstanceOf(IllegalStateException.class);
-        verify(indexes, never()).recreateOfflineVersion(anyString(), anyInt(), anyInt());
+        verify(indexes, never()).recreateOfflineVersion(anyString(), anyInt(), anyString());
     }
 
     @Test
@@ -116,8 +116,7 @@ class IndexVersionWriteServiceTest {
         when(locks.acquire(anyString(), any(Duration.class))).thenReturn(null);
         assertThatThrownBy(() -> service.enable(2)).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("busy");
-        verify(indexes, never()).recreateOfflineVersion(anyString(), anyInt(), anyInt());
-        verify(indexes, never()).recreateOfflineVersion(anyString(), anyInt());
+        verify(indexes, never()).recreateOfflineVersion(anyString(), anyInt(), anyString());
     }
 
     @Test
@@ -132,7 +131,7 @@ class IndexVersionWriteServiceTest {
 
         InOrder order = inOrder(locks, indexes, handle);
         order.verify(locks).acquire(eq("index-rebuild:v2"), any(Duration.class));
-        order.verify(indexes).recreateOfflineVersion("kwiki-chunks-v2", 1024, 3);
+        order.verify(indexes).recreateOfflineVersion("kwiki-chunks-v2", 1024, "kwiki-schema-1");
         order.verify(handle).close();
     }
 }

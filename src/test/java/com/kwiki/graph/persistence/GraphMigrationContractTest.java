@@ -10,6 +10,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GraphMigrationContractTest {
 
     @Test
+    void 字段格式迁移回填后约束非空_旧列仅在Chunk身份表删除() throws Exception {
+        String migration = Files.readString(Path.of("src/main/resources/db/migration/V37__index_schema_plugin_ids.sql"));
+        for (String table : java.util.List.of("search_index_version", "graph_build_run", "graph_snapshot")) {
+            String column = table.equals("search_index_version") ? "index_schema" : "chunk_index_schema";
+            assertThat(migration).contains("ALTER TABLE " + table + " ADD COLUMN " + column + " VARCHAR(64) NULL")
+                    .contains("UPDATE " + table).contains("WHEN 3 THEN 'kwiki-schema-1'")
+                    .contains("CONCAT('legacy-schema-', mapping_schema_version)")
+                    .contains("ALTER TABLE " + table + " MODIFY COLUMN " + column + " VARCHAR(64) NOT NULL")
+                    .contains("ALTER TABLE " + table + " DROP COLUMN mapping_schema_version;");
+        }
+        assertThat(migration).doesNotContain("community_index_version");
+    }
+
+    @Test
     void graphMigrationsKeepIdentityIdempotencyAndPublicationConstraints() throws Exception {
         String extraction = Files.readString(Path.of(
                 "src/main/resources/db/migration/V28__graph_extraction_metadata.sql"));

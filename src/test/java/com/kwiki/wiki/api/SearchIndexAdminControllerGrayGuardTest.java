@@ -35,7 +35,7 @@ class SearchIndexAdminControllerGrayGuardTest {
     private final SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
     private final CurrentUser user = new CurrentUser(1L, "admin", true);
     private final EditableIndexConfig config =
-            new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, 3);
+            new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1");
     private SearchIndexAdminController controller;
 
     @BeforeEach
@@ -87,12 +87,12 @@ class SearchIndexAdminControllerGrayGuardTest {
     @Test
     void 存在向量配置不同的未结束灰度时拒绝全局选择() {
         EditableIndexConfig otherEmbedding =
-                new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model-2", 768, 3);
+                new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model-2", 768, "kwiki-schema-1");
         when(versions.findByVersionNumber(3)).thenReturn(Optional.of(
                 SearchIndexVersion.bootstrapped(3, "kwiki-chunks-v3", otherEmbedding, "h")));
         when(versions.findByVersionNumber(9)).thenReturn(Optional.of(
                 SearchIndexVersion.bootstrapped(9, "kwiki-chunks-v9",
-                        new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, 3), "h")));
+                        new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1"), "h")));
         when(grays.findAll()).thenReturn(List.of(release(GrayReleaseStatus.SWITCHED, 9)));
 
         assertThatThrownBy(() -> controller.select(user, 3, "k1"))
@@ -106,10 +106,10 @@ class SearchIndexAdminControllerGrayGuardTest {
                 SearchIndexVersion.bootstrapped(3, "kwiki-chunks-v3", config, "h")));
         when(versions.findByVersionNumber(9)).thenReturn(Optional.of(
                 SearchIndexVersion.bootstrapped(9, "kwiki-chunks-v9",
-                        new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, 3), "h")));
+                        new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1"), "h")));
         when(versions.findByVersionNumber(10)).thenReturn(Optional.of(
                 SearchIndexVersion.bootstrapped(10, "kwiki-chunks-v10",
-                        new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "other", 768, 3), "h")));
+                        new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "other", 768, "kwiki-schema-1"), "h")));
         when(grays.findAll()).thenReturn(List.of(release(GrayReleaseStatus.SWITCHED, 9),
                 release(GrayReleaseStatus.ENDED, 10)));
         when(switches.select(anyInt(), any())).thenReturn(new AliasSwitchService.Result(true, 1L, "SUCCESS"));

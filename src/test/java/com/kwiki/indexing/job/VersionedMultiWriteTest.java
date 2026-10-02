@@ -89,7 +89,7 @@ class VersionedMultiWriteTest {
 
     private static EditableIndexConfig config(int dims) {
         return new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default",
-                "text-embedding-v4", dims, 1);
+                "text-embedding-v4", dims, "kwiki-schema-1");
     }
 
     @BeforeEach
@@ -106,9 +106,9 @@ class VersionedMultiWriteTest {
         IndexingProperties indexing = new IndexingProperties(
                 List.of(
                         new IndexingProperties.Manifest("gen-4", "kwiki-parse-1", "kwiki-chunk-1",
-                                "default", "text-embedding-v4", 4, 1),
+                                "default", "text-embedding-v4", 4, "kwiki-schema-1"),
                         new IndexingProperties.Manifest("gen-6", "kwiki-parse-1", "kwiki-chunk-1",
-                                "alt-dims", "text-embedding-v4", 6, 1)),
+                                "alt-dims", "text-embedding-v4", 6, "kwiki-schema-1")),
                 Map.of("alt-dims", new IndexingProperties.EmbeddingProfile(
                         "https://alt-embed/v1", "sk-alt", Duration.ofSeconds(30))),
                 new IndexingProperties.Rebuild(50, 2, 20),
@@ -119,7 +119,7 @@ class VersionedMultiWriteTest {
                 indexing, external,
                 StandardTestProperties.providerOf(DocumentParseService.forTests()),
                 StandardTestProperties.providerOf(embeddings),
-                StandardTestProperties.nullProvider());
+                StandardTestProperties.nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 
         registry.registerProfileClientForTests("alt-dims", embeddings);
         registerVersion(1, "kwiki-chunks-v1", config(4));

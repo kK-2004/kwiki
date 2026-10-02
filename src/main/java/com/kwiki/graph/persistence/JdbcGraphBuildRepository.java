@@ -101,7 +101,7 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
                     "INSERT INTO graph_build_run "
                             + "(batch_id, kb_id, chunk_index_version, chunk_physical_index, "
                             + "community_index_version, community_physical_index, graph_version, "
-                            + "mapping_schema_version, entity_linking_version, content_epoch, security_epoch) "
+                            + "chunk_index_schema, entity_linking_version, content_epoch, security_epoch) "
                             + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, command.batchId());
@@ -111,7 +111,7 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
             statement.setLong(5, command.communityIndexVersion());
             statement.setString(6, command.communityPhysicalIndex());
             statement.setLong(7, command.graphVersion());
-            statement.setInt(8, command.mappingSchemaVersion());
+            statement.setString(8, command.chunkIndexSchema());
             statement.setString(9, command.entityLinkingVersion());
             statement.setLong(10, command.contentEpoch());
             statement.setLong(11, command.securityEpoch());
@@ -138,7 +138,7 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
         placeholders = placeholders.substring(0, placeholders.length() - 1);
         String sql = "SELECT id, batch_id, kb_id, chunk_index_version, chunk_physical_index, "
                 + "community_index_version, community_physical_index, graph_version, "
-                + "mapping_schema_version, entity_linking_version, content_epoch, security_epoch, "
+                + "chunk_index_schema, entity_linking_version, content_epoch, security_epoch, "
                 + "state, stage, "
                 + "fencing_token, lease_owner, lease_expires_at, event_watermark "
                 + "FROM graph_build_run WHERE kb_id = ? AND state IN (" + placeholders + ") "
@@ -150,7 +150,7 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
                 rs.getLong("id"), rs.getLong("batch_id"), rs.getLong("kb_id"),
                 rs.getInt("chunk_index_version"), rs.getString("chunk_physical_index"),
                 rs.getLong("community_index_version"), rs.getString("community_physical_index"),
-                rs.getLong("graph_version"), rs.getInt("mapping_schema_version"),
+                rs.getLong("graph_version"), rs.getString("chunk_index_schema"),
                 rs.getString("entity_linking_version"), rs.getLong("content_epoch"),
                 rs.getLong("security_epoch"), GraphBuildState.valueOf(rs.getString("state")),
                 GraphBuildStage.valueOf(rs.getString("stage")), rs.getLong("fencing_token"),

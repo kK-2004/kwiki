@@ -30,13 +30,13 @@ class GrayReleaseServiceTest {
     private GrayReleaseService service;
 
     private final EditableIndexConfig globalConfig =
-            new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, 3);
+            new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1");
 
     @BeforeEach
     void setUp() {
         service = new GrayReleaseService(store, admin, versions, scope, writes, migrations,
                 validations, runs, parsers);
-        String hash = new ChunkMappingBuilder().mappingHash(1024, 3);
+        String hash = new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, "kwiki-schema-1");
         when(versions.findBySelectedTrue()).thenReturn(Optional.of(
                 SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", globalConfig, hash)));
         when(admin.createVersion(any())).thenAnswer(invocation -> SearchIndexVersion.bootstrapped(
@@ -46,14 +46,14 @@ class GrayReleaseServiceTest {
             EditableIndexConfig base = invocation.getArgument(1);
             return Optional.of(new EditableIndexConfig(invocation.getArgument(0), base.chunkerVersion(),
                     base.embeddingProvider(), base.embeddingModel(), base.embeddingDimensions(),
-                    base.mappingSchemaVersion()));
+                    base.indexSchema()));
         });
     }
 
     @Test
     void 创建灰度_使用解析器目录按清单给出的配置() {
         EditableIndexConfig fromManifest =
-                new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, 2);
+                new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1");
         org.mockito.Mockito.doReturn(Optional.of(fromManifest))
                 .when(parsers).configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"), any());
         service.create(null, "kwiki-parse-2", List.of(7L), "admin");
@@ -74,7 +74,7 @@ class GrayReleaseServiceTest {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L, 9L), "admin");
 
         verify(parsers).requireAvailable("kwiki-parse-2");
-        verify(admin).createVersion(new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, 3));
+        verify(admin).createVersion(new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1"));
         verify(scope).register(2, List.of(7L, 9L));
         assertThat(created.status()).isEqualTo(GrayReleaseStatus.CREATED);
         assertThat(created.indexVersionNumber()).isEqualTo(2);

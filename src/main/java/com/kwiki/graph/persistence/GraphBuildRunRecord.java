@@ -12,7 +12,7 @@ public record GraphBuildRunRecord(
         long communityIndexVersion,
         String communityPhysicalIndex,
         long graphVersion,
-        int mappingSchemaVersion,
+        String chunkIndexSchema,
         String entityLinkingVersion,
         long contentEpoch,
         long securityEpoch,

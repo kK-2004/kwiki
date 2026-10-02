@@ -22,13 +22,13 @@ import java.util.Map;
  * <p>清单（manifest）是"当前部署可执行的结构配置代"：一个物理索引
  * 版本的 parser/chunker/embedding 模型/维度/mapping 组合必须精确匹配
  * 其中一项，才允许被选中、双写或重建。凭据只存在于本配置，绝不进入
- * 数据库或管理 API。未配置清单时，默认支持 v1；多模态配置
- * 齐全时额外支持相同 embedding 配置的 v2（由 {@code kwiki.qwen-embedding.*} 派生，见
+ * 数据库或管理 API。未配置清单时，与可用字段格式生成组合；多模态配置
+ * 齐全时额外支持具有资源能力的组合（向量配置由 {@code kwiki.qwen-embedding.*} 派生，见
  * VersionedIndexingPipelineRegistry 的默认解析）。
  *
  * <p>embedding 档案名 {@value #DEFAULT_EMBEDDING_PROFILE} 在未显式
  * 配置时回退到 {@code kwiki.qwen-embedding.*}，使既有部署无需新增
- * 配置即可表达 v1。
+ * 配置即可使用默认向量档案。
  */
 @ConfigurationProperties(prefix = "kwiki.indexing")
 @Validated
@@ -53,7 +53,7 @@ public record IndexingProperties(
             @NotBlank String embeddingProfile,
             @NotBlank String embeddingModel,
             @NotNull @Min(64) @Max(2048) Integer dimensions,
-            @NotNull @Min(1) @DefaultValue("1") Integer mappingSchemaVersion) {
+            @NotBlank String indexSchema) {
     }
 
     /**

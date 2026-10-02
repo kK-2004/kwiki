@@ -57,14 +57,15 @@ public class SearchIndexValidationService {
                         && frozen.configRevision()==version.getConfigRevision()
                         && frozen.physicalName().equals(version.getPhysicalName())
                         && frozen.embeddingDimensions()==version.editableConfig().embeddingDimensions()
+                        && frozen.indexSchema().equals(version.getIndexSchema())
                         && frozen.mappingHash().equals(version.getMappingHash())
                         && frozen.mappingHash().equals(mappings.mappingHash(
                                 frozen.embeddingDimensions(),
-                                version.editableConfig().mappingSchemaVersion()));
+                                version.editableConfig().indexSchema()));
             }
             mappingError=indexes.validateIndex(version.getPhysicalName(),
                     version.editableConfig().embeddingDimensions(),
-                    version.editableConfig().mappingSchemaVersion());
+                    version.editableConfig().indexSchema());
         } catch(Exception failure){ mappingError=failure.getClass().getSimpleName(); }
         boolean mapping=mappingError==null;
         boolean vectorDimension=mapping || !mappingError.contains("dimension");

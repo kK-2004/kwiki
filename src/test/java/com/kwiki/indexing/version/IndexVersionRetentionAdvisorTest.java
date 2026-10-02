@@ -11,7 +11,7 @@ import static org.mockito.Mockito.when;
 class IndexVersionRetentionAdvisorTest {
 
     private static final EditableIndexConfig CONFIG = new EditableIndexConfig(
-            "parser-1", "chunker-1", "default", "embedding-1", 1024, 1);
+            "parser-1", "chunker-1", "default", "embedding-1", 1024, "kwiki-schema-1");
 
     @Test
     void retainsSelectedAndNewestWhileOnlyOlderDisabledVersionIsCandidate() {

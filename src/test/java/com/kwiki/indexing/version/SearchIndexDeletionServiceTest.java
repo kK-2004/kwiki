@@ -20,7 +20,7 @@ import static org.mockito.Mockito.when;
 
 class SearchIndexDeletionServiceTest {
     private static final EditableIndexConfig CONFIG = new EditableIndexConfig(
-            "parser-1", "chunker-1", "default", "embedding-1", 1024, 1);
+            "parser-1", "chunker-1", "default", "embedding-1", 1024, "kwiki-schema-1");
 
     private final SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
     private final SearchIndexRebuildRunRepository runs = mock(SearchIndexRebuildRunRepository.class);

@@ -22,20 +22,22 @@ class CurrentChunkScheduledBatchFactoryTest {
 
     private final SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    private final com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines = mock(com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry.class);
     private final CurrentChunkScheduledBatchFactory factory =
-            new CurrentChunkScheduledBatchFactory(new GraphBuildTargets(versions, jdbc), false);
+            new CurrentChunkScheduledBatchFactory(new GraphBuildTargets(versions, jdbc, pipelines, com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), false);
     private final LocalDate today = LocalDate.of(2026, 9, 28);
 
-    private void selected(int schema) {
+    private void selected(String schema) {
         EditableIndexConfig config = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "qwen", 1024, schema);
         SearchIndexVersion version = SearchIndexVersion.bootstrapped(3, "kwiki-chunks-v3", config,
-                new ChunkMappingBuilder().mappingHash(1024, schema));
+                "hash");
+        when(pipelines.supportsCapability(config, com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING)).thenReturn("kwiki-schema-1".equals(schema));
         when(versions.findBySelectedTrue()).thenReturn(Optional.of(version));
     }
 
     @Test
     void 以当前全局版本与全部活跃知识库生成当天的全量批次() {
-        selected(3);
+        selected("kwiki-schema-1");
         when(jdbc.queryForList(anyString(), eq(Long.class))).thenReturn(List.of(9L, 4L));
 
         GraphBuildBatchRequest request = factory.create(today).orElseThrow();
@@ -44,7 +46,7 @@ class CurrentChunkScheduledBatchFactoryTest {
         assertThat(request.knowledgeBaseIds()).containsExactly(4L, 9L);
         assertThat(request.chunkIndexVersion()).isEqualTo(3);
         assertThat(request.chunkPhysicalIndex()).isEqualTo("kwiki-chunks-v3");
-        assertThat(request.mappingSchemaVersion()).isEqualTo(3);
+        assertThat(request.chunkIndexSchema()).isEqualTo("kwiki-schema-1");
         assertThat(request.configRevision()).isEqualTo(1);
         assertThat(request.entityLinkingVersion()).isEqualTo(VersionedIndexingPipelineRegistry.ENTITY_LINKING_VERSION);
         assertThat(request.scheduleDate()).isEqualTo(today);
@@ -61,14 +63,14 @@ class CurrentChunkScheduledBatchFactoryTest {
 
     @Test
     void 全局版本不支持实体映射时跳过() {
-        selected(2);
+        selected("legacy-schema-2");
         when(jdbc.queryForList(anyString(), eq(Long.class))).thenReturn(List.of(4L));
         assertThat(factory.create(today)).isEmpty();
     }
 
     @Test
     void 没有活跃知识库时跳过() {
-        selected(3);
+        selected("kwiki-schema-1");
         when(jdbc.queryForList(anyString(), eq(Long.class))).thenReturn(List.of());
         assertThat(factory.create(today)).isEmpty();
     }

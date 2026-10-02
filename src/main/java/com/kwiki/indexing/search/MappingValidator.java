@@ -3,47 +3,23 @@ package com.kwiki.indexing.search;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch._types.mapping.TypeMapping;
 
-import java.util.List;
+import java.util.Set;
 import java.util.Map;
 
 /**
  * 依据 kwiki 契约对已有索引映射做纯校验：
  * 向量维度必须与配置值一致，且每一个必需的
  * 溯源/作用域字段都必须存在。否则拒绝切换别名。
- * mapping schema v2+（多模态）额外要求 contentIds 资源字段；v3
- * 还要求 CHILD 实体映射字段；旧物理索引保持可检索。
+ * 必需字段集合由所选字段格式插件声明；旧物理索引保持可检索。
  */
 public final class MappingValidator {
-
-    private static final List<String> REQUIRED_FIELDS = List.of(
-            "chunkLevel", "chunkKey", "parentChunkKey", "resourceType", "resourceId",
-            "revisionId", "lifecycleVersion", "kbId", "headingPath", "charStart", "charEnd", "content",
-            "parserVersion", "chunkerVersion", "embeddingModel", "indexVersion", "vector");
-
-    private static final List<String> REQUIRED_FIELDS_V2 = List.of(
-            "chunkLevel", "chunkKey", "parentChunkKey", "resourceType", "resourceId",
-            "revisionId", "lifecycleVersion", "kbId", "headingPath", "charStart", "charEnd",
-            "content", "contentIds", "parserVersion", "chunkerVersion", "embeddingModel",
-            "indexVersion", "vector");
-
-    private static final List<String> REQUIRED_FIELDS_V3 = List.of(
-            "chunkLevel", "chunkKey", "parentChunkKey", "resourceType", "resourceId",
-            "revisionId", "lifecycleVersion", "kbId", "headingPath", "charStart", "charEnd",
-            "content", "contentIds", "sourceChunkId", "entityIds", "entityLinkingVersion",
-            "entityLinkingStatus", "parserVersion", "chunkerVersion", "embeddingModel",
-            "indexVersion", "vector");
 
     private MappingValidator() {
     }
 
-    /** v1 兼容入口（无 contentIds 要求）。 */
-    public static String validate(TypeMapping mapping, int expectedDimensions) {
-        return validate(mapping, expectedDimensions, 1);
-    }
-
     /** 直接校验 Elasticsearch Java Client 的强类型响应，避免调试字符串/Jackson 结构漂移。 */
     public static String validate(TypeMapping mapping, int expectedDimensions,
-                                  int mappingSchemaVersion) {
+                                  Set<String> requiredFields) {
         if (mapping == null) {
             return "missing mappings section";
         }
@@ -51,7 +27,7 @@ public final class MappingValidator {
         if (properties == null || properties.isEmpty()) {
             return "missing properties section";
         }
-        for (String field : requiredFields(mappingSchemaVersion)) {
+        for (String field : requiredFields) {
             if (!properties.containsKey(field)) {
                 return "missing required field: " + field;
             }
@@ -70,15 +46,9 @@ public final class MappingValidator {
         return null;
     }
 
-    /** 返回错误描述；映射兼容时返回 null。 */
-    @SuppressWarnings("unchecked")
-    public static String validate(Map<String, Object> indexMapping, int expectedDimensions) {
-        return validate(indexMapping, expectedDimensions, 1);
-    }
-
     @SuppressWarnings("unchecked")
     public static String validate(Map<String, Object> indexMapping, int expectedDimensions,
-                                  int mappingSchemaVersion) {
+                                  Set<String> requiredFields) {
         Object mappingsNode = indexMapping.get("mappings");
         if (!(mappingsNode instanceof Map<?, ?> mappings)) {
             return "missing mappings section";
@@ -88,7 +58,7 @@ public final class MappingValidator {
             return "missing properties section";
         }
         Map<String, Object> typed = (Map<String, Object>) properties;
-        for (String field : requiredFields(mappingSchemaVersion)) {
+        for (String field : requiredFields) {
             if (!typed.containsKey(field)) {
                 return "missing required field: " + field;
             }
@@ -107,10 +77,4 @@ public final class MappingValidator {
         return "vector field is malformed";
     }
 
-    private static List<String> requiredFields(int mappingSchemaVersion) {
-        if (mappingSchemaVersion >= 3) {
-            return REQUIRED_FIELDS_V3;
-        }
-        return mappingSchemaVersion >= 2 ? REQUIRED_FIELDS_V2 : REQUIRED_FIELDS;
-    }
 }

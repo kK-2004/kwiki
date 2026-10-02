@@ -14,8 +14,8 @@ class SearchIndexSelectionRegistryTest {
     private final SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
     private final SearchIndexSelectionRegistry registry = new SearchIndexSelectionRegistry(versions);
     private final EditableIndexConfig config =
-            new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, 3);
-    private final String hash = new ChunkMappingBuilder().mappingHash(1024, 3);
+            new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1");
+    private final String hash = new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, "kwiki-schema-1");
 
     @Test
     void 选择版本不再开启其他版本写入() {

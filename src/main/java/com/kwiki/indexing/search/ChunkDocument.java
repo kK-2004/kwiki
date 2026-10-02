@@ -1,24 +1,18 @@
 package com.kwiki.indexing.search;
 
+import com.kwiki.indexing.schema.ChunkIndexSchema;
 import com.kwiki.indexing.chunk.ChildChunk;
 import com.kwiki.indexing.chunk.ParentChunk;
 import com.kwiki.indexing.multimodal.ProtectedBlockProtocol;
 import com.kwiki.indexing.pipeline.IndexedVersion;
-import com.kwiki.graph.GraphSourceChunk;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 带版本号的 kwiki-chunks 索引的分块文档形态。文档 id 就是
- * 稳定的 chunk key，因此重放会确定性地覆盖。只有 CHILD
- * 文档携带稠密向量。content 是含受保护块的规范原文（资源
- * 字段的事实来源）；contentIds 由其中通过协议校验的受保护块
- * 重建——按首次出现去重，不含图片的分块不携带该字段，从而
- * 与 v1 严格映射（无 contentIds）的物理索引保持写兼容。
+ * 版本化分块索引的公共文档字段。文档 id 使用稳定 chunk key；
+ * 只有 CHILD 携带向量，资源与实体字段由所选字段格式插件追加。
  */
 public final class ChunkDocument {
 
@@ -32,7 +26,7 @@ public final class ChunkDocument {
     private ChunkDocument() {
     }
 
-    public static Map<String, Object> parent(ParentChunk chunk, IndexedVersion version) {
+    public static Map<String, Object> parent(ParentChunk chunk, IndexedVersion version, ChunkIndexSchema schema) {
         Map<String, Object> document = commonFields(version);
         document.put("chunkLevel", LEVEL_PARENT);
         document.put("chunkKey", chunk.parentKey());
@@ -42,28 +36,14 @@ public final class ChunkDocument {
         document.put("charStart", chunk.charStart());
         document.put("charEnd", chunk.charEnd());
         document.put("content", chunk.content());
-        List<Long> contentIds = resourceContentIds(chunk.content());
-        if (!contentIds.isEmpty()) {
-            document.put("contentIds", contentIds);
-        }
+        schema.decorateParent(document, chunk, version);
         return document;
     }
 
     public static Map<String, Object> child(ChildChunk chunk, float[] vector,
-                                            IndexedVersion version) {
+                                           IndexedVersion version, ChunkIndexSchema schema) {
         Map<String, Object> document = baseChild(chunk, vector, version);
-        if (version.mappingSchemaVersion() >= 3) {
-            addPendingEntityFields(document, chunk, version, version.entityLinkingVersion());
-        }
-        return document;
-    }
-
-    /** 为支持图增强的物理版本生成带待回填实体字段的 CHILD。 */
-    public static Map<String, Object> childWithEntityFields(ChildChunk chunk, float[] vector,
-                                                              IndexedVersion version,
-                                                              String entityLinkingVersion) {
-        Map<String, Object> document = baseChild(chunk, vector, version);
-        addPendingEntityFields(document, chunk, version, entityLinkingVersion);
+        schema.decorateChild(document, chunk, version);
         return document;
     }
 
@@ -77,40 +57,8 @@ public final class ChunkDocument {
         document.put("charStart", chunk.charStart());
         document.put("charEnd", chunk.charEnd());
         document.put("content", chunk.content());
-        List<Long> contentIds = resourceContentIds(chunk.content());
-        if (!contentIds.isEmpty()) {
-            document.put("contentIds", contentIds);
-        }
         document.put("vector", vector);
         return document;
-    }
-
-    private static void addPendingEntityFields(Map<String, Object> document, ChildChunk chunk,
-                                               IndexedVersion version,
-                                               String entityLinkingVersion) {
-        String linkingVersion = entityLinkingVersion == null || entityLinkingVersion.isBlank()
-                ? "entity-linking-v1" : entityLinkingVersion;
-        document.put("sourceChunkId", sourceChunkId(chunk, version));
-        document.put("entityIds", List.of());
-        document.put("entityLinkingVersion", linkingVersion);
-        document.put("entityLinkingStatus", "PENDING");
-    }
-
-    private static String sourceChunkId(ChildChunk chunk, IndexedVersion version) {
-        return new GraphSourceChunk(
-                version.kbId(), version.resourceType(), version.resourceId(), version.revisionId(),
-                version.lifecycleVersion(), version.indexVersion(), version.parserVersion(),
-                version.chunkerVersion(), chunk.childKey(), sha256(chunk.content())).sourceChunkId();
-    }
-
-    private static String sha256(String content) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest((content == null ? "" : content).getBytes(StandardCharsets.UTF_8));
-            return java.util.HexFormat.of().formatHex(digest);
-        } catch (java.security.NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("运行时缺少 SHA-256", failure);
-        }
     }
 
     /** 由规范原文中的受保护块重建去重 contentIds（首现顺序）。 */

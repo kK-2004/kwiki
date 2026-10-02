@@ -35,7 +35,7 @@ class VersionedIndexingPipelineRegistryTest {
         return new VersionedIndexingPipelineRegistry(indexing, external,
                 provider(DocumentParseService.forTests()),
                 provider(defaultEmbeddings),
-                nullProvider());
+                nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
     }
 
     private static ExternalServicesProperties external(String model, int dimensions) {
@@ -69,7 +69,7 @@ class VersionedIndexingPipelineRegistryTest {
     private static IndexingProperties.Manifest manifest(String id, String profile, String model,
                                                         int dims) {
         return new IndexingProperties.Manifest(id, "kwiki-parse-1", "kwiki-chunk-1", profile,
-                model, dims, 1);
+                model, dims, "kwiki-schema-1");
     }
 
     private static IndexingProperties.Rebuild rebuild() {
@@ -85,7 +85,7 @@ class VersionedIndexingPipelineRegistryTest {
     }
 
     private static EditableIndexConfig config(String profile, String model, int dims) {
-        return new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", profile, model, dims, 1);
+        return new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", profile, model, dims, "kwiki-schema-1");
     }
 
     @Test
@@ -95,7 +95,7 @@ class VersionedIndexingPipelineRegistryTest {
         var resolved = registry.resolve(config("default", "text-embedding-v4", 1024));
 
         assertThat(resolved).isPresent();
-        assertThat(resolved.get().manifestId()).isEqualTo("implicit-default");
+        assertThat(resolved.get().manifestId()).isEqualTo("implicit-kwiki-parse-1-kwiki-schema-1");
         assertThat(resolved.get().embeddingModel()).isEqualTo("text-embedding-v4");
         assertThat(resolved.get().embeddingDimensions()).isEqualTo(1024);
         assertThat(resolved.get().embeddings()).isSameAs(defaultEmbeddings);
@@ -112,22 +112,20 @@ class VersionedIndexingPipelineRegistryTest {
         org.mockito.Mockito.when(multimodal.enabled()).thenReturn(true);
         VersionedIndexingPipelineRegistry registry = new VersionedIndexingPipelineRegistry(
                 emptyManifests(), configured, provider(DocumentParseService.forTests()),
-                provider(defaultEmbeddings), nullProvider(), nullProvider(), multimodal);
+                provider(defaultEmbeddings), nullProvider(), nullProvider(), multimodal, com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 
-        // 每个解析器同时支持历史结构版本与最新的 v3
+        // 每个解析器与提供资源能力的注册字段格式生成一个组合。
         assertThat(registry.effectiveManifests())
-                .extracting(IndexingProperties.Manifest::parserVersion, IndexingProperties.Manifest::mappingSchemaVersion)
+                .extracting(IndexingProperties.Manifest::parserVersion, IndexingProperties.Manifest::indexSchema)
                 .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple("kwiki-parse-1", 1),
-                        org.assertj.core.groups.Tuple.tuple("kwiki-parse-1", 3),
-                        org.assertj.core.groups.Tuple.tuple("kwiki-parse-2", 2),
-                        org.assertj.core.groups.Tuple.tuple("kwiki-parse-2", 3));
+                        org.assertj.core.groups.Tuple.tuple("kwiki-parse-1", "kwiki-schema-1"),
+                        org.assertj.core.groups.Tuple.tuple("kwiki-parse-2", "kwiki-schema-1"));
         assertThat(registry.supports(new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1",
-                "default", "text-embedding-v4", 1024, 2))).isTrue();
-        assertThat(registry.supportsEntityLinking(new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1",
-                "default", "text-embedding-v4", 1024, 3))).isTrue();
-        assertThat(registry.supportsEntityLinking(new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1",
-                "default", "text-embedding-v4", 1024, 3))).isTrue();
+                "default", "text-embedding-v4", 1024, "kwiki-schema-1"))).isTrue();
+        assertThat(registry.supportsCapability(new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1",
+                "default", "text-embedding-v4", 1024, "kwiki-schema-1"), com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING)).isTrue();
+        assertThat(registry.supportsCapability(new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1",
+                "default", "text-embedding-v4", 1024, "kwiki-schema-1"), com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING)).isTrue();
     }
 
     @Test
@@ -149,9 +147,9 @@ class VersionedIndexingPipelineRegistryTest {
                 external("text-embedding-v4", 1024));
 
         assertThat(registry.resolve(new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1",
-                "qwen-v4", "text-embedding-v4", 2048, 1))).isEmpty();
+                "qwen-v4", "text-embedding-v4", 2048, "kwiki-schema-1"))).isEmpty();
         assertThat(registry.unsupportedReason(new EditableIndexConfig("kwiki-parse-1",
-                "kwiki-chunk-1", "qwen-v4", "text-embedding-v4", 2048, 1)))
+                "kwiki-chunk-1", "qwen-v4", "text-embedding-v4", 2048, "kwiki-schema-1")))
                 .hasValueSatisfying(reason -> assertThat(reason)
                         .contains("embedding profile is not configured"));
 
@@ -166,7 +164,7 @@ class VersionedIndexingPipelineRegistryTest {
         withProfile.registerProfileClientForTests("qwen-v4", mock(ChunkEmbeddingPort.class));
 
         var resolved = withProfile.resolve(new EditableIndexConfig("kwiki-parse-1",
-                "kwiki-chunk-1", "qwen-v4", "text-embedding-v4", 2048, 1));
+                "kwiki-chunk-1", "qwen-v4", "text-embedding-v4", 2048, "kwiki-schema-1"));
         assertThat(resolved).isPresent();
         assertThat(resolved.get().manifestId()).isEqualTo("gen-v2");
         assertThat(resolved.get().embeddingDimensions()).isEqualTo(2048);
@@ -178,11 +176,11 @@ class VersionedIndexingPipelineRegistryTest {
         var registry = registry(emptyManifests(), external("text-embedding-v4", 1024));
 
         assertThat(registry.unsupportedReason(new EditableIndexConfig("kwiki-parse-2",
-                "kwiki-chunk-1", "default", "text-embedding-v4", 1024, 1)))
+                "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "kwiki-schema-1")))
                 .hasValueSatisfying(reason ->
                         assertThat(reason).contains("parser version is not supported"));
         assertThat(registry.unsupportedReason(new EditableIndexConfig("kwiki-parse-1",
-                "kwiki-chunk-2", "default", "text-embedding-v4", 1024, 1)))
+                "kwiki-chunk-2", "default", "text-embedding-v4", 1024, "kwiki-schema-1")))
                 .hasValueSatisfying(reason ->
                         assertThat(reason).contains("chunker version is not supported"));
     }
@@ -192,7 +190,7 @@ class VersionedIndexingPipelineRegistryTest {
         var registry = registry(emptyManifests(), external("text-embedding-v4", 1024));
 
         assertThat(registry.unsupportedReason(new EditableIndexConfig("kwiki-parse-1",
-                "kwiki-chunk-1", "missing-profile", "text-embedding-v4", 1024, 1)))
+                "kwiki-chunk-1", "missing-profile", "text-embedding-v4", 1024, "kwiki-schema-1")))
                 .hasValueSatisfying(reason -> assertThat(reason)
                         .contains("embedding profile is not configured: missing-profile"));
     }
@@ -206,6 +204,51 @@ class VersionedIndexingPipelineRegistryTest {
 
         assertThat(diagnostics).containsEntry("gen-v1", "supported");
         assertThat(String.valueOf(diagnostics)).doesNotContain("key").doesNotContain("https://e");
+    }
+
+    @Test
+    void 未注册字段格式拒绝解析且显式清单启动失败() {
+        var registry = registry(emptyManifests(), external("text-embedding-v4", 1024));
+        var legacy = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "legacy-schema-2");
+        assertThat(registry.resolve(legacy)).isEmpty();
+        assertThat(registry.unsupportedReason(legacy)).contains("字段格式 legacy-schema-2 未注册");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> registry(manifests(new IndexingProperties.Manifest(
+                "unknown", "kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "missing")),
+                external("text-embedding-v4", 1024)))
+                .isInstanceOf(IllegalStateException.class).hasMessage("清单 unknown 引用未注册的字段格式 missing");
+    }
+
+    @Test
+    void 隐式组合按插件能力生成_不可用插件不参与_实体版本按能力派生() {
+        var text = schema("text-schema", java.util.Set.of(), true);
+        var unavailable = schema("offline-schema", java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING), false);
+        var resource = schema("resource-schema", java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.RESOURCE_IDS), true);
+        var external = external("text-embedding-v4", 1024);
+        var configured = new ExternalServicesProperties(external.contentCenter(), external.elasticsearch(), external.answerLlm(),
+                external.qwenEmbedding(), new ExternalServicesProperties.VisionModel("https://vision.example/v1", "test", "vision",
+                Duration.ofSeconds(5), Duration.ofSeconds(60), 2, 4));
+        var multimodal = mock(MultimodalIndexingProperties.class);
+        org.mockito.Mockito.when(multimodal.enabled()).thenReturn(true);
+        var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), configured, provider(DocumentParseService.forTests()),
+                provider(defaultEmbeddings), nullProvider(), nullProvider(), multimodal,
+                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(text, unavailable, resource)));
+        assertThat(registry.effectiveManifests()).extracting(IndexingProperties.Manifest::id).containsExactly(
+                "implicit-kwiki-parse-1-resource-schema", "implicit-kwiki-parse-2-resource-schema", "implicit-kwiki-parse-1-text-schema");
+        var config = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "text-schema");
+        assertThat(registry.resolve(config)).hasValueSatisfying(pipeline -> assertThat(pipeline.entityLinkingVersion()).isNull());
+        assertThat(registry.supportsCapability(config, com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING)).isFalse();
+        assertThat(registry.resolve(new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "text-schema"))).isEmpty();
+        assertThat(registry.resolve(new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "offline-schema"))).isEmpty();
+    }
+
+    private static com.kwiki.indexing.schema.ChunkIndexSchema schema(String id,
+            java.util.Set<com.kwiki.indexing.plugin.IndexCapability> capabilities, boolean available) {
+        var schema = mock(com.kwiki.indexing.schema.ChunkIndexSchema.class);
+        org.mockito.Mockito.when(schema.id()).thenReturn(id);
+        org.mockito.Mockito.when(schema.capabilities()).thenReturn(capabilities);
+        org.mockito.Mockito.when(schema.availability()).thenReturn(available ? com.kwiki.indexing.plugin.PluginAvailability.ok()
+                : com.kwiki.indexing.plugin.PluginAvailability.unavailable("测试不可用"));
+        return schema;
     }
 
     private static <T> ObjectProvider<T> provider(T value) {

@@ -75,7 +75,7 @@ class AliasSwitchFaultInjectionTest {
         var indexes=mock(ElasticsearchIndexManager.class);
         var selection=mock(SearchIndexSelectionRegistry.class);
         var audits=mock(SearchIndexAuditRepository.class);
-        var config=new EditableIndexConfig("parser","chunker","default","model",1024,1);
+        var config=new EditableIndexConfig("parser","chunker","default","model",1024, "kwiki-schema-1");
         when(versions.findBySelectedTrue()).thenReturn(Optional.of(
                 SearchIndexVersion.bootstrapped(1,"kwiki-chunks-v1",config,"h")));
         when(versions.findByVersionNumber(2)).thenReturn(Optional.of(

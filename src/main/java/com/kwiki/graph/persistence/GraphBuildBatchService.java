@@ -1,5 +1,11 @@
 package com.kwiki.graph.persistence;
 
+import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
+import com.kwiki.indexing.schema.ChunkIndexSchema;
+import com.kwiki.indexing.plugin.IndexCapability;
+import com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry;
+import com.kwiki.indexing.version.SearchIndexVersionRepository;
+
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,15 +26,20 @@ public class GraphBuildBatchService {
     private final GraphBuildRepository repository;
     private final GraphSourceEpochService epochs;
 
-    public GraphBuildBatchService(GraphBuildRepository repository) {
-        this(repository, null);
-    }
+    private final VersionedIndexingPipelineRegistry pipelines;
+    private final SearchIndexVersionRepository versions;
+    private final ChunkIndexSchemaRegistry schemas;
 
     @Autowired
-    public GraphBuildBatchService(GraphBuildRepository repository,
-                                  GraphSourceEpochService epochs) {
+    public GraphBuildBatchService(GraphBuildRepository repository, GraphSourceEpochService epochs,
+                                  VersionedIndexingPipelineRegistry pipelines,
+                                  SearchIndexVersionRepository versions,
+                                  ChunkIndexSchemaRegistry schemas) {
         this.repository = repository;
         this.epochs = epochs;
+        this.pipelines = pipelines;
+        this.versions = versions;
+        this.schemas = schemas;
     }
 
     @Transactional
@@ -37,12 +48,24 @@ public class GraphBuildBatchService {
         if (existing.isPresent()) {
             return new GraphBuildSubmission(existing.get(), 0, List.of(), true);
         }
-        if (request.mappingSchemaVersion() < 3) {
-            throw new IllegalArgumentException("图构建目标必须支持实体映射 schema v3");
+        var target = versions.findByVersionNumber(request.chunkIndexVersion())
+                .filter(version -> version.getDeletedAt() == null)
+                .orElseThrow(() -> new IllegalArgumentException("Chunk 版本不存在或已删除"));
+        var config = target.editableConfig();
+        if (!pipelines.supportsCapability(config, IndexCapability.ENTITY_LINKING)) {
+            String label = schemas.find(config.indexSchema()).map(ChunkIndexSchema::label)
+                    .orElse(config.indexSchema());
+            throw new IllegalArgumentException("所选 Chunk 版本的字段格式 " + label + "（" + config.indexSchema()
+                    + "）不支持实体关联，无法用于图构建");
         }
+        if (!request.chunkIndexSchema().equals(config.indexSchema())
+                || request.configRevision() != target.getConfigRevision()
+                || !request.chunkPhysicalIndex().equals(target.getPhysicalName())) {
+            throw new IllegalArgumentException("图构建目标配置已变化，请重新提交");
+        }
+        // COMMUNITY 映射独立使用自身的整数结构版本，不能沿用 CHUNK 字段格式。
         long communityVersion = repository.allocateCommunityIndexVersion(
-                "kwiki-communities-v%d-kb%%d", request.mappingSchemaVersion(),
-                request.configRevision());
+                "kwiki-communities-v%d-kb%%d", 3, request.configRevision());
         GraphBuildBatchCommand batch = new GraphBuildBatchCommand(
                 request.idempotencyKey(), request.scopeKind(), request.knowledgeBaseIdsJson(),
                 request.chunkIndexVersion(), request.chunkPhysicalIndex(), communityVersion,
@@ -58,7 +81,7 @@ public class GraphBuildBatchService {
             runIds.add(repository.createRun(new GraphBuildRunCommand(
                     batchId, kbId, request.chunkIndexVersion(), request.chunkPhysicalIndex(),
                     communityVersion, communityIndex, graphVersion,
-                    request.mappingSchemaVersion(), request.entityLinkingVersion(),
+                    request.chunkIndexSchema(), request.entityLinkingVersion(),
                     currentEpochs[0], currentEpochs[1])));
         }
         return new GraphBuildSubmission(batchId, communityVersion, runIds, false);

@@ -58,7 +58,7 @@ class ArchiveIndexSyncLockTest {
                         1, "kwiki-chunks-v1",
                         new com.kwiki.indexing.version.EditableIndexConfig(
                                 "kwiki-parse-1", "kwiki-chunk-1", "default",
-                                "text-embedding-v4", 1024, 1),
+                                "text-embedding-v4", 1024, "kwiki-schema-1"),
                         "hash");
         when(versionRepository.findByWriteEnabledTrueAndDeletedAtIsNull())
                 .thenReturn(List.of(v1));

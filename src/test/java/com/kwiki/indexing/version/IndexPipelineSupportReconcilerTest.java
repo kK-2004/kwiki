@@ -30,7 +30,7 @@ class IndexPipelineSupportReconcilerTest {
 
     private static EditableIndexConfig config() {
         return new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default",
-                "text-embedding-v4", 1024, 1);
+                "text-embedding-v4", 1024, "kwiki-schema-1");
     }
 
     @BeforeEach
@@ -54,6 +54,19 @@ class IndexPipelineSupportReconcilerTest {
     }
 
     @Test
+    void 未注册字段格式写入健康摘要_已标不支持时仍补齐原因() {
+        var legacyConfig = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "legacy-schema-2");
+        var legacy = SearchIndexVersion.bootstrapped(2, "kwiki-chunks-v2", legacyConfig, "hash");
+        legacy.applySnapshot(IndexVersionStatusPolicy.pipelineSupportChanged(legacy.toSnapshot(false), false));
+        when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc()).thenReturn(List.of(legacy));
+        when(registry.unsupportedReason(legacyConfig)).thenReturn(Optional.of("字段格式 legacy-schema-2 未注册"));
+        assertThat(reconciler.reconcile()).isEqualTo(1);
+        assertThat(legacy.isPipelineSupported()).isFalse();
+        assertThat(legacy.getHealthSummary()).isEqualTo("字段格式 legacy-schema-2 未注册");
+        assertThat(reconciler.reconcile()).isZero();
+    }
+
+    @Test
     void restoredSupportIsReverted() {
         SearchIndexVersion marked = SearchIndexVersion.bootstrapped(
                 2, "kwiki-chunks-v2", config(), "hash");
@@ -61,10 +74,12 @@ class IndexPipelineSupportReconcilerTest {
                 marked.toSnapshot(false), false));
         when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc())
                 .thenReturn(List.of(marked));
+        marked.recordHealthSummary("字段格式 kwiki-schema-1 不可用");
         when(registry.supports(config())).thenReturn(true);
 
         assertThat(reconciler.reconcile()).isEqualTo(1);
         assertThat(marked.isPipelineSupported()).isTrue();
+        assertThat(marked.getHealthSummary()).isNull();
     }
 
     @Test

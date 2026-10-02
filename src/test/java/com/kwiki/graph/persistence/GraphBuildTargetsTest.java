@@ -22,24 +22,26 @@ class GraphBuildTargetsTest {
 
     private final SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    private final GraphBuildTargets targets = new GraphBuildTargets(versions, jdbc);
+    private final VersionedIndexingPipelineRegistry pipelines = mock(VersionedIndexingPipelineRegistry.class);
+    private final GraphBuildTargets targets = new GraphBuildTargets(versions, jdbc, pipelines, new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(new com.kwiki.indexing.schema.KwikiSchemaV1())));
 
-    private void version(int number, int schema) {
+    private void version(int number, String schema) {
         EditableIndexConfig config = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "qwen", 1024, schema);
+        when(pipelines.supportsCapability(config, com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING)).thenReturn("kwiki-schema-1".equals(schema));
         when(versions.findByVersionNumber(number)).thenReturn(Optional.of(SearchIndexVersion.bootstrapped(
-                number, "kwiki-chunks-v" + number, config, new ChunkMappingBuilder().mappingHash(1024, schema))));
+                number, "kwiki-chunks-v" + number, config, "hash")));
     }
 
     @Test
     void 全量范围在服务端展开为全部活跃知识库_其余参数取自所选版本() {
-        version(3, 3);
+        version(3, "kwiki-schema-1");
         when(jdbc.queryForList(anyString(), eq(Long.class))).thenReturn(List.of(4L, 9L));
 
         GraphBuildBatchRequest request = targets.request("k1", "ALL", List.of(), 3, null, true, "admin", null);
 
         assertThat(request.knowledgeBaseIds()).containsExactly(4L, 9L);
         assertThat(request.chunkPhysicalIndex()).isEqualTo("kwiki-chunks-v3");
-        assertThat(request.mappingSchemaVersion()).isEqualTo(3);
+        assertThat(request.chunkIndexSchema()).isEqualTo("kwiki-schema-1");
         assertThat(request.configRevision()).isEqualTo(1);
         assertThat(request.entityLinkingVersion()).isEqualTo(VersionedIndexingPipelineRegistry.ENTITY_LINKING_VERSION);
         assertThat(request.autoPublish()).isTrue();
@@ -47,7 +49,7 @@ class GraphBuildTargetsTest {
 
     @Test
     void 全量范围忽略调用方传入的知识库列表() {
-        version(3, 3);
+        version(3, "kwiki-schema-1");
         when(jdbc.queryForList(anyString(), eq(Long.class))).thenReturn(List.of(4L));
         assertThat(targets.request("k1", "ALL", List.of(99L), 3, null, false, "admin", null).knowledgeBaseIds())
                 .containsExactly(4L);
@@ -55,7 +57,7 @@ class GraphBuildTargetsTest {
 
     @Test
     void 指定知识库范围必须恰好一个() {
-        version(3, 3);
+        version(3, "kwiki-schema-1");
         assertThat(targets.request("k1", "KNOWLEDGE_BASE", List.of(7L), 3, null, false, "admin", null)
                 .knowledgeBaseIds()).containsExactly(7L);
         assertThatThrownBy(() -> targets.request("k1", "KNOWLEDGE_BASE", List.of(), 3, null, false, "admin", null))
@@ -64,7 +66,7 @@ class GraphBuildTargetsTest {
 
     @Test
     void 实体链接版本与流水线不一致时拒绝_一致或为空时通过() {
-        version(3, 3);
+        version(3, "kwiki-schema-1");
         assertThatThrownBy(() -> targets.request("k1", "KNOWLEDGE_BASE", List.of(7L), 3, "v1", false, "admin", null))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("entity-linking-v1");
         targets.request("k1", "KNOWLEDGE_BASE", List.of(7L), 3, "entity-linking-v1", false, "admin", null);
@@ -76,14 +78,26 @@ class GraphBuildTargetsTest {
         when(versions.findByVersionNumber(8)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> targets.request("k1", "ALL", List.of(), 8, null, false, "admin", null))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("v8");
-        version(2, 1);
+        version(2, "legacy-schema-1");
         assertThatThrownBy(() -> targets.request("k1", "ALL", List.of(), 2, null, false, "admin", null))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("v3 及以上");
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("legacy-schema-1").hasMessageContaining("不支持实体关联");
+    }
+
+    @Test
+    void 已注册但不具备实体能力的字段格式拒绝并显示名称与id() {
+        var schema = mock(com.kwiki.indexing.schema.ChunkIndexSchema.class);
+        when(schema.id()).thenReturn("text-schema");
+        when(schema.label()).thenReturn("纯文本格式");
+        var configured = new GraphBuildTargets(versions, jdbc, pipelines,
+                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)));
+        version(2, "text-schema");
+        assertThatThrownBy(() -> configured.request("k", "KNOWLEDGE_BASE", List.of(7L), 2, null, false, "admin", null))
+                .hasMessage("所选 Chunk 版本的字段格式 纯文本格式（text-schema）不支持实体关联，无法用于图构建");
     }
 
     @Test
     void 没有活跃知识库时拒绝全量构建() {
-        version(3, 3);
+        version(3, "kwiki-schema-1");
         when(jdbc.queryForList(anyString(), eq(Long.class))).thenReturn(List.of());
         assertThatThrownBy(() -> targets.request("k1", "ALL", List.of(), 3, null, false, "admin", null))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("没有活跃的知识库");

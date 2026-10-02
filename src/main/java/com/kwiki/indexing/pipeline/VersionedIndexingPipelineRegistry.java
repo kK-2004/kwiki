@@ -1,5 +1,7 @@
 package com.kwiki.indexing.pipeline;
 
+import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
+import com.kwiki.indexing.plugin.IndexCapability;
 import com.kwiki.indexing.chunk.ChildChunker;
 import com.kwiki.indexing.chunk.ParentChunker;
 import com.kwiki.indexing.config.IndexingProperties;
@@ -20,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 按目标版本"成功构建的配置修订"解析流水线（任务 5.1）：把结构配置
  * 六元组匹配到当前部署受支持的结构代清单，并给出该代对应的
  * parser、chunker、embedding 客户端与维度。清单留空时默认支持
- * 隐式 v1 代；多模态配置齐全时同时支持隐式 v2 代。
+ * 所有可用字段格式；多模态解析器只与提供资源标识能力的字段格式组合。
  *
  * <p>当前部署支持 {@code kwiki-parse-1} 与条件启用的
  * {@code kwiki-parse-2}，chunker 为 {@code kwiki-chunk-1}；其它组合不受支持。
@@ -37,8 +39,6 @@ public class VersionedIndexingPipelineRegistry {
     public static final String SUPPORTED_CHUNKER_VERSION =
             com.kwiki.indexing.job.IndexingWorker.CHUNKER_VERSION;
     public static final String ENTITY_LINKING_VERSION = "entity-linking-v1";
-    /** 最新的 CHUNK 映射结构版本（含实体映射字段）；新部署与新建版本默认使用。 */
-    public static final int LATEST_MAPPING_SCHEMA_VERSION = 3;
 
     /** 一个受支持结构代的具体执行流水线。 */
     public record ResolvedPipeline(
@@ -51,10 +51,11 @@ public class VersionedIndexingPipelineRegistry {
             ChunkEmbeddingPort embeddings,
             String embeddingModel,
             int embeddingDimensions,
-            int mappingSchemaVersion,
+            String indexSchema,
             String entityLinkingVersion) {
     }
 
+    private final ChunkIndexSchemaRegistry schemaRegistry;
     private final IndexingProperties indexingProperties;
     private final ExternalServicesProperties externalProperties;
     private final ObjectProvider<DocumentParseService> parser;
@@ -69,9 +70,9 @@ public class VersionedIndexingPipelineRegistry {
             ExternalServicesProperties externalProperties,
             ObjectProvider<DocumentParseService> parser,
             ObjectProvider<ChunkEmbeddingPort> defaultEmbeddings,
-            ObjectProvider<WebClient.Builder> webClientBuilder) {
+            ObjectProvider<WebClient.Builder> webClientBuilder, ChunkIndexSchemaRegistry schemaRegistry) {
         this(indexingProperties, externalProperties, parser, defaultEmbeddings, webClientBuilder,
-                null, null);
+                null, null, schemaRegistry);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -82,7 +83,16 @@ public class VersionedIndexingPipelineRegistry {
             ObjectProvider<ChunkEmbeddingPort> defaultEmbeddings,
             ObjectProvider<WebClient.Builder> webClientBuilder,
             ObjectProvider<com.kwiki.indexing.multimodal.MultimodalMetrics> multimodalMetrics,
-            com.kwiki.indexing.config.MultimodalIndexingProperties multimodalProperties) {
+            com.kwiki.indexing.config.MultimodalIndexingProperties multimodalProperties,
+            ChunkIndexSchemaRegistry schemaRegistry) {
+        this.schemaRegistry = schemaRegistry;
+        if (indexingProperties.manifests() != null) {
+            for (var manifest : indexingProperties.manifests()) {
+                if (schemaRegistry.find(manifest.indexSchema()).isEmpty()) {
+                    throw new IllegalStateException("清单 " + manifest.id() + " 引用未注册的字段格式 " + manifest.indexSchema());
+                }
+            }
+        }
         this.indexingProperties = indexingProperties;
         this.externalProperties = externalProperties;
         this.parser = parser;
@@ -97,11 +107,10 @@ public class VersionedIndexingPipelineRegistry {
         return resolve(config).isPresent();
     }
 
-    /** 只有 v3 严格 mapping 才能作为图增强的 Chunk 目标。 */
-    public boolean supportsEntityLinking(EditableIndexConfig config) {
-        return config.mappingSchemaVersion() >= 3 && resolve(config)
-                .map(pipeline -> pipeline.entityLinkingVersion() != null)
-                .orElse(false);
+    /** 能力门禁同时要求完整流水线可执行。 */
+    public boolean supportsCapability(EditableIndexConfig config, IndexCapability capability) {
+        return resolve(config).isPresent() && schemaRegistry.require(config.indexSchema())
+                .capabilities().contains(capability);
     }
 
     /** 多模态解析代（kwiki-parse-2）只有在功能开启时受支持。 */
@@ -119,6 +128,13 @@ public class VersionedIndexingPipelineRegistry {
 
     /** 无法解析的脱敏原因（供管理端与日志使用）。 */
     public Optional<String> unsupportedReason(EditableIndexConfig config) {
+        var schema = schemaRegistry.find(config.indexSchema());
+        if (schema.isEmpty()) return Optional.of("字段格式 " + config.indexSchema() + " 未注册");
+        if (!schema.get().availability().available()) return Optional.of("字段格式 " + config.indexSchema() + " 不可用");
+        if (com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL.equals(config.parserVersion())
+                && !schema.get().capabilities().contains(IndexCapability.RESOURCE_IDS)) {
+            return Optional.of("字段格式 " + config.indexSchema() + " 不支持资源标识");
+        }
         if (!parserVersionSupported(config.parserVersion())) {
             return Optional.of("parser version is not supported by this deployment: "
                     + config.parserVersion());
@@ -138,6 +154,10 @@ public class VersionedIndexingPipelineRegistry {
     }
 
     public Optional<ResolvedPipeline> resolve(EditableIndexConfig config) {
+        var schema = schemaRegistry.find(config.indexSchema());
+        if (schema.isEmpty() || !schema.get().availability().available()) return Optional.empty();
+        if (com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL.equals(config.parserVersion())
+                && !schema.get().capabilities().contains(IndexCapability.RESOURCE_IDS)) return Optional.empty();
         DocumentParseService parserInstance = parser.getIfAvailable();
         if (parserInstance == null
                 || !parserVersionSupported(config.parserVersion())
@@ -164,42 +184,36 @@ public class VersionedIndexingPipelineRegistry {
                     embeddings,
                     manifest.embeddingModel(),
                     manifest.dimensions(),
-                    manifest.mappingSchemaVersion(),
-                    manifest.mappingSchemaVersion() >= 3 ? ENTITY_LINKING_VERSION : null));
+                    manifest.indexSchema(),
+                    schema.get().capabilities().contains(IndexCapability.ENTITY_LINKING) ? ENTITY_LINKING_VERSION : null));
         }
         return Optional.empty();
     }
 
-    /**
-     * 当前部署受支持的全部结构代（显式清单优先，否则隐式默认代）。
-     * 隐式默认代：每个解析器同时支持其历史结构版本（parse-1 → 1、parse-2 → 2，保证已建版本
-     * 升级后仍受支持）与最新结构版本 3（含实体映射字段，可用于图构建）。新部署与新建版本
-     * 默认取最高结构版本。
-     */
+    /** 显式清单优先；否则按可用解析器与字段格式能力生成默认组合。 */
     public List<IndexingProperties.Manifest> effectiveManifests() {
         if (indexingProperties.manifests() != null && !indexingProperties.manifests().isEmpty()) {
             return indexingProperties.manifests();
         }
         List<IndexingProperties.Manifest> manifests = new java.util.ArrayList<>();
-        manifests.add(implicitManifest("implicit-default", SUPPORTED_PARSER_VERSION, 1));
-        manifests.add(implicitManifest("implicit-default-entity", SUPPORTED_PARSER_VERSION,
-                LATEST_MAPPING_SCHEMA_VERSION));
-        if (parserVersionSupported(com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL)) {
-            manifests.add(implicitManifest("implicit-multimodal",
-                    com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL, 2));
-            manifests.add(implicitManifest("implicit-multimodal-entity",
-                    com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL,
-                    LATEST_MAPPING_SCHEMA_VERSION));
+        for (var schema : schemaRegistry.all()) {
+            if (!schema.availability().available()) continue;
+            manifests.add(implicitManifest("implicit-" + SUPPORTED_PARSER_VERSION + "-" + schema.id(),
+                    SUPPORTED_PARSER_VERSION, schema.id()));
+            String multimodal = com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL;
+            if (parserVersionSupported(multimodal) && schema.capabilities().contains(IndexCapability.RESOURCE_IDS)) {
+                manifests.add(implicitManifest("implicit-" + multimodal + "-" + schema.id(), multimodal, schema.id()));
+            }
         }
         return List.copyOf(manifests);
     }
 
     private IndexingProperties.Manifest implicitManifest(String id, String parserVersion,
-                                                         int mappingSchemaVersion) {
+                                                         String indexSchema) {
         var qwen = externalProperties.qwenEmbedding();
         return new IndexingProperties.Manifest(id, parserVersion, SUPPORTED_CHUNKER_VERSION,
                 IndexingProperties.DEFAULT_EMBEDDING_PROFILE, qwen.model(), qwen.dimensions(),
-                mappingSchemaVersion);
+                indexSchema);
     }
 
     /** 多模态指标（未启用时为 null，计数为空操作）。 */
@@ -213,8 +227,7 @@ public class VersionedIndexingPipelineRegistry {
                 && manifest.chunkerVersion().equals(config.chunkerVersion())
                 && manifest.embeddingModel().equals(config.embeddingModel())
                 && manifest.dimensions().intValue() == config.embeddingDimensions().intValue()
-                && manifest.mappingSchemaVersion().intValue()
-                        == config.mappingSchemaVersion().intValue();
+                && manifest.indexSchema().equals(config.indexSchema());
     }
 
     private Optional<IndexingProperties.EmbeddingProfile> embeddingProfileOf(
@@ -283,7 +296,11 @@ public class VersionedIndexingPipelineRegistry {
         Map<String, String> diagnostics = new LinkedHashMap<>();
         DocumentParseService parserInstance = parser.getIfAvailable();
         for (IndexingProperties.Manifest manifest : effectiveManifests()) {
-            boolean runnable = parserInstance != null
+            boolean runnable = schemaRegistry.find(manifest.indexSchema())
+                    .filter(schema -> schema.availability().available())
+                    .filter(schema -> !com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL.equals(manifest.parserVersion())
+                            || schema.capabilities().contains(IndexCapability.RESOURCE_IDS)).isPresent()
+                    && parserInstance != null
                     && parserVersionSupported(manifest.parserVersion())
                     && SUPPORTED_CHUNKER_VERSION.equals(manifest.chunkerVersion())
                     && (IndexingProperties.DEFAULT_EMBEDDING_PROFILE

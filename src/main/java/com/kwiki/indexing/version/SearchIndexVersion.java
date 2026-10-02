@@ -33,7 +33,8 @@ public class SearchIndexVersion {
     private String embeddingProvider;
     private String embeddingModel;
     private int embeddingDimensions;
-    private int mappingSchemaVersion;
+    @Column(name = "index_schema", nullable = false, length = 64)
+    private String indexSchema;
     private long configRevision = 1;
     private Long builtConfigRevision;
     private String buildState = IndexBuildState.NEW.name();
@@ -74,7 +75,7 @@ public class SearchIndexVersion {
         this.embeddingProvider = config.embeddingProvider();
         this.embeddingModel = config.embeddingModel();
         this.embeddingDimensions = config.embeddingDimensions();
-        this.mappingSchemaVersion = config.mappingSchemaVersion();
+        this.indexSchema = config.indexSchema();
         this.mappingHash = mappingHash;
     }
 
@@ -160,6 +161,8 @@ public class SearchIndexVersion {
         return needsAttentionReason;
     }
 
+    public String getIndexSchema() { return indexSchema; }
+    void recordHealthSummary(String summary) { this.healthSummary = summary; }
     public String getHealthSummary() { return healthSummary; }
     public Instant getLastValidationAt() { return lastValidationAt; }
     public String getValidationSummary() { return validationSummary; }
@@ -177,14 +180,14 @@ public class SearchIndexVersion {
 
     public EditableIndexConfig editableConfig() {
         return new EditableIndexConfig(parserVersion, chunkerVersion, embeddingProvider,
-                embeddingModel, embeddingDimensions, mappingSchemaVersion);
+                embeddingModel, embeddingDimensions, indexSchema);
     }
 
     /** 无凭据的不可变构建快照：run 开始时固化，worker 只使用该快照。 */
     public BuildManifestSnapshot buildManifestSnapshot() {
         return new BuildManifestSnapshot(versionNumber, physicalName, configRevision,
                 parserVersion, chunkerVersion, embeddingProvider, embeddingModel,
-                embeddingDimensions, mappingSchemaVersion, mappingHash);
+                embeddingDimensions, indexSchema, mappingHash);
     }
 
     /**
@@ -197,7 +200,7 @@ public class SearchIndexVersion {
         this.embeddingProvider = config.embeddingProvider();
         this.embeddingModel = config.embeddingModel();
         this.embeddingDimensions = config.embeddingDimensions();
-        this.mappingSchemaVersion = config.mappingSchemaVersion();
+        this.indexSchema = config.indexSchema();
         this.mappingHash = newMappingHash;
         this.configRevision++;
     }

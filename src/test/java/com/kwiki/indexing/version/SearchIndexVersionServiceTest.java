@@ -40,7 +40,7 @@ class SearchIndexVersionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SearchIndexVersionService(com.kwiki.testutil.StandardTestProperties.providerOf(repository), new ChunkMappingBuilder());
+        service = new SearchIndexVersionService(com.kwiki.testutil.StandardTestProperties.providerOf(repository), new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()));
         when(repository.findMaxVersionNumber()).thenAnswer(inv ->
                 rows.keySet().stream().max(Integer::compare).orElse(null));
         when(repository.findByVersionNumber(any(Integer.class))).thenAnswer(inv ->
@@ -59,7 +59,7 @@ class SearchIndexVersionServiceTest {
 
     private static EditableIndexConfig config(int dimensions) {
         return new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default",
-                "text-embedding-v4", dimensions, 1);
+                "text-embedding-v4", dimensions, "kwiki-schema-1");
     }
 
     @Test

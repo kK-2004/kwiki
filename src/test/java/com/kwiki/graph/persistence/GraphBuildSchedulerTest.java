@@ -171,7 +171,7 @@ class GraphBuildSchedulerTest {
                                                  GraphBuildState state,
                                                  GraphBuildStage stage) {
         return new GraphBuildRunRecord(id, 1, 7, 3, "kwiki-chunks-v3", 5,
-                "kwiki-communities-v5-kb7", 42, 3, "entity-linking-v1", 5, 2,
+                "kwiki-communities-v5-kb7", 42, "kwiki-schema-1", "entity-linking-v1", 5, 2,
                 state, stage, fencing, owner, null, 27);
     }
 }

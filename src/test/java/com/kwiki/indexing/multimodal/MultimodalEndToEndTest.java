@@ -121,13 +121,13 @@ class MultimodalEndToEndTest {
                 new com.kwiki.indexing.pipeline.IndexedVersion(
                         "PAGE", PAGE, REVISION, 0, KB, "kwiki-parse-2", "kwiki-chunk-1",
                         "text-embedding-v4", 2,
-                        List.of(), List.of(), List.of());
+                        List.of(), List.of(), List.of(), "kwiki-schema-1", "entity-linking-v1");
         List<Map<String, Object>> documents = new ArrayList<>();
         List<String> embeddingTexts = new ArrayList<>();
         for (ParentChunk parent : parentChunker.chunk("PAGE:" + PAGE + ":" + REVISION, document)) {
-            documents.add(ChunkDocument.parent(parent, identity));
+            documents.add(ChunkDocument.parent(parent, identity, new com.kwiki.indexing.schema.KwikiSchemaV1()));
             for (ChildChunk child : childChunker.chunk(parent, document)) {
-                documents.add(ChunkDocument.child(child, new float[] {0.1f, 0.2f}, identity));
+                documents.add(ChunkDocument.child(child, new float[] {0.1f, 0.2f}, identity, new com.kwiki.indexing.schema.KwikiSchemaV1()));
                 embeddingTexts.add(com.kwiki.indexing.multimodal.ProtectedTextProjection
                         .strip(child.content()));
             }

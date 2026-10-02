@@ -26,7 +26,7 @@ class AliasReconciliationServiceTest {
         var versions=mock(SearchIndexVersionRepository.class);
         var selection=mock(SearchIndexSelectionRegistry.class);
         var audits=mock(SearchIndexAuditRepository.class);
-        var config=new EditableIndexConfig("parser","chunker","default","model",1024,1);
+        var config=new EditableIndexConfig("parser","chunker","default","model",1024, "kwiki-schema-1");
         var database=SearchIndexVersion.bootstrapped(1,"kwiki-chunks-v1",config,"h");
         var actual=SearchIndexVersion.bootstrapped(2,"kwiki-chunks-v2",config,"h");
         when(indexes.aliasTargets()).thenReturn(List.of("kwiki-chunks-v2"));

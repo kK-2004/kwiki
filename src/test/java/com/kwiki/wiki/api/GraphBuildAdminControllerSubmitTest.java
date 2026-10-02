@@ -37,45 +37,48 @@ class GraphBuildAdminControllerSubmitTest {
     private final GraphBuildBatchService batches = mock(GraphBuildBatchService.class);
     private final SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    private final com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines = mock(com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry.class);
     private final CurrentUser admin = mock(CurrentUser.class);
     private final GraphBuildAdminController controller = new GraphBuildAdminController(batches,
             mock(GraphAdminQueryService.class), mock(GraphAdminCommandService.class), mock(GraphBuildRepository.class),
             new GraphProperties(true, GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED, "0 0 2 * * *", "Asia/Shanghai",
                     false, Duration.ofMinutes(10), 2, Duration.ofMinutes(30), GraphProperties.Capacity.defaults()),
-            new GraphBuildTargets(versions, jdbc));
+            new GraphBuildTargets(versions, jdbc, pipelines, com.kwiki.indexing.schema.SchemaTestFixtures.schemas()));
 
-    private void version(int number, int schema) {
+    private void version(int number, String schema) {
         EditableIndexConfig config = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "qwen", 1024, schema);
+        when(pipelines.supportsCapability(config, com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING)).thenReturn(true);
         when(versions.findByVersionNumber(number)).thenReturn(Optional.of(SearchIndexVersion.bootstrapped(
-                number, "kwiki-chunks-v" + number, config, new ChunkMappingBuilder().mappingHash(1024, schema))));
+                number, "kwiki-chunks-v" + number, config, new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, schema))));
     }
 
     @Test
     void 全量提交由服务端展开知识库并推导其余参数_忽略客户端旧字段() {
         when(admin.username()).thenReturn("admin");
-        version(3, 3);
+        version(3, "kwiki-schema-1");
         when(jdbc.queryForList(anyString(), eq(Long.class))).thenReturn(List.of(4L, 9L));
         when(batches.submit(any())).thenReturn(new GraphBuildSubmission(11L, 2L, List.of(21L, 22L), false));
 
-        // 旧客户端仍会带上 mappingSchemaVersion=1、entity "entity-linking-v1" 等字段：结构版本与物理名以服务端为准
-        controller.submit(admin, "k1", new GraphBuildAdminController.SubmitRequest(
-                "ALL", List.of(), 3, "bogus-index", 1, 99L, "entity-linking-v1", null));
+        // 旧客户端仍会带上 chunkIndexSchema=1、entity "entity-linking-v1" 等字段：结构版本与物理名以服务端为准
+        var response = controller.submit(admin, "k1", new GraphBuildAdminController.SubmitRequest(
+                "ALL", List.of(), 3, "bogus-index", 99L, "entity-linking-v1", null));
 
+        assertThat(response.getData()).containsEntry("chunkIndexSchema", "kwiki-schema-1");
         ArgumentCaptor<GraphBuildBatchRequest> captor = ArgumentCaptor.forClass(GraphBuildBatchRequest.class);
         verify(batches).submit(captor.capture());
         GraphBuildBatchRequest request = captor.getValue();
         assertThat(request.knowledgeBaseIds()).containsExactly(4L, 9L);
         assertThat(request.chunkPhysicalIndex()).isEqualTo("kwiki-chunks-v3");
-        assertThat(request.mappingSchemaVersion()).isEqualTo(3);
+        assertThat(request.chunkIndexSchema()).isEqualTo("kwiki-schema-1");
         assertThat(request.configRevision()).isEqualTo(1);
         assertThat(request.requestedBy()).isEqualTo("admin");
     }
 
     @Test
     void 参数不合法时返回中文冲突且不提交() {
-        version(3, 3);
+        version(3, "kwiki-schema-1");
         assertThatThrownBy(() -> controller.submit(admin, "k2", new GraphBuildAdminController.SubmitRequest(
-                "KNOWLEDGE_BASE", List.of(7L), 3, null, null, null, "v1", null)))
+                "KNOWLEDGE_BASE", List.of(7L), 3, null, null, "v1", null)))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("entity-linking-v1");
         verify(batches, never()).submit(any());

@@ -39,7 +39,7 @@ class ElasticsearchIndexManagerTest {
 
         TestingManager() {
             super(providerOf(mock(co.elastic.clients.elasticsearch.ElasticsearchClient.class)),
-                    new ChunkMappingBuilder());
+                    new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         }
 
         private static <T> ObjectProvider<T> providerOf(T value) {
@@ -59,7 +59,7 @@ class ElasticsearchIndexManagerTest {
         }
 
         @Override
-        public String validateIndex(String indexName, int expectedDimensions) {
+        public String validateIndex(String indexName, int expectedDimensions, String indexSchema) {
             return revalidationResult;
         }
     }
@@ -70,7 +70,7 @@ class ElasticsearchIndexManagerTest {
         manager.indexAlreadyExists = true;
         manager.revalidationResult = null; // 兼容
 
-        String name = manager.createVersionedIndex("kwiki-chunks-v2", 1024);
+        String name = manager.createVersionedIndex("kwiki-chunks-v2", 1024, "kwiki-schema-1");
 
         assertThat(name).isEqualTo("kwiki-chunks-v2");
     }
@@ -81,7 +81,7 @@ class ElasticsearchIndexManagerTest {
         manager.indexAlreadyExists = true;
         manager.revalidationResult = "vector dimension mismatch: expected 1024";
 
-        assertThatThrownBy(() -> manager.createVersionedIndex("kwiki-chunks-v2", 2048))
+        assertThatThrownBy(() -> manager.createVersionedIndex("kwiki-chunks-v2", 2048, "kwiki-schema-1"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("kwiki-chunks-v2 conflicts")
                 .hasMessageContaining("vector dimension mismatch");
@@ -92,7 +92,7 @@ class ElasticsearchIndexManagerTest {
         TestingManager manager = new TestingManager();
         manager.indexAlreadyExists = false;
 
-        assertThat(manager.createVersionedIndex("kwiki-chunks-v3", 1024))
+        assertThat(manager.createVersionedIndex("kwiki-chunks-v3", 1024, "kwiki-schema-1"))
                 .isEqualTo("kwiki-chunks-v3");
     }
 }

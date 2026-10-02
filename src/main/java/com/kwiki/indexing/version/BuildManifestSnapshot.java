@@ -14,6 +14,6 @@ public record BuildManifestSnapshot(
         String embeddingProvider,
         String embeddingModel,
         int embeddingDimensions,
-        int mappingSchemaVersion,
+        String indexSchema,
         String mappingHash) {
 }

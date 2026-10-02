@@ -48,7 +48,7 @@ class IndexingWorkerImportedPdfTest {
                 .thenReturn(expected);
         IndexingWorker worker = worker(sources, attachments, storage);
         ResolvedPipeline pipeline = new ResolvedPipeline("v2", "kwiki-parse-2", "kwiki-chunk-1",
-                parser, null, null, null, "model", 1024, 2, null);
+                parser, null, null, null, "model", 1024, "kwiki-schema-1", null);
 
         assertThat(worker.importedPdfDocument(page, revision, pipeline, multimodal))
                 .isSameAs(expected);

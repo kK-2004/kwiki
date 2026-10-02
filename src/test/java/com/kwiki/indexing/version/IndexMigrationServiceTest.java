@@ -18,7 +18,7 @@ class IndexMigrationServiceTest {
     private final VersionRebuildCoordinator coordinator = mock(VersionRebuildCoordinator.class);
     private final FixedRangeRebuildScanner scanner = mock(FixedRangeRebuildScanner.class);
     private final EditableIndexConfig config =
-            new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, 3);
+            new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1");
     private IndexMigrationService service;
     private SearchIndexVersion version;
 
@@ -27,7 +27,7 @@ class IndexMigrationServiceTest {
         service = new IndexMigrationService(versions, coordinator, scanner,
                 IndexVersionWriteServiceTest.properties(true), null);
         version = new SearchIndexVersion(2, "kwiki-chunks-v2", config,
-                new ChunkMappingBuilder().mappingHash(1024, 3));
+                new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, "kwiki-schema-1"));
         when(versions.findByVersionNumber(2)).thenReturn(Optional.of(version));
     }
 
@@ -58,7 +58,7 @@ class IndexMigrationServiceTest {
     @Test
     void 已迁移版本拒绝再次迁移() {
         SearchIndexVersion published = SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", config,
-                new ChunkMappingBuilder().mappingHash(1024, 3));
+                new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, "kwiki-schema-1"));
         when(versions.findByVersionNumber(1)).thenReturn(Optional.of(published));
         assertThatThrownBy(() -> service.migrate(1, "admin"))
                 .isInstanceOf(IllegalStateException.class)

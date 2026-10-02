@@ -92,7 +92,7 @@ class IndexingWorkerTest {
 
     static EditableIndexConfig builtConfig() {
         return new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default",
-                "text-embedding-v4", 4, 1);
+                "text-embedding-v4", 4, "kwiki-schema-1");
     }
 
     @BeforeEach
@@ -102,7 +102,7 @@ class IndexingWorkerTest {
                 emptyManifests(), properties(),
                 StandardTestProperties.providerOf(DocumentParseService.forTests()),
                 StandardTestProperties.providerOf(embeddings),
-                StandardTestProperties.nullProvider());
+                StandardTestProperties.nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         SearchIndexVersion v2 = SearchIndexVersion.bootstrapped(
                 2, PHYSICAL, builtConfig(), "hash");
         lenient().when(versionRepository.findByVersionNumber(2)).thenReturn(Optional.of(v2));

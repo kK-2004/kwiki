@@ -1,5 +1,7 @@
 package com.kwiki.indexing.search;
 
+import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
+
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
 import co.elastic.clients.elasticsearch.indices.UpdateAliasesRequest;
@@ -30,12 +32,14 @@ public class ElasticsearchIndexManager {
 
     private final ElasticsearchClient client;
     private final ChunkMappingBuilder mappingBuilder;
+    private final ChunkIndexSchemaRegistry schemas;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public ElasticsearchIndexManager(ObjectProvider<ElasticsearchClient> client,
-                                     ChunkMappingBuilder mappingBuilder) {
+                                     ChunkMappingBuilder mappingBuilder, ChunkIndexSchemaRegistry schemas) {
         this.client = client.getIfAvailable();
         this.mappingBuilder = mappingBuilder;
+        this.schemas = schemas;
     }
 
     public String indexNameFor(int version) {
@@ -66,19 +70,15 @@ public class ElasticsearchIndexManager {
      * 幂等创建显式物理索引。索引已存在时按目标维度重新校验 mapping：
      * 同名但映射冲突（例如维度不同）直接拒绝，绝不在冲突索引上继续。
      */
-    public String createVersionedIndex(String indexName, int embeddingDimensions) throws Exception {
-        return createVersionedIndex(indexName, embeddingDimensions,
-                ChunkMappingBuilder.MAPPING_SCHEMA_MULTIMODAL);
-    }
 
     /** 按版本配置创建严格 mapping；实体代际必须使用新的物理索引。 */
     public String createVersionedIndex(String indexName, int embeddingDimensions,
-                                       int mappingSchemaVersion) throws Exception {
+                                       String indexSchema) throws Exception {
         if (client == null) {
             return indexName;
         }
         Map<String, Object> body = mappingBuilder.buildMapping(embeddingDimensions,
-                mappingSchemaVersion);
+                indexSchema);
         String json;
         try {
             json = mapper.writeValueAsString(body);
@@ -91,9 +91,7 @@ public class ElasticsearchIndexManager {
             if (!"resource_already_exists_exception".equals(alreadyExists.error().type())) {
                 throw alreadyExists;
             }
-            String conflict = mappingSchemaVersion == ChunkMappingBuilder.MAPPING_SCHEMA_MULTIMODAL
-                    ? validateIndex(indexName, embeddingDimensions)
-                    : validateIndex(indexName, embeddingDimensions, mappingSchemaVersion);
+            String conflict = validateIndex(indexName, embeddingDimensions, indexSchema);
             if (conflict != null) {
                 throw new IllegalStateException(
                         "existing index " + indexName + " conflicts with the requested mapping: "
@@ -104,14 +102,10 @@ public class ElasticsearchIndexManager {
     }
 
     /** 手动重建专用：只允许精确托管名称，且绝不删除当前别名目标。 */
-    public void recreateOfflineVersion(String indexName, int embeddingDimensions) throws Exception {
-        recreateOfflineVersion(indexName, embeddingDimensions,
-                ChunkMappingBuilder.MAPPING_SCHEMA_MULTIMODAL);
-    }
 
     /** 按版本配置重建离线物理索引。 */
     public void recreateOfflineVersion(String indexName, int embeddingDimensions,
-                                       int mappingSchemaVersion) throws Exception {
+                                       String indexSchema) throws Exception {
         if (!indexName.matches(PHYSICAL_NAME_PATTERN)) {
             throw new IllegalArgumentException("refusing to recreate unmanaged index: " + indexName);
         }
@@ -121,7 +115,7 @@ public class ElasticsearchIndexManager {
         if (client != null && client.indices().exists(request -> request.index(indexName)).value()) {
             client.indices().delete(request -> request.index(indexName));
         }
-        createVersionedIndex(indexName, embeddingDimensions, mappingSchemaVersion);
+        createVersionedIndex(indexName, embeddingDimensions, indexSchema);
     }
 
     /** 删除一个精确托管物理索引；提交前再次以 ES 别名事实关闭竞态窗口。 */
@@ -151,14 +145,9 @@ public class ElasticsearchIndexManager {
                 .withJson(new StringReader(mappingJson))));
     }
 
-    /** 兼容时返回 null；否则返回拒绝切换别名的原因（v1 契约）。 */
-    public String validateIndex(String indexName, int expectedDimensions) throws Exception {
-        return validateIndex(indexName, expectedDimensions, 1);
-    }
-
-    /** 按 mapping schema 代校验：v2+ 额外要求 contentIds 资源字段。 */
+    /** 按字段格式声明的必需字段校验；兼容时返回 null。 */
     public String validateIndex(String indexName, int expectedDimensions,
-                                int mappingSchemaVersion) throws Exception {
+                                String indexSchema) throws Exception {
         if (client == null) {
             return null;
         }
@@ -168,7 +157,7 @@ public class ElasticsearchIndexManager {
             return "missing mappings section";
         }
         return MappingValidator.validate(record.mappings(), expectedDimensions,
-                mappingSchemaVersion);
+                schemas.require(indexSchema).requiredFields());
     }
 
     /** 原子切换别名：先在所有位置移除该别名，再将其指向新索引。 */

@@ -43,7 +43,7 @@ class ElasticsearchIndexBootstrapTest {
 
     private static EditableIndexConfig deployedConfig() {
         return new EditableIndexConfig(
-                "kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, 1);
+                "kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "kwiki-schema-1");
     }
 
     /** 内存语义的注册表 mock：只实现引导路径用到的派生查询。 */
@@ -71,17 +71,25 @@ class ElasticsearchIndexBootstrapTest {
     }
 
     @Test
+    void 首次部署使用注入的默认字段格式() {
+        var bootstrap = new ElasticsearchIndexBootstrap(new FakeIndexManager(false, List.of(), null), providerOf(new InMemoryRegistry().proxy),
+                new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1,
+                new com.kwiki.indexing.config.IndexingDefaultsProperties("custom-schema"));
+        assertThat(bootstrap.firstDeploymentConfig().indexSchema()).isEqualTo("custom-schema");
+    }
+
+    @Test
     void firstDeploymentCreatesIndexPersistsMetadataAndMountsAlias() throws Exception {
         FakeIndexManager indexes = new FakeIndexManager(false, List.of(), null);
         InMemoryRegistry registry = new InMemoryRegistry();
         ElasticsearchIndexBootstrap bootstrap =
                 new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
-                        new ChunkMappingBuilder(), properties(), 1);
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
 
         bootstrap.run(null);
 
         assertThat(indexes.calls).containsExactly(
-                "available", "aliasExists", "create:kwiki-chunks-v1:schema1",
+                "available", "aliasExists", "create:kwiki-chunks-v1:kwiki-schema-1",
                 "validate:kwiki-chunks-v1:1024", "alias:kwiki-chunks-v1");
         assertThat(bootstrap.isReady()).isTrue();
         assertThat(registry.saves).isEqualTo(1);
@@ -100,7 +108,7 @@ class ElasticsearchIndexBootstrapTest {
         InMemoryRegistry registry = new InMemoryRegistry();
         ElasticsearchIndexBootstrap bootstrap =
                 new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
-                        new ChunkMappingBuilder(), properties(), 1);
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
         com.kwiki.indexing.version.BootstrapMigrationRecorder recorder =
                 org.mockito.Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class);
         com.kwiki.indexing.gray.ParserCatalog parsers =
@@ -109,21 +117,21 @@ class ElasticsearchIndexBootstrapTest {
                 org.mockito.Mockito.mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class);
         org.mockito.Mockito.when(readiness.ready()).thenReturn(true);
         EditableIndexConfig latestParseOne = new EditableIndexConfig(
-                "kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, 3);
-        org.mockito.Mockito.when(parsers.latestConfigFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-1"),
+                "kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "kwiki-schema-1");
+        org.mockito.Mockito.when(parsers.configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-1"),
                 org.mockito.ArgumentMatchers.any())).thenReturn(java.util.Optional.of(latestParseOne));
         bootstrap.setFirstDeploymentSupport(parsers, readiness, indexing(false), recorder);
 
         bootstrap.run(null);
 
-        assertThat(indexes.calls).contains("create:kwiki-chunks-v1:schema3");
+        assertThat(indexes.calls).contains("create:kwiki-chunks-v1:kwiki-schema-1");
         SearchIndexVersion v1 = registry.rows.get(1);
         assertThat(v1.editableConfig()).isEqualTo(latestParseOne);
         // 记录的映射哈希与结构版本一致，版本校验的构建清单项才能通过
-        assertThat(v1.getMappingHash()).isEqualTo(new ChunkMappingBuilder().mappingHash(1024, 3));
+        assertThat(v1.getMappingHash()).isEqualTo(new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, "kwiki-schema-1"));
         org.mockito.Mockito.verify(recorder).recordEmptyBaseline(v1);
         org.mockito.Mockito.verify(parsers, org.mockito.Mockito.never())
-                .latestConfigFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"), org.mockito.ArgumentMatchers.any());
+                .configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -132,7 +140,7 @@ class ElasticsearchIndexBootstrapTest {
         InMemoryRegistry registry = new InMemoryRegistry();
         ElasticsearchIndexBootstrap bootstrap =
                 new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
-                        new ChunkMappingBuilder(), properties(), 1);
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
         com.kwiki.indexing.version.BootstrapMigrationRecorder recorder =
                 org.mockito.Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class);
         com.kwiki.indexing.gray.ParserCatalog parsers =
@@ -141,17 +149,17 @@ class ElasticsearchIndexBootstrapTest {
                 org.mockito.Mockito.mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class);
         org.mockito.Mockito.when(readiness.ready()).thenReturn(true);
         EditableIndexConfig multimodal = new EditableIndexConfig(
-                "kwiki-parse-2", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, 3);
-        org.mockito.Mockito.when(parsers.latestConfigFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"),
+                "kwiki-parse-2", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "kwiki-schema-1");
+        org.mockito.Mockito.when(parsers.configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"),
                 org.mockito.ArgumentMatchers.any())).thenReturn(java.util.Optional.of(multimodal));
         bootstrap.setFirstDeploymentSupport(parsers, readiness, indexing(true), recorder);
 
         bootstrap.run(null);
 
-        assertThat(indexes.calls).contains("create:kwiki-chunks-v1:schema3");
+        assertThat(indexes.calls).contains("create:kwiki-chunks-v1:kwiki-schema-1");
         SearchIndexVersion v1 = registry.rows.get(1);
         assertThat(v1.editableConfig()).isEqualTo(multimodal);
-        assertThat(v1.getMappingHash()).isEqualTo(new ChunkMappingBuilder().mappingHash(1024, 3));
+        assertThat(v1.getMappingHash()).isEqualTo(new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, "kwiki-schema-1"));
         org.mockito.Mockito.verify(recorder).recordEmptyBaseline(v1);
     }
 
@@ -161,7 +169,7 @@ class ElasticsearchIndexBootstrapTest {
         InMemoryRegistry registry = new InMemoryRegistry();
         ElasticsearchIndexBootstrap bootstrap =
                 new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
-                        new ChunkMappingBuilder(), properties(), 1);
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
         com.kwiki.indexing.gray.ParserCatalog parsers =
                 org.mockito.Mockito.mock(com.kwiki.indexing.gray.ParserCatalog.class);
         com.kwiki.indexing.config.MultimodalSwitchReadiness readiness =
@@ -174,7 +182,7 @@ class ElasticsearchIndexBootstrapTest {
 
         assertThat(registry.rows.get(1).editableConfig().parserVersion()).isEqualTo("kwiki-parse-1");
         org.mockito.Mockito.verify(parsers, org.mockito.Mockito.never())
-                .latestConfigFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"), org.mockito.ArgumentMatchers.any());
+                .configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -183,7 +191,7 @@ class ElasticsearchIndexBootstrapTest {
         InMemoryRegistry registry = new InMemoryRegistry();
         ElasticsearchIndexBootstrap bootstrap =
                 new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
-                        new ChunkMappingBuilder(), properties(), 1);
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
         com.kwiki.indexing.version.BootstrapMigrationRecorder recorder =
                 org.mockito.Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class);
         bootstrap.setFirstDeploymentSupport(
@@ -207,8 +215,8 @@ class ElasticsearchIndexBootstrapTest {
     @Test
     void mappingHashMatchesTheRecordedV1BaselineReference() {
         // 当前基线（dims=1024，含 lifecycleVersion 与 contentIds）规范化 SHA-256。
-        assertThat(new ChunkMappingBuilder().mappingHash(1024))
-                .isEqualTo("8b7ca5b5c742fd946f32981b25d01cdb98f7ff412dd977efac5c9ab33f660965");
+        assertThat(new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, "kwiki-schema-1"))
+                .isEqualTo("230402a7da44cfefc07f82e005d90e53d54f5fab557552c53add12a6c9de09c2");
     }
 
     @Test
@@ -217,7 +225,7 @@ class ElasticsearchIndexBootstrapTest {
         InMemoryRegistry registry = new InMemoryRegistry();
         ElasticsearchIndexBootstrap bootstrap =
                 new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
-                        new ChunkMappingBuilder(), properties(), 1);
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
 
         bootstrap.run(null);
 
@@ -237,7 +245,7 @@ class ElasticsearchIndexBootstrapTest {
         InMemoryRegistry registry = new InMemoryRegistry();
         ElasticsearchIndexBootstrap bootstrap =
                 new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
-                        new ChunkMappingBuilder(), properties(), 1);
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
 
         bootstrap.run(null);
 
@@ -258,7 +266,7 @@ class ElasticsearchIndexBootstrapTest {
         InMemoryRegistry registry = new InMemoryRegistry();
         ElasticsearchIndexBootstrap bootstrap =
                 new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
-                        new ChunkMappingBuilder(), properties(), 1);
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
 
         bootstrap.run(null);
 
@@ -276,7 +284,7 @@ class ElasticsearchIndexBootstrapTest {
         FakeIndexManager indexes = new FakeIndexManager(true, List.of("kwiki-chunks-v2"), null);
         ElasticsearchIndexBootstrap bootstrap =
                 new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
-                        new ChunkMappingBuilder(), properties(), 1);
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
 
         bootstrap.run(null);
 
@@ -295,7 +303,7 @@ class ElasticsearchIndexBootstrapTest {
         FakeIndexManager indexes = new FakeIndexManager(false, List.of(), null);
         ElasticsearchIndexBootstrap bootstrap =
                 new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
-                        new ChunkMappingBuilder(), properties(), 1);
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
 
         bootstrap.run(null);
 
@@ -312,8 +320,8 @@ class ElasticsearchIndexBootstrapTest {
             }
         };
         ElasticsearchIndexBootstrap bootstrap = new ElasticsearchIndexBootstrap(
-                unavailable, providerOf(new InMemoryRegistry().proxy), new ChunkMappingBuilder(),
-                properties(), 1);
+                unavailable, providerOf(new InMemoryRegistry().proxy), new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()),
+                properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
 
         assertThatThrownBy(() -> bootstrap.run(null))
                 .isInstanceOf(IllegalStateException.class)
@@ -325,7 +333,7 @@ class ElasticsearchIndexBootstrapTest {
     void failsFastWithoutTheVersionRegistry() {
         FakeIndexManager indexes = new FakeIndexManager(false, List.of(), null);
         ElasticsearchIndexBootstrap bootstrap = new ElasticsearchIndexBootstrap(
-                indexes, nullProvider(), new ChunkMappingBuilder(), properties(), 1);
+                indexes, nullProvider(), new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
 
         assertThatThrownBy(() -> bootstrap.run(null))
                 .isInstanceOf(IllegalStateException.class)
@@ -337,8 +345,8 @@ class ElasticsearchIndexBootstrapTest {
         FakeIndexManager indexes = new FakeIndexManager(false, List.of(),
                 "vector dimension mismatch: expected 1024");
         ElasticsearchIndexBootstrap bootstrap = new ElasticsearchIndexBootstrap(
-                indexes, providerOf(new InMemoryRegistry().proxy), new ChunkMappingBuilder(),
-                properties(), 1);
+                indexes, providerOf(new InMemoryRegistry().proxy), new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()),
+                properties(), 1, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
 
         assertThatThrownBy(() -> bootstrap.run(null))
                 .isInstanceOf(IllegalStateException.class)
@@ -351,7 +359,7 @@ class ElasticsearchIndexBootstrapTest {
         assertThatThrownBy(() -> new ElasticsearchIndexBootstrap(
                 new FakeIndexManager(false, List.of(), null),
                 providerOf(new InMemoryRegistry().proxy),
-                new ChunkMappingBuilder(), properties(), 0))
+                new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 0, com.kwiki.indexing.schema.SchemaTestFixtures.defaults()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("positive");
     }
@@ -382,7 +390,7 @@ class ElasticsearchIndexBootstrapTest {
         final String incompatibility;
 
         FakeIndexManager(boolean aliasExists, List<String> aliasTargets, String incompatibility) {
-            super(nullProvider(), new ChunkMappingBuilder());
+            super(nullProvider(), new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
             this.aliasExists = aliasExists;
             this.aliasTargets = aliasTargets;
             this.incompatibility = incompatibility;
@@ -407,21 +415,15 @@ class ElasticsearchIndexBootstrapTest {
         }
 
         @Override
-        public String createVersionedIndex(String indexName, int embeddingDimensions) {
-            calls.add("create:" + indexName);
-            return indexName;
-        }
-
-        @Override
         public String createVersionedIndex(String indexName, int embeddingDimensions,
-                                           int mappingSchemaVersion) {
-            calls.add("create:" + indexName + ":schema" + mappingSchemaVersion);
+                                           String indexSchema) {
+            calls.add("create:" + indexName + ":" + indexSchema);
             return indexName;
         }
 
         @Override
         public String validateIndex(String indexName, int expectedDimensions,
-                                    int mappingSchemaVersion) {
+                                    String indexSchema) {
             calls.add("validate:" + indexName + ":" + expectedDimensions);
             return incompatibility;
         }

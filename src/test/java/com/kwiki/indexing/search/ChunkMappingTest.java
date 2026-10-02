@@ -20,14 +20,14 @@ class ChunkMappingTest {
     void validatesTypedElasticsearchMappingResponse() {
         TypeMapping mapping = typedMapping(1024, true);
 
-        assertThat(MappingValidator.validate(mapping, 1024)).isNull();
-        assertThat(MappingValidator.validate(mapping, 768))
+        assertThat(MappingValidator.validate(mapping, 1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields())).isNull();
+        assertThat(MappingValidator.validate(mapping, 768, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields()))
                 .contains("vector dimension mismatch");
     }
 
     @Test
     void rejectsTypedVectorThatIsNotIndexed() {
-        assertThat(MappingValidator.validate(typedMapping(1024, false), 1024))
+        assertThat(MappingValidator.validate(typedMapping(1024, false), 1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields()))
                 .contains("not indexed");
     }
 
@@ -37,7 +37,7 @@ class ChunkMappingTest {
                 "chunkLevel", "chunkKey", "parentChunkKey", "resourceType", "resourceId",
                 "revisionId", "lifecycleVersion", "kbId", "headingPath", "charStart",
                 "charEnd", "content", "parserVersion", "chunkerVersion", "embeddingModel",
-                "indexVersion")) {
+                "indexVersion", "parentOrdinal", "childOrdinal", "contentIds", "sourceChunkId", "entityIds", "entityLinkingVersion", "entityLinkingStatus")) {
             mapping.properties(field, Property.of(property -> property.keyword(keyword -> keyword)));
         }
         mapping.properties("vector", Property.of(property -> property.denseVector(vector -> vector
@@ -46,11 +46,11 @@ class ChunkMappingTest {
         return mapping.build();
     }
 
-    private final ChunkMappingBuilder builder = new ChunkMappingBuilder();
+    private final ChunkMappingBuilder builder = new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 
     @Test
     void emittedMappingMatchesHandAuthoredFixtureShape() {
-        Map<String, Object> mapping = builder.buildMapping(1024);
+        Map<String, Object> mapping = builder.buildMapping(1024, "kwiki-schema-1");
 
         @SuppressWarnings("unchecked")
         Map<String, Object> properties = (Map<String, Object>) ((Map<String, Object>)
@@ -72,7 +72,7 @@ class ChunkMappingTest {
 
     @Test
     void dimensionIsDrivenByConfiguration() {
-        Map<String, Object> mapping = builder.buildMapping(256);
+        Map<String, Object> mapping = builder.buildMapping(256, "kwiki-schema-1");
         @SuppressWarnings("unchecked")
         Map<String, Object> vector = (Map<String, Object>) ((Map<String, Object>) ((Map<String, Object>)
                 mapping.get("mappings")).get("properties")).get("vector");
@@ -81,33 +81,33 @@ class ChunkMappingTest {
 
     @Test
     void compatibleMappingValidates() {
-        assertThat(MappingValidator.validate(builder.buildMapping(1024), 1024)).isNull();
+        assertThat(MappingValidator.validate(builder.buildMapping(1024, "kwiki-schema-1"), 1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields())).isNull();
     }
 
     @Test
     void incompatibleDimensionsAreRejected() {
-        String error = MappingValidator.validate(builder.buildMapping(1024), 768);
+        String error = MappingValidator.validate(builder.buildMapping(1024, "kwiki-schema-1"), 768, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields());
         assertThat(error).contains("dimension mismatch").contains("768");
     }
 
     @Test
     @SuppressWarnings("unchecked")
     void missingProvenanceFieldIsRejected() {
-        Map<String, Object> mapping = builder.buildMapping(1024);
+        Map<String, Object> mapping = builder.buildMapping(1024, "kwiki-schema-1");
         Map<String, Object> properties = (Map<String, Object>) ((Map<String, Object>)
                 mapping.get("mappings")).get("properties");
         Map<String, Object> trimmed = new HashMap<>(properties);
         trimmed.remove("parserVersion");
 
         String error = MappingValidator.validate(
-                Map.of("mappings", Map.of("properties", trimmed)), 1024);
+                Map.of("mappings", Map.of("properties", trimmed)), 1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields());
         assertThat(error).contains("parserVersion");
     }
 
     @Test
     @SuppressWarnings("unchecked")
     void nonIndexedVectorIsRejected() {
-        Map<String, Object> mapping = new HashMap<>(builder.buildMapping(1024));
+        Map<String, Object> mapping = new HashMap<>(builder.buildMapping(1024, "kwiki-schema-1"));
         Map<String, Object> mappings = new HashMap<>((Map<String, Object>) mapping.get("mappings"));
         Map<String, Object> properties = new HashMap<>(
                 (Map<String, Object>) mappings.get("properties"));
@@ -115,22 +115,24 @@ class ChunkMappingTest {
         mappings.put("properties", properties);
         mapping.put("mappings", mappings);
 
-        assertThat(MappingValidator.validate(mapping, 1024)).contains("not indexed");
+        assertThat(MappingValidator.validate(mapping, 1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields())).contains("not indexed");
     }
 
     @Test
     @SuppressWarnings("unchecked")
     void entitySchemaUsesASeparateStrictMappingGeneration() {
         Map<String, Object> mapping = builder.buildMapping(1024,
-                ChunkMappingBuilder.MAPPING_SCHEMA_ENTITY_LINKING);
+                "kwiki-schema-1");
         Map<String, Object> properties = (Map<String, Object>) ((Map<String, Object>)
                 mapping.get("mappings")).get("properties");
 
         assertThat(properties).containsKeys("sourceChunkId", "entityIds",
                 "entityLinkingVersion", "entityLinkingStatus");
-        assertThat(MappingValidator.validate(mapping, 1024,
-                ChunkMappingBuilder.MAPPING_SCHEMA_ENTITY_LINKING)).isNull();
-        assertThat(MappingValidator.validate(builder.buildMapping(1024), 1024, 3))
-                .contains("sourceChunkId");
+        assertThat(MappingValidator.validate(mapping, 1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields())).isNull();
+        var missing = new HashMap<>(properties);
+        missing.remove("sourceChunkId");
+        assertThat(MappingValidator.validate(Map.of("mappings", Map.of("properties", missing)),
+                1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields())).contains("sourceChunkId");
+
     }
 }

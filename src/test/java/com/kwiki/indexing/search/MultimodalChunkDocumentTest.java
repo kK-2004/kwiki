@@ -39,25 +39,14 @@ class MultimodalChunkDocumentTest {
     }
 
     @Test
-    void mappingV2ContainsContentIdsAndValidatorEnforcesByVersion() {
-        Map<String, Object> mapping = new ChunkMappingBuilder().buildMapping(1024);
-        @SuppressWarnings("unchecked")
-        Map<String, Object> properties = (Map<String, Object>)
-                ((Map<?, ?>) mapping.get("mappings")).get("properties");
-        assertThat(properties).containsKey("contentIds");
-
-        // v2 校验通过（含 contentIds）
-        assertThat(MappingValidator.validate(mapping, 1024, 2)).isNull();
-        // v1 契约也接受 v2 物理映射（17 基础字段仍在）
-        assertThat(MappingValidator.validate(mapping, 1024, 1)).isNull();
-
-        // 缺失 contentIds 的 v1 映射对 v2 失败、对 v1 通过
-        Map<String, Object> propertiesCopy = new java.util.LinkedHashMap<>(properties);
-        propertiesCopy.remove("contentIds");
-        Map<String, Object> v1Mapping = Map.of("mappings", Map.of(
-                "dynamic", "strict", "properties", propertiesCopy));
-        assertThat(MappingValidator.validate(v1Mapping, 1024, 2))
-                .contains("contentIds");
-        assertThat(MappingValidator.validate(v1Mapping, 1024, 1)).isNull();
+    void 字段格式必需资源字段缺失时拒绝() {
+        var schema = new com.kwiki.indexing.schema.KwikiSchemaV1();
+        var mapping = schema.mapping(1024);
+        assertThat(MappingValidator.validate(mapping, 1024, schema.requiredFields())).isNull();
+        var properties = new java.util.LinkedHashMap<>((Map<String, Object>)
+                ((Map<?, ?>) mapping.get("mappings")).get("properties"));
+        properties.remove("contentIds");
+        assertThat(MappingValidator.validate(Map.of("mappings", Map.of("properties", properties)),
+                1024, schema.requiredFields())).isEqualTo("missing required field: contentIds");
     }
 }

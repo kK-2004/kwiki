@@ -15,5 +15,5 @@ public record EditableIndexConfig(
         @NotBlank String embeddingProvider,
         @NotBlank String embeddingModel,
         @NotNull @Min(64) @Max(2048) Integer embeddingDimensions,
-        @NotNull @Min(1) Integer mappingSchemaVersion) {
+        @NotBlank String indexSchema) {
 }

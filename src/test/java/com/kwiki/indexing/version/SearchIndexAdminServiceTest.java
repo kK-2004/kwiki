@@ -37,12 +37,12 @@ class SearchIndexAdminServiceTest {
 
     private static EditableIndexConfig config(int dims) {
         return new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default",
-                "text-embedding-v4", dims, 1);
+                "text-embedding-v4", dims, "kwiki-schema-1");
     }
 
     @BeforeEach
     void setUp() {
-        ChunkMappingBuilder mappingBuilder = new ChunkMappingBuilder();
+        ChunkMappingBuilder mappingBuilder = new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         SearchIndexVersionService core = new SearchIndexVersionService(
                 com.kwiki.testutil.StandardTestProperties.providerOf(repository), mappingBuilder);
         IndexingProperties indexing = new IndexingProperties(null, null,
@@ -120,7 +120,7 @@ class SearchIndexAdminServiceTest {
         SearchIndexAdminService disabled = new SearchIndexAdminService(
                 new SearchIndexVersionService(
                         com.kwiki.testutil.StandardTestProperties.providerOf(repository),
-                        new ChunkMappingBuilder()),
+                        new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas())),
                 pipelines, capacity, readOnly,
                 com.kwiki.testutil.StandardTestProperties.providerOf(repository));
 

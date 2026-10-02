@@ -17,63 +17,48 @@ public class ParserCatalog {
             IndexingWorker.PARSER_VERSION_MULTIMODAL, "pdfbox-v2");
 
     private final MultimodalSwitchReadiness readiness;
+    private final com.kwiki.indexing.config.IndexingDefaultsProperties defaults;
     /** 流水线注册表与版本注册表；为 null（离线测试）时不做结构清单匹配。 */
     private final com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines;
     private final com.kwiki.indexing.version.SearchIndexVersionRepository versions;
 
     public ParserCatalog(MultimodalSwitchReadiness readiness) {
-        this(readiness, null, null);
+        this(readiness, null, null, new com.kwiki.indexing.config.IndexingDefaultsProperties("kwiki-schema-1"));
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public ParserCatalog(MultimodalSwitchReadiness readiness,
                          @org.springframework.lang.Nullable com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines,
-                         @org.springframework.lang.Nullable com.kwiki.indexing.version.SearchIndexVersionRepository versions) {
+                         @org.springframework.lang.Nullable com.kwiki.indexing.version.SearchIndexVersionRepository versions,
+                         com.kwiki.indexing.config.IndexingDefaultsProperties defaults) {
         this.readiness = readiness;
+        this.defaults = defaults;
         this.pipelines = pipelines;
         this.versions = versions;
     }
 
     /**
-     * 为灰度生成索引配置：在受支持的结构清单中找「目标解析器 + 与全局版本相同的向量模型与维度」的那一条，
-     * 取其分块器、向量档案与结构版本。不能沿用全局版本的结构版本——不同解析代登记的结构版本可能不同
-     * （如隐式清单中 parse-1 为 1、parse-2 为 2），原样复制会得到任何清单都不匹配的组合。
-     * 向量模型与维度必须与全局一致，否则灰度索引与全局索引的查询向量不兼容。
+     * 灰度配置保持全局版本的向量模型与维度；优先基准字段格式，其次默认字段格式。
+     * 候选清单必须能够解析出完整可执行流水线。
      */
     public java.util.Optional<com.kwiki.indexing.version.EditableIndexConfig> configFor(
             String parserVersion, com.kwiki.indexing.version.EditableIndexConfig base) {
-        return configFor(parserVersion, base, true);
-    }
-
-    /**
-     * 新部署用：同样要求向量模型与维度一致，但直接取该解析器受支持的最高结构版本
-     * （默认即含实体映射字段的 v3，可用于图构建），不向基准版本的结构版本靠拢。
-     */
-    public java.util.Optional<com.kwiki.indexing.version.EditableIndexConfig> latestConfigFor(
-            String parserVersion, com.kwiki.indexing.version.EditableIndexConfig base) {
-        return configFor(parserVersion, base, false);
-    }
-
-    private java.util.Optional<com.kwiki.indexing.version.EditableIndexConfig> configFor(
-            String parserVersion, com.kwiki.indexing.version.EditableIndexConfig base,
-            boolean preferBaseSchema) {
         if (pipelines == null) {
             return java.util.Optional.of(new com.kwiki.indexing.version.EditableIndexConfig(parserVersion,
                     base.chunkerVersion(), base.embeddingProvider(), base.embeddingModel(),
-                    base.embeddingDimensions(), base.mappingSchemaVersion()));
+                    base.embeddingDimensions(), base.indexSchema()));
         }
         return pipelines.effectiveManifests().stream()
                 .filter(manifest -> manifest.parserVersion().equals(parserVersion)
                         && manifest.embeddingModel().equals(base.embeddingModel())
                         && manifest.dimensions().intValue() == base.embeddingDimensions().intValue())
-                // 与全局结构版本相同的清单优先，其次取结构版本最高的
+                // 保留基准字段格式，其次优先默认字段格式。
                 .sorted(java.util.Comparator.<com.kwiki.indexing.config.IndexingProperties.Manifest>comparingInt(
-                                manifest -> preferBaseSchema && manifest.mappingSchemaVersion().intValue()
-                                        == base.mappingSchemaVersion().intValue() ? 0 : 1)
-                        .thenComparing(manifest -> -manifest.mappingSchemaVersion()))
+                                manifest -> manifest.indexSchema().equals(base.indexSchema()) ? 0 : 1)
+                        .thenComparingInt(manifest -> manifest.indexSchema().equals(defaults.indexSchema()) ? 0 : 1))
                 .map(manifest -> new com.kwiki.indexing.version.EditableIndexConfig(parserVersion,
                         manifest.chunkerVersion(), manifest.embeddingProfile(), manifest.embeddingModel(),
-                        manifest.dimensions(), manifest.mappingSchemaVersion()))
+                        manifest.dimensions(), manifest.indexSchema()))
                 .filter(pipelines::supports)
                 .findFirst();
     }

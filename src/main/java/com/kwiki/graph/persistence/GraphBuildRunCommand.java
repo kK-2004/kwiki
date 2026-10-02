@@ -9,7 +9,7 @@ public record GraphBuildRunCommand(
         long communityIndexVersion,
         String communityPhysicalIndex,
         long graphVersion,
-        int mappingSchemaVersion,
+        String chunkIndexSchema,
         String entityLinkingVersion,
         long contentEpoch,
         long securityEpoch) {
@@ -17,7 +17,7 @@ public record GraphBuildRunCommand(
     public GraphBuildRunCommand {
         if (batchId <= 0 || kbId <= 0 || chunkIndexVersion < 1
                 || communityIndexVersion < 1 || graphVersion < 1
-                || mappingSchemaVersion < 1 || contentEpoch < 0 || securityEpoch < 0) {
+                || (chunkIndexSchema == null || chunkIndexSchema.isBlank()) || contentEpoch < 0 || securityEpoch < 0) {
             throw new IllegalArgumentException("图构建子任务身份无效");
         }
         require(chunkPhysicalIndex, "chunkPhysicalIndex");

@@ -10,7 +10,7 @@ public record GraphBuildBatchRequest(
         List<Long> knowledgeBaseIds,
         int chunkIndexVersion,
         String chunkPhysicalIndex,
-        int mappingSchemaVersion,
+        String chunkIndexSchema,
         long configRevision,
         String entityLinkingVersion,
         boolean autoPublish,
@@ -21,7 +21,7 @@ public record GraphBuildBatchRequest(
         if (idempotencyKey == null || idempotencyKey.isBlank()
                 || (!"ALL".equals(scopeKind) && !"KNOWLEDGE_BASE".equals(scopeKind))
                 || knowledgeBaseIds == null || knowledgeBaseIds.isEmpty()
-                || chunkIndexVersion < 1 || mappingSchemaVersion < 1 || configRevision < 1
+                || chunkIndexVersion < 1 || (chunkIndexSchema == null || chunkIndexSchema.isBlank()) || configRevision < 1
                 || entityLinkingVersion == null || entityLinkingVersion.isBlank()
                 || requestedBy == null || requestedBy.isBlank()
                 || chunkPhysicalIndex == null || chunkPhysicalIndex.isBlank()) {

@@ -1,5 +1,7 @@
 package com.kwiki.indexing.search;
 
+import com.kwiki.indexing.config.IndexingDefaultsProperties;
+
 import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.config.MultimodalSwitchReadiness;
 import com.kwiki.indexing.gray.ParserCatalog;
@@ -57,6 +59,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
     private final ChunkMappingBuilder mappingBuilder;
     private final ExternalServicesProperties properties;
     private final int bootstrapVersion;
+    private final IndexingDefaultsProperties defaults;
     private volatile boolean ready;
 
     public ElasticsearchIndexBootstrap(
@@ -64,7 +67,8 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
             ObjectProvider<SearchIndexVersionRepository> versions,
             ChunkMappingBuilder mappingBuilder,
             ExternalServicesProperties properties,
-            @Value("${kwiki.indexing.bootstrap.version:1}") int bootstrapVersion) {
+            @Value("${kwiki.indexing.bootstrap.version:1}") int bootstrapVersion,
+            IndexingDefaultsProperties defaults) {
         if (bootstrapVersion < 1) {
             throw new IllegalArgumentException("index version must be positive");
         }
@@ -73,6 +77,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
         this.mappingBuilder = mappingBuilder;
         this.properties = properties;
         this.bootstrapVersion = bootstrapVersion;
+        this.defaults = defaults;
     }
 
     @Override
@@ -130,13 +135,12 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
                 IndexingProperties.DEFAULT_EMBEDDING_PROFILE,
                 properties.qwenEmbedding().model(),
                 properties.qwenEmbedding().dimensions(),
-                1);
+                defaults.indexSchema());
     }
 
     /**
      * 首次部署的全局配置：管理写操作已开启、多模态配置齐全且登记了与默认向量模型兼容的
-     * parse-2 结构清单时用 kwiki-parse-2，否则用 kwiki-parse-1；两者都取受支持的最高结构版本
-     * （默认 v3，可直接用于图构建）。只影响全新部署，已有部署的解析器与结构版本只能通过
+     * parse-2 结构清单时用 kwiki-parse-2，否则用 kwiki-parse-1；字段格式始终使用部署默认值。只影响全新部署，已有部署的解析器与结构版本只能通过
      * 新建版本 → 存量迁移 → 切换来更换。
      */
     EditableIndexConfig firstDeploymentConfig() {
@@ -144,8 +148,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
         if (parsers == null || multimodalReadiness == null || indexingProperties == null) {
             return legacy;
         }
-        EditableIndexConfig base = parsers.latestConfigFor(IndexingWorker.PARSER_VERSION, legacy)
-                .orElse(legacy);
+        EditableIndexConfig base = legacy;
         if (!Boolean.TRUE.equals(indexingProperties.management().mutationsEnabled())) {
             log.info("first deployment uses {}: management mutations are disabled", base.parserVersion());
             return base;
@@ -155,7 +158,8 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
                     base.parserVersion(), multimodalReadiness.missingConfiguration());
             return base;
         }
-        return parsers.latestConfigFor(IndexingWorker.PARSER_VERSION_MULTIMODAL, base)
+        return parsers.configFor(IndexingWorker.PARSER_VERSION_MULTIMODAL, base)
+                .filter(config -> config.indexSchema().equals(defaults.indexSchema()))
                 .orElseGet(() -> {
                     log.warn("first deployment uses {}: no {} manifest compatible with model {} ({} dims)",
                             base.parserVersion(), IndexingWorker.PARSER_VERSION_MULTIMODAL,
@@ -166,7 +170,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
 
     private void bootstrapFirstDeployment(SearchIndexVersionRepository registry) throws Exception {
         EditableIndexConfig config = firstDeploymentConfig();
-        int schema = config.mappingSchemaVersion();
+        String schema = config.indexSchema();
         // 建索引、校验与记录的映射哈希必须使用同一结构版本，否则版本校验的构建清单项永远不通过
         String mappingHash = mappingBuilder.mappingHash(config.embeddingDimensions(), schema);
         String indexName = indexes.indexNameFor(bootstrapVersion);
@@ -208,7 +212,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
         int versionNumber = Integer.parseInt(matcher.group(1));
         EditableIndexConfig config = deployedConfig();
         String incompatibility = indexes.validateIndex(target, config.embeddingDimensions(),
-                config.mappingSchemaVersion());
+                config.indexSchema());
         if (incompatibility != null) {
             persistUnmatched(registry, target, versionNumber,
                     "alias target mapping does not match the deployed configuration: "
@@ -217,7 +221,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
         }
         SearchIndexVersion adopted = SearchIndexVersion.bootstrapped(
                 versionNumber, target, config,
-                mappingBuilder.mappingHash(config.embeddingDimensions()));
+                mappingBuilder.mappingHash(config.embeddingDimensions(), config.indexSchema()));
         registry.save(adopted);
         log.info("Elasticsearch alias {} -> {} adopted as version {} (configRevision=1)",
                 ElasticsearchIndexManager.ALIAS, target, versionNumber);
@@ -233,7 +237,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
         EditableIndexConfig config = deployedConfig();
         SearchIndexVersion unmatched = SearchIndexVersion.bootstrapped(
                 versionNumber, observedTarget, config,
-                mappingBuilder.mappingHash(config.embeddingDimensions()));
+                mappingBuilder.mappingHash(config.embeddingDimensions(), config.indexSchema()));
         unmatched.markUnmatchedLegacyState(sanitizedReason);
         registry.save(unmatched);
         log.warn("Elasticsearch alias {} -> {} recorded as NEEDS_ATTENTION: {}",

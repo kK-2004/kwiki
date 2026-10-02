@@ -137,13 +137,8 @@ public class IndexVersionWriteService {
     private void recreate(SearchIndexVersion version) {
         EditableIndexConfig config = version.editableConfig();
         try {
-            if (config.mappingSchemaVersion() >= 3) {
-                indexes.recreateOfflineVersion(version.getPhysicalName(),
-                        config.embeddingDimensions(), config.mappingSchemaVersion());
-            } else {
-                indexes.recreateOfflineVersion(version.getPhysicalName(),
-                        config.embeddingDimensions());
-            }
+            indexes.recreateOfflineVersion(version.getPhysicalName(),
+                    config.embeddingDimensions(), config.indexSchema());
         } catch (Exception e) {
             // ES 客户端受检异常统一转为运行时异常，由事务回滚与全局异常处理兜底
             throw new IllegalStateException("failed to recreate offline index "

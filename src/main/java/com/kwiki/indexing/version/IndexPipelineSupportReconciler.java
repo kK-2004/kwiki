@@ -45,17 +45,26 @@ public class IndexPipelineSupportReconciler implements ApplicationRunner {
             // 全部未删除版本都保持支持性标记最新：管理端重建前预检、
             // 切换门禁与 UNSUPPORTED 展示都读取该标记。
             boolean shouldSupport = registry.supports(version.editableConfig());
-            if (version.isPipelineSupported() != shouldSupport) {
+            String reason = shouldSupport ? null
+                    : registry.unsupportedReason(version.editableConfig()).orElse("流水线不可用");
+            boolean supportChanged = version.isPipelineSupported() != shouldSupport;
+            boolean healthChanged = !shouldSupport && !java.util.Objects.equals(reason, version.getHealthSummary());
+            if (supportChanged || healthChanged) {
                 IndexVersionSnapshot snapshot = IndexVersionStatusPolicy.pipelineSupportChanged(
                         version.toSnapshot(false), shouldSupport);
                 version.applySnapshot(snapshot);
+                if (!shouldSupport) {
+                    version.recordHealthSummary(reason);
+                } else if (!"NEEDS_ATTENTION".equals(version.getHealthSummary())) {
+                    version.recordHealthSummary(null);
+                }
                 repository.save(version);
                 changed++;
                 if (!shouldSupport && (version.isSelected() || version.isWriteEnabled())) {
                     log.warn("index version {} pipeline or credential unavailable: {};"
                                     + " switching to it is blocked",
                             version.getVersionNumber(),
-                            registry.unsupportedReason(version.editableConfig()).orElse("unknown"));
+                            reason);
                 } else {
                     log.info("index version {} pipeline support restored", version.getVersionNumber());
                 }

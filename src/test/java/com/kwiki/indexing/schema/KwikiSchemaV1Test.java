@@ -24,13 +24,13 @@ class KwikiSchemaV1Test {
     void 映射摘要与原结构3完全一致() {
         assertThat(ChunkIndexSchemaRegistry.mappingHash(schema.mapping(1024)))
                 .isEqualTo("230402a7da44cfefc07f82e005d90e53d54f5fab557552c53add12a6c9de09c2");
-        var original = new ChunkMappingBuilder();
+        var original = new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         for (int dimensions : List.of(64, 1024, 2048)) {
-            assertThat(schema.mapping(dimensions)).isEqualTo(original.buildMapping(dimensions, 3));
+            assertThat(schema.mapping(dimensions)).isEqualTo(original.buildMapping(dimensions, "kwiki-schema-1"));
             assertThat(properties(schema.mapping(dimensions)).keySet())
-                    .containsExactlyElementsOf(properties(original.buildMapping(dimensions, 3)).keySet());
+                    .containsExactlyElementsOf(properties(original.buildMapping(dimensions, "kwiki-schema-1")).keySet());
             assertThat(ChunkIndexSchemaRegistry.mappingHash(schema.mapping(dimensions)))
-                    .isEqualTo(original.mappingHash(dimensions, 3));
+                    .isEqualTo(original.mappingHash(dimensions, "kwiki-schema-1"));
         }
     }
 

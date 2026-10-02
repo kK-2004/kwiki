@@ -8,8 +8,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SearchIndexAdminActionsTest {
 
     private final EditableIndexConfig config =
-            new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, 3);
-    private final String hash = new ChunkMappingBuilder().mappingHash(1024, 3);
+            new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1");
+    private final String hash = new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, "kwiki-schema-1");
 
     private SearchIndexAdminQueryService.Actions actions(SearchIndexVersion version, boolean activeRun,
                                                          boolean scoped) {

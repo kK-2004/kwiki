@@ -139,7 +139,7 @@ class GraphEndToEndDrillContractTest {
                     "kwiki-chunks-v3", communityVersion, false, "drill", null));
             long runId = repository.createRun(new GraphBuildRunCommand(
                     batchId, kbId, 3, "kwiki-chunks-v3", communityVersion,
-                    communityIndex, 42, 3, "entity-linking-v1", contentEpoch, securityEpoch));
+                    communityIndex, 42, "kwiki-schema-1", "entity-linking-v1", contentEpoch, securityEpoch));
             jdbc.update("INSERT INTO graph_source_manifest (run_id, kb_id, manifest_hash, "
                     + "content_epoch, security_epoch, event_watermark, entry_count, state) "
                     + "VALUES (?, ?, 'drill', ?, ?, 0, 0, 'COMPLETE')",
@@ -150,10 +150,10 @@ class GraphEndToEndDrillContractTest {
             jdbc.update("INSERT INTO graph_snapshot (run_id, kb_id, graph_version, "
                     + "chunk_index_version, chunk_physical_index, community_index_version, "
                     + "community_physical_index, source_manifest_id, source_manifest_hash, "
-                    + "entity_linking_version, graph_schema_version, mapping_schema_version, "
+                    + "entity_linking_version, graph_schema_version, chunk_index_schema, "
                     + "algorithm_mode, engine_version, content_epoch, security_epoch) "
                     + "VALUES (?, ?, 42, 3, 'kwiki-chunks-v3', ?, ?, ?, 'drill', "
-                    + "'entity-linking-v1', 1, 3, 'ARCADEDB_NATIVE_UNWEIGHTED', 'drill', ?, ?)",
+                    + "'entity-linking-v1', 1, 'kwiki-schema-1', 'ARCADEDB_NATIVE_UNWEIGHTED', 'drill', ?, ?)",
                     runId, kbId, communityVersion, communityIndex, manifestId,
                     contentEpoch, securityEpoch);
             snapshotId = jdbc.queryForObject(

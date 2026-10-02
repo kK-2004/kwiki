@@ -52,7 +52,7 @@ public class SearchIndexVersionService {
                 return registry.save(new SearchIndexVersion(next,
                         "kwiki-chunks-v" + next, config,
                         mappingBuilder.mappingHash(config.embeddingDimensions(),
-                                config.mappingSchemaVersion())));
+                                config.indexSchema())));
             } catch (DataIntegrityViolationException raced) {
                 lastContention = raced;
             }
@@ -70,7 +70,7 @@ public class SearchIndexVersionService {
         IndexVersionStatusPolicy.editConfig(version.toSnapshot(false), null);
         version.applyConfigEdit(config,
                 mappingBuilder.mappingHash(config.embeddingDimensions(),
-                        config.mappingSchemaVersion()));
+                        config.indexSchema()));
         return registry().save(version);
     }
 }

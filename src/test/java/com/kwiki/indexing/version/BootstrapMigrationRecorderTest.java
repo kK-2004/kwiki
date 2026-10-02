@@ -14,8 +14,8 @@ class BootstrapMigrationRecorderTest {
 
     private final SearchIndexRebuildRunRepository runs = mock(SearchIndexRebuildRunRepository.class);
     private final EditableIndexConfig config =
-            new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, 1);
-    private final String hash = new ChunkMappingBuilder().mappingHash(1024, 1);
+            new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, "kwiki-schema-1");
+    private final String hash = new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()).mappingHash(1024, "kwiki-schema-1");
 
     @Test
     void 首次部署写入已完成且双写起点为0的迁移记录_满足校验的同步条件() throws Exception {

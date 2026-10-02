@@ -89,6 +89,7 @@ public class GraphBuildAdminController {
         var result = batches.submit(batch);
         return TransDTO.success(Map.of(
                 "batchId", result.batchId(),
+                "chunkIndexSchema", batch.chunkIndexSchema(),
                 "communityIndexVersion", result.communityIndexVersion(),
                 "runIds", result.runIds(),
                 "replayed", result.replayed()));
@@ -219,7 +220,7 @@ public class GraphBuildAdminController {
 
     /**
      * 提交构建批次。ALL 范围忽略 knowledgeBaseIds，由服务端展开为全部活跃知识库；
-     * chunkPhysicalIndex / mappingSchemaVersion / configRevision 为兼容旧客户端保留，服务端不再采信；
+     * chunkPhysicalIndex / configRevision 为兼容旧客户端保留，服务端不再采信；
      * entityLinkingVersion 可省略，若提供必须与流水线当前版本一致。
      */
     public record SubmitRequest(
@@ -227,7 +228,6 @@ public class GraphBuildAdminController {
             List<@Min(1) Long> knowledgeBaseIds,
             @Min(1) int chunkIndexVersion,
             String chunkPhysicalIndex,
-            Integer mappingSchemaVersion,
             Long configRevision,
             String entityLinkingVersion,
             LocalDate scheduleDate) {

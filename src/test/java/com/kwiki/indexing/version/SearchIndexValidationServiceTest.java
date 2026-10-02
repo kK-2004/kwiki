@@ -31,10 +31,10 @@ class SearchIndexValidationServiceTest {
         var reports=mock(SearchIndexValidationReportRepository.class);
         var ranges=mock(SearchIndexRebuildRangeRepository.class);
         var indexes=mock(ElasticsearchIndexManager.class);
-        var mappings=new ChunkMappingBuilder();
+        var mappings=new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         var jdbc=mock(JdbcTemplate.class);
-        var config=new EditableIndexConfig("parser","chunker","default","model",1024,1);
-        String hash=mappings.mappingHash(1024, 1);
+        var config=new EditableIndexConfig("parser","chunker","default","model",1024, "kwiki-schema-1");
+        String hash=mappings.mappingHash(1024, "kwiki-schema-1");
         SearchIndexVersion version=SearchIndexVersion.bootstrapped(2,"kwiki-chunks-v2",config,hash);
         BuildManifestSnapshot manifest=version.buildManifestSnapshot();
         // 前置：本写入会话的迁移 run 已完成，迁移起点等于版本写入会话起点（E），版本已追平
@@ -46,7 +46,7 @@ class SearchIndexValidationServiceTest {
         when(versions.findByVersionNumberForUpdate(2)).thenReturn(Optional.of(version));
         when(runs.findFirstByVersionNumberAndConfigRevisionAndStateOrderByIdDesc(2,1,"COMPLETED"))
                 .thenReturn(Optional.of(run));
-        when(indexes.validateIndex(eq("kwiki-chunks-v2"), eq(1024), anyInt())).thenReturn(null);
+        when(indexes.validateIndex(eq("kwiki-chunks-v2"), eq(1024), anyString())).thenReturn(null);
         when(indexes.hasCurrentResource("kwiki-chunks-v2","PAGE",7L,103L,2L))
                 .thenReturn(true);
         when(indexes.validationSnapshot("kwiki-chunks-v2",5000))
@@ -89,6 +89,12 @@ class SearchIndexValidationServiceTest {
 
         when(indexes.aliasTargets()).thenReturn(List.of("kwiki-chunks-v9"));
         assertThat(service.currentReadyReport(2)).isEmpty();
+        // 摘要相同也不能掩盖插件身份不一致：清单与版本必须使用同一个字段格式 id。
+        ReflectionTestUtils.setField(run, "buildManifest", new ObjectMapper().writeValueAsString(new BuildManifestSnapshot(
+                manifest.versionNumber(), manifest.physicalName(), manifest.configRevision(), manifest.parserVersion(),
+                manifest.chunkerVersion(), manifest.embeddingProvider(), manifest.embeddingModel(), manifest.embeddingDimensions(),
+                "schema-other", manifest.mappingHash())));
+        assertThat(service.validate(2).isManifestValid()).isFalse();
     }
 
     @Test
@@ -98,15 +104,15 @@ class SearchIndexValidationServiceTest {
         var reports=mock(SearchIndexValidationReportRepository.class);
         var ranges=mock(SearchIndexRebuildRangeRepository.class);
         var indexes=mock(ElasticsearchIndexManager.class);
-        var mappings=new ChunkMappingBuilder();
+        var mappings=new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         var jdbc=mock(JdbcTemplate.class);
-        var config=new EditableIndexConfig("parser","chunker","default","model",1024,1);
+        var config=new EditableIndexConfig("parser","chunker","default","model",1024, "kwiki-schema-1");
         SearchIndexVersion version=SearchIndexVersion.bootstrapped(
-                2,"kwiki-chunks-v2",config,mappings.mappingHash(1024));
+                2,"kwiki-chunks-v2",config,mappings.mappingHash(1024, "kwiki-schema-1"));
         when(versions.findByVersionNumberForUpdate(2)).thenReturn(Optional.of(version));
         when(runs.findFirstByVersionNumberAndConfigRevisionAndStateOrderByIdDesc(2,1,"COMPLETED"))
                 .thenReturn(Optional.empty());
-        when(indexes.validateIndex(eq("kwiki-chunks-v2"), eq(1024), anyInt()))
+        when(indexes.validateIndex(eq("kwiki-chunks-v2"), eq(1024), anyString()))
                 .thenReturn("vector dimension mismatch: expected 1024");
         when(indexes.validationSnapshot("kwiki-chunks-v2",5000))
                 .thenReturn(new ElasticsearchIndexManager.ValidationSnapshot(
@@ -132,14 +138,14 @@ class SearchIndexValidationServiceTest {
         var ranges=mock(SearchIndexRebuildRangeRepository.class);
         var indexes=mock(ElasticsearchIndexManager.class);
         var jdbc=mock(JdbcTemplate.class);
-        var mappings=new ChunkMappingBuilder();
-        var config=new EditableIndexConfig("parser","chunker","default","model",1024,1);
+        var mappings=new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+        var config=new EditableIndexConfig("parser","chunker","default","model",1024, "kwiki-schema-1");
         SearchIndexVersion version=SearchIndexVersion.bootstrapped(
-                2,"kwiki-chunks-v2",config,mappings.mappingHash(1024));
+                2,"kwiki-chunks-v2",config,mappings.mappingHash(1024, "kwiki-schema-1"));
         when(versions.findByVersionNumberForUpdate(2)).thenReturn(Optional.of(version));
         when(runs.findFirstByVersionNumberAndConfigRevisionAndStateOrderByIdDesc(2,1,"COMPLETED"))
                 .thenReturn(Optional.empty());
-        when(indexes.validateIndex(eq("kwiki-chunks-v2"), eq(1024), anyInt())).thenReturn(null);
+        when(indexes.validateIndex(eq("kwiki-chunks-v2"), eq(1024), anyString())).thenReturn(null);
         java.util.Map<String,Object> child=new java.util.HashMap<>();
         child.put("chunkLevel","CHILD"); child.put("chunkKey","stale:C0");
         child.put("parentChunkKey","missing-parent"); child.put("resourceType","PAGE");

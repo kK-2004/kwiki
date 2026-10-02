@@ -133,8 +133,7 @@ class GraphSnapshotValidationServiceTest {
     @Test
     void configIdentityMismatchAndUnreadableRefreshBlockReady() {
         Fixture mismatch = completeFixture();
-        mismatch.observedIdentity = new GraphSnapshotValidationService.ConfigIdentity(
-                4, "entity-linking-v1", "summary-model", "prompt-v1", "embedding-model", 1024);
+        mismatch.observedIdentity = new GraphSnapshotValidationService.ConfigIdentity( "schema-other", "entity-linking-v1", "summary-model", "prompt-v1", "embedding-model", 1024);
         assertThat(new GraphSnapshotValidationService().validate(mismatch.input()).valid())
                 .isFalse();
 
@@ -167,8 +166,7 @@ class GraphSnapshotValidationServiceTest {
         Map<String, CommunitySummary> summaries = new HashMap<>();
         Map<String, Integer> embeddingDimensions = new HashMap<>();
         GraphSnapshotValidationService.ConfigIdentity expectedIdentity =
-                new GraphSnapshotValidationService.ConfigIdentity(
-                        3, "entity-linking-v1", "summary-model", "prompt-v1",
+                new GraphSnapshotValidationService.ConfigIdentity( "kwiki-schema-1", "entity-linking-v1", "summary-model", "prompt-v1",
                         "embedding-model", 1024);
         GraphSnapshotValidationService.ConfigIdentity observedIdentity = expectedIdentity;
         boolean refreshReadable = true;

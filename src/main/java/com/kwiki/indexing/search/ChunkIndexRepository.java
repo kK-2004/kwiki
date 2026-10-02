@@ -1,5 +1,7 @@
 package com.kwiki.indexing.search;
 
+import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
+
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.ErrorCause;
 import co.elastic.clients.elasticsearch._types.FieldValue;
@@ -31,10 +33,12 @@ public class ChunkIndexRepository implements ChunkIndexPort {
     private static final Logger log = LoggerFactory.getLogger(ChunkIndexRepository.class);
 
     private final ElasticsearchClient client;
+    private final ChunkIndexSchemaRegistry schemas;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public ChunkIndexRepository(ObjectProvider<ElasticsearchClient> client) {
+    public ChunkIndexRepository(ObjectProvider<ElasticsearchClient> client, ChunkIndexSchemaRegistry schemas) {
         this.client = client.getIfAvailable();
+        this.schemas = schemas;
     }
 
     /**
@@ -58,16 +62,17 @@ public class ChunkIndexRepository implements ChunkIndexPort {
             return;
         }
         try {
+            var schema = schemas.require(version.indexSchema());
             BulkRequest.Builder bulk = new BulkRequest.Builder().index(index);
             for (int i = 0; i < version.parents().size(); i++) {
-                Map<String, Object> document = ChunkDocument.parent(version.parents().get(i), version);
+                Map<String, Object> document = ChunkDocument.parent(version.parents().get(i), version, schema);
                 bulk.operations(operation -> operation.index(o -> o
                         .id((String) document.get("chunkKey"))
                         .document(document)));
             }
             for (int i = 0; i < version.children().size(); i++) {
                 Map<String, Object> document = ChunkDocument.child(
-                        version.children().get(i), version.childVectors().get(i), version);
+                        version.children().get(i), version.childVectors().get(i), version, schema);
                 bulk.operations(operation -> operation.index(o -> o
                         .id((String) document.get("chunkKey"))
                         .document(document)));

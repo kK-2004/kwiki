@@ -189,7 +189,7 @@ public final class GraphSnapshotValidationService {
         if (expected != null && observed != null && expected.equals(observed)) {
             return GraphSnapshotValidationReport.Check.pass(
                     GraphSnapshotValidationReport.MAPPING_CONFIG_IDENTITY,
-                    "mappingSchemaVersion=" + expected.mappingSchemaVersion()
+                    "chunkIndexSchema=" + expected.chunkIndexSchema()
                             + ",entityLinkingVersion=" + expected.entityLinkingVersion());
         }
         return GraphSnapshotValidationReport.Check.fail(
@@ -268,7 +268,7 @@ public final class GraphSnapshotValidationService {
     }
 
     /** 快照固定并与构建目标核对的配置身份。 */
-    public record ConfigIdentity(int mappingSchemaVersion,
+    public record ConfigIdentity(String chunkIndexSchema,
                                  String entityLinkingVersion,
                                  String summaryModel,
                                  String summaryPromptVersion,

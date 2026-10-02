@@ -32,7 +32,7 @@ class AliasSwitchServiceTest {
         var indexes=mock(ElasticsearchIndexManager.class);
         var selection=mock(SearchIndexSelectionRegistry.class);
         var audits=mock(SearchIndexAuditRepository.class);
-        var config=new EditableIndexConfig("parser","chunker","default","model",1024,1);
+        var config=new EditableIndexConfig("parser","chunker","default","model",1024, "kwiki-schema-1");
         var source=SearchIndexVersion.bootstrapped(1,"kwiki-chunks-v1",config,"h");
         var target=SearchIndexVersion.bootstrapped(2,"kwiki-chunks-v2",config,"h");
         var report=mock(SearchIndexValidationReport.class);
@@ -73,7 +73,7 @@ class AliasSwitchServiceTest {
         when(factory.getDistributedLock("kwiki:lock:search-index-alias")).thenReturn(lock);
         var versions = mock(SearchIndexVersionRepository.class);
         var config = new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1",
-                "default", "model", 1024, 2);
+                "default", "model", 1024, "kwiki-schema-1");
         when(versions.findBySelectedTrue()).thenReturn(Optional.of(
                 SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", config, "h")));
         when(versions.findByVersionNumber(2)).thenReturn(Optional.of(

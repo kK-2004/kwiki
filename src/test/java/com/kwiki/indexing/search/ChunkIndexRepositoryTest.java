@@ -43,7 +43,7 @@ class ChunkIndexRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        repository = new ChunkIndexRepository(provider(client));
+        repository = new ChunkIndexRepository(provider(client), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
     }
 
     private static ObjectProvider<ElasticsearchClient> provider(ElasticsearchClient value) {
@@ -65,7 +65,7 @@ class ChunkIndexRepositoryTest {
 
     private final IndexedVersion version = new IndexedVersion(
             "PAGE", 7L, 103L, 2L, 1L, "parser-1", "chunker-1", "text-embedding-v4", 1,
-            List.of(parentChunk), List.of(childChunk), List.of(new float[]{0.1f, 0.2f}));
+            List.of(parentChunk), List.of(childChunk), List.of(new float[]{0.1f, 0.2f}), "kwiki-schema-1", "entity-linking-v1");
 
     @Test
     void upsertUsesChunkKeysAsDeterministicIdsAgainstThePhysicalIndex() throws Exception {
@@ -147,7 +147,7 @@ class ChunkIndexRepositoryTest {
         assertThatThrownBy(() -> repository.deleteResourceChunks("other-index", "PAGE", 7L))
                 .isInstanceOf(IllegalArgumentException.class);
         // 校验先于客户端可用性：离线仓储同样拒绝非物理目标
-        ChunkIndexRepository offline = new ChunkIndexRepository(provider(null));
+        ChunkIndexRepository offline = new ChunkIndexRepository(provider(null), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         assertThatCode(() -> offline.deleteResourceChunksChecked("kwiki-chunks-v3", "PAGE", 7L))
                 .doesNotThrowAnyException();
         assertThatCode(() -> offline.deleteKnowledgeBaseChunksChecked("kwiki-chunks-v3", 1L))
@@ -160,8 +160,8 @@ class ChunkIndexRepositoryTest {
 
     @Test
     void chunkDocumentShapesMatchLevels() {
-        Map<String, Object> parent = ChunkDocument.parent(parentChunk, version);
-        Map<String, Object> child = ChunkDocument.child(childChunk, version.childVectors().get(0), version);
+        Map<String, Object> parent = ChunkDocument.parent(parentChunk, version, new com.kwiki.indexing.schema.KwikiSchemaV1());
+        Map<String, Object> child = ChunkDocument.child(childChunk, version.childVectors().get(0), version, new com.kwiki.indexing.schema.KwikiSchemaV1());
 
         assertThat(parent.get("chunkLevel")).hasToString("PARENT");
         assertThat(parent).doesNotContainKey("vector");
@@ -179,11 +179,11 @@ class ChunkIndexRepositoryTest {
         IndexedVersion graphVersion = new IndexedVersion(
                 "PAGE", 7L, 103L, 2L, 1L, "parser-1", "chunker-1",
                 "text-embedding-v4", 3, List.of(parentChunk), List.of(childChunk),
-                List.of(new float[]{0.1f, 0.2f}), 3, "entity-linking-v1");
+                List.of(new float[]{0.1f, 0.2f}), "kwiki-schema-1", "entity-linking-v1");
 
-        Map<String, Object> parent = ChunkDocument.parent(parentChunk, graphVersion);
+        Map<String, Object> parent = ChunkDocument.parent(parentChunk, graphVersion, new com.kwiki.indexing.schema.KwikiSchemaV1());
         Map<String, Object> child = ChunkDocument.child(childChunk,
-                graphVersion.childVectors().get(0), graphVersion);
+                graphVersion.childVectors().get(0), graphVersion, new com.kwiki.indexing.schema.KwikiSchemaV1());
 
         assertThat(parent).doesNotContainKey("entityIds");
         assertThat(child.get("sourceChunkId")).asString().startsWith("sc_");
