@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { api, ApiError, type Audit, type Config, type CommunityVersion, type MultimodalReadiness, type Run, type Version } from "../api";
+import { api, ApiError, type Audit, type Config, type CommunityVersion, type MultimodalReadiness, type Run, type PluginCatalog, type Version } from "../api";
 import { statusLabel, statusType } from "../status";
 import { auditActionLabel, auditOutcomeLabel, auditResultLabel, runKindLabel, runStateLabel, validationText } from "../labels";
 import { useAuth } from "../auth";
+import { pluginSelectionError } from "../pluginSelection";
 import CurrentIndexCards from "../components/CurrentIndexCards.vue";
 
 const auth = useAuth();
+const plugins = ref<PluginCatalog | null>(null);
 const versions = ref<Version[]>([]);
 const runs = ref<Run[]>([]);
 const audits = ref<Audit[]>([]);
@@ -30,9 +32,10 @@ const totalPending = computed(() => stats.value.reduce((n, row) => n + Number(ro
 async function load(silent = false) {
   if (!silent) loading.value = true;
   try {
-    const [v, r, a, au, st, mm] = await Promise.all([
-      api.versions(), api.runs(), api.alias(), api.audits(), api.stats(), api.multimodalReadiness(),
+    const [v, r, a, au, st, mm, catalog] = await Promise.all([
+      api.versions(), api.runs(), api.alias(), api.audits(), api.stats(), api.multimodalReadiness(), api.plugins(),
     ]);
+    plugins.value = catalog;
     versions.value = v; runs.value = r; alias.value = a.targets;
     multimodalReadiness.value = mm;
     audits.value = au; stats.value = st;
@@ -77,24 +80,21 @@ onMounted(() => load());
 onBeforeUnmount(() => clearTimeout(timer));
 
 const dialog = reactive({ config: false, editing: null as Version | null, delete: false, target: null as Version | null, confirmation: "", select: false, sourceDest: "" });
-const form = reactive<Config>({ parserVersion: "", chunkerVersion: "", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, mappingSchemaVersion: 3 });
+const form = reactive<Config>({ parserVersion: "", chunkerVersion: "", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, indexSchema: "" });
 
 function edit(target?: Version) {
   dialog.editing = target || null;
-  const base = target?.configuration || versions.value.find(v => v.selected)?.configuration || versions.value[0]?.configuration;
-  Object.assign(form, base || { parserVersion: "kwiki-parse-1", chunkerVersion: "kwiki-chunk-1", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, mappingSchemaVersion: 3 });
-  // 新建版本以线上版本为模板，但结构版本取最新 v3；编辑保留原值
-  if (!target) form.mappingSchemaVersion = 3;
+  const base = target?.configuration || versions.value.find(v => v.selected && !v.kbScoped)?.configuration;
+  Object.assign(form, base || { parserVersion: "kwiki-parse-1", chunkerVersion: "kwiki-chunk-1", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, indexSchema: "" });
+  // 新建字段格式采用目录默认值，编辑保留原值。
+  if (!target) form.indexSchema = plugins.value?.defaults.indexSchema || "";
   dialog.config = true;
 }
 
-function setParserVersion(value: string) {
-  form.parserVersion = value;
-  // 新建版本默认使用最新结构版本 v3（含实体映射字段，可用于图构建）；旧结构版本仍可手动填写
-  form.mappingSchemaVersion = 3;
-}
+const selectionError = computed(() => pluginSelectionError(plugins.value, form.parserVersion, form.chunkerVersion, form.indexSchema));
 
 async function save() {
+  if (selectionError.value) return;
   try {
     if (dialog.editing) await api.command(`/versions/${dialog.editing.versionNumber}`, "PUT", form);
     else await api.command("/versions", "POST", form);
@@ -280,7 +280,7 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
           :description="`缺少配置：${multimodalReadiness.missingConfiguration.join('、')}。配置完成并重启服务后，再开启写入、存量迁移并校验 v2 索引。`"/>
         <section class="hero">
           <div style="display:flex;gap:12px">
-            <el-button type="primary" @click="edit()">创建版本</el-button>
+            <el-button type="primary" :disabled="!plugins" @click="edit()">创建版本</el-button>
             <span class="hint self-center">版本号由服务端自动分配；新版本只有完成构建并通过校验后才能切换上线。</span>
           </div>
         </section>
@@ -310,6 +310,7 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
                   <strong>v{{ row.versionNumber }}</strong>
                   <div class="muted">{{ row.physicalName }}</div>
                   <div class="muted">{{ row.configuration.parserVersion }}</div>
+                  <div class="muted">{{ row.indexSchemaLabel }}（{{ row.configuration.indexSchema }}）</div>
                 </template>
               </el-table-column>
               <el-table-column label="状态" width="120">
@@ -436,16 +437,19 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
     <el-dialog v-model="dialog.config" :title="dialog.editing ? '编辑 v' + dialog.editing.versionNumber : '创建新版本（自动编号）'" width="620">
       <el-alert title="保存后为待迁移；不会自动创建索引或切换别名" type="info" class="dialog-alert"/>
       <el-form label-width="150px">
-        <el-form-item label="Parser 版本">
-          <el-select :model-value="form.parserVersion" @change="setParserVersion">
-            <el-option label="kwiki-parse-1（文本解析）" value="kwiki-parse-1"/>
-            <el-option label="kwiki-parse-2（PDF / Markdown 图片摘要）" value="kwiki-parse-2" :disabled="!multimodalReadiness?.ready"/>
+        <el-form-item label="解析器">
+          <el-select v-model="form.parserVersion" aria-label="解析器">
+            <el-option v-for="option in plugins?.parsers" :key="option.id" :value="option.id" :label="`${option.label}（${option.id}）`" :disabled="!option.available">
+              {{ option.label }}（{{ option.id }}）<span v-if="!option.available"> · {{ option.unavailableReason }}</span>
+            </el-option>
           </el-select>
-          <div class="hint">v2 需要 KWIKI_MULTIMODAL_ENABLED=true、KWIKI_VISION_BASE_URL 和 KWIKI_VISION_API_KEY；修改后需重建。</div>
         </el-form-item>
-        <el-form-item label="Chunker 版本">
-          <el-input v-model="form.chunkerVersion" placeholder="切分器代际"/>
-          <div class="hint">内容切分组件的代际标识，决定正文如何切成 chunk。</div>
+        <el-form-item label="分块器">
+          <el-select v-model="form.chunkerVersion" aria-label="分块器">
+            <el-option v-for="option in plugins?.chunkers" :key="option.id" :value="option.id" :label="`${option.label}（${option.id}）`" :disabled="!option.available">
+              {{ option.label }}（{{ option.id }}）<span v-if="!option.available"> · {{ option.unavailableReason }}</span>
+            </el-option>
+          </el-select>
         </el-form-item>
         <el-form-item label="Embedding 档案">
           <el-input v-model="form.embeddingProvider"/>
@@ -459,15 +463,19 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
           <el-input-number v-model="form.embeddingDimensions" :min="64" :max="2048"/>
           <div class="hint">必须与模型实际输出维度一致，否则写入会被 ES 拒绝。</div>
         </el-form-item>
-        <el-form-item label="Mapping schema">
-          <el-input-number v-model="form.mappingSchemaVersion" :min="1"/>
-          <div class="hint">ES 索引 mapping 结构代际；仅结构升级时调高。</div>
+        <el-form-item label="字段格式">
+          <el-select v-model="form.indexSchema" aria-label="字段格式">
+            <el-option v-for="option in plugins?.schemas" :key="option.id" :value="option.id" :label="`${option.label}（${option.id}）`" :disabled="!option.available">
+              {{ option.label }}（{{ option.id }}）<span v-if="!option.available"> · {{ option.unavailableReason }}</span>
+            </el-option>
+          </el-select>
         </el-form-item>
+        <el-alert v-if="selectionError" :title="selectionError" type="warning" :closable="false" />
       </el-form>
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="dialog.config = false">取消</el-button>
-          <el-button type="primary" @click="save">保存</el-button>
+          <el-button type="primary" :disabled="Boolean(selectionError)" @click="save">保存</el-button>
         </div>
       </template>
     </el-dialog>

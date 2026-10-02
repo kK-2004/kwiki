@@ -1,7 +1,7 @@
 export interface Envelope<T>{code:number;success?:boolean;message?:string;data:T}
-export interface Config{parserVersion:string;chunkerVersion:string;embeddingProvider:string;embeddingModel:string;embeddingDimensions:number;mappingSchemaVersion:number}
+export interface Config{parserVersion:string;chunkerVersion:string;embeddingProvider:string;embeddingModel:string;embeddingDimensions:number;indexSchema:string}
 export interface MultimodalReadiness{ready:boolean;missingConfiguration:string[]}
-export interface Version{versionNumber:number;physicalName:string;configuration:Config;configRevision:number;builtConfigRevision:number|null;dirty:boolean;displayStatus:"PENDING_MIGRATION"|"MIGRATING"|"MIGRATED"|"PUBLISHED"|"NEEDS_ATTENTION";buildState:string;catchupStatus:string;writeEnabled:boolean;adminDisabled:boolean;selected:boolean;kbScoped:boolean;pipelineSupported:boolean;healthSummary?:string;attentionReason?:string;lastValidationAt?:string;validationSummary?:string;cleanupCandidate:boolean;allowedActions:Record<string,boolean>;writeEnabledEventId:number|null;migrateBlockedReason:string|null}
+export interface Version{indexSchemaLabel:string;schemaCapabilities:string[];versionNumber:number;physicalName:string;configuration:Config;configRevision:number;builtConfigRevision:number|null;dirty:boolean;displayStatus:"PENDING_MIGRATION"|"MIGRATING"|"MIGRATED"|"PUBLISHED"|"NEEDS_ATTENTION";buildState:string;catchupStatus:string;writeEnabled:boolean;adminDisabled:boolean;selected:boolean;kbScoped:boolean;pipelineSupported:boolean;healthSummary?:string;attentionReason?:string;lastValidationAt?:string;validationSummary?:string;cleanupCandidate:boolean;allowedActions:Record<string,boolean>;writeEnabledEventId:number|null;migrateBlockedReason:string|null}
 export interface Range{resourceType:string;minId:number;maxId:number;lastSeenId:number;tailLastSeenId:number;tailMaxId:number|null;scanned:number;succeeded:number;skipped:number;failed:number}
 export interface Run{runId:number;versionNumber:number;buildGeneration:number;kind:string;state:string;switchState:string;configRevision:number;buildStartEventId:number;replayEventId:number;dualWriteStartEventId:number|null;catchupBarrierEventId:number|null;scanned:number;succeeded:number;skipped:number;failed:number;requestedBy:string;startedAt:string;completedAt?:string;errorClass?:string;errorSummary?:string;ranges:Range[]}
 export interface Validation{id:number;versionNumber:number;runId:number;status:string;summary:string;createdAt:string;[key:string]:unknown}
@@ -23,7 +23,10 @@ export interface GraphPublication{kbId:number;chunkIndexVersion:number;activeSna
 export interface GraphSchedule{scheduleDate:string;status:string;linkedBatchId:number|null;createdAt:string}
 export interface GraphSnapshotRow{id:number;kbId:number;graphVersion:number;chunkIndexVersion:number;communityIndexVersion:number;communityPhysicalIndex:string;state:string;entityCount:number;relationCount:number;communityCount:number;sealedAt?:string;retiredAt?:string;createdAt:string}
 export interface GraphServiceStatus{enabled:boolean;algorithmMode:string;scheduleCron:string;scheduleZone:string;autoPublish:boolean;capacity:Record<string,number>;activeBatchId:number}
-export interface ParserOption{id:string;label:string;available:boolean;unavailableReason:string|null}
+export interface PluginOption{id:string;label:string;available:boolean;unavailableReason:string|null}
+export interface ParserOption extends PluginOption{requiredCapabilities:string[]}
+export interface SchemaOption extends PluginOption{capabilities:string[]}
+export interface PluginCatalog{schemas:SchemaOption[];parsers:ParserOption[];chunkers:PluginOption[];defaults:{indexSchema:string}}
 export interface GrayProgress{runId:number|null;runState:string|null;switchState:string|null;scanned:number;succeeded:number;failed:number;migrationPending:number;pendingTargets:number}
 export interface GrayRelease{id:number;name:string;parserVersion:string;parserLabel:string;indexVersionNumber:number;physicalName:string;status:"CREATED"|"SYNCING"|"SYNCED"|"SWITCHED"|"ENDED";lastError:string|null;createdBy:string;createdAt:string;switchedAt:string|null;endedAt:string|null;kbs:{kbId:number;name:string}[];progress:GrayProgress;allowedActions:{sync:boolean;switch:boolean;switchBack:boolean;end:boolean}}
 export const api={
@@ -35,9 +38,10 @@ export const api={
   runs:()=>request<Run[]>("/admin/search-indexes/runs"),validations:()=>request<Validation[]>("/admin/search-indexes/validations"),audits:()=>request<Audit[]>("/admin/search-indexes/audits"),stats:()=>request<Record<string,unknown>[]>("/admin/search-indexes/write-statistics"),
   command:<T>(path:string,method="POST",body?:unknown)=>request<T>(`/admin/search-indexes${path}`,{method,headers:{"Idempotency-Key":key()},body:body===undefined?undefined:JSON.stringify(body)}),
   deleteVersion:(version:number,name:string)=>request<{outcome:string}>(`/admin/search-indexes/versions/${version}`,{method:"DELETE",headers:{"Idempotency-Key":key()},body:JSON.stringify({confirmPhysicalName:name})}),
+  plugins:()=>request<PluginCatalog>("/admin/search-indexes/plugins"),
   parsers:()=>request<ParserOption[]>("/admin/search-indexes/parsers"),
   grayReleases:()=>request<GrayRelease[]>("/admin/search-indexes/gray-releases"),
-  createGrayRelease:(body:{name?:string;parserVersion:string;kbIds:number[]})=>request<{id:number;status:string}>("/admin/search-indexes/gray-releases",{method:"POST",headers:{"Idempotency-Key":key()},body:JSON.stringify(body)}),
+  createGrayRelease:(body:{name?:string;parserVersion:string;indexSchema?:string;chunkerVersion?:string;kbIds:number[]})=>request<{id:number;status:string}>("/admin/search-indexes/gray-releases",{method:"POST",headers:{"Idempotency-Key":key()},body:JSON.stringify(body)}),
   grayCommand:(id:number,action:"sync"|"switch"|"switch-back"|"end")=>request<{id:number;status:string}>(`/admin/search-indexes/gray-releases/${id}/${action}`,{method:"POST",headers:{"Idempotency-Key":key()}}),
   graphBatches:()=>request<GraphBatch[]>("/admin/knowledge-graphs/batches"),
   graphRuns:(batchId:number)=>request<GraphRun[]>(`/admin/knowledge-graphs/batches/${batchId}/runs`),
@@ -48,5 +52,5 @@ export const api={
   graphAudits:()=>request<Record<string,unknown>[]>("/admin/knowledge-graphs/audits"),
   graphServiceStatus:()=>request<GraphServiceStatus>("/admin/knowledge-graphs/service-status"),
   graphCommand,
-  graphSubmit:(payload:Record<string,unknown>)=>graphCommand<{batchId:number;communityIndexVersion:number;runIds:number[];replayed:boolean}>("/batches",payload)
+  graphSubmit:(payload:Record<string,unknown>)=>graphCommand<{batchId:number;chunkIndexSchema:string;communityIndexVersion:number;runIds:number[];replayed:boolean}>("/batches",payload)
 };

@@ -6,7 +6,7 @@ import type { Version } from "../src/api";
 
 const version = (n: number, parser: string, selected: boolean, canSelect: boolean, kbScoped = false) => ({
   versionNumber: n, physicalName: `kwiki-chunks-v${n}`, selected, kbScoped,
-  configuration: { parserVersion: parser, chunkerVersion: "c", embeddingProvider: "d", embeddingModel: "m", embeddingDimensions: 1024, mappingSchemaVersion: 3 },
+  configuration: { parserVersion: parser, chunkerVersion: "c", embeddingProvider: "d", embeddingModel: "m", embeddingDimensions: 1024, indexSchema: "kwiki-schema-1" },
   allowedActions: { select: canSelect },
 }) as unknown as Version;
 

@@ -3,7 +3,7 @@ import { computed } from "vue";
 import { ElMessageBox } from "element-plus";
 import type { GrayRelease } from "../api";
 
-const props = defineProps<{ release: GrayRelease; busy: boolean }>();
+const props = defineProps<{ release: GrayRelease; busy: boolean; schemaLabel?: string }>();
 const emit = defineEmits<{ command: [action: "sync" | "switch" | "switch-back" | "end"] }>();
 
 const STATUS: Record<GrayRelease["status"], { text: string; type: "info" | "warning" | "success" | "primary" | "danger" }> = {
@@ -39,7 +39,7 @@ async function run(action: "sync" | "switch" | "switch-back" | "end") {
     <header>
       <div>
         <h3>{{ release.name }}</h3>
-        <p class="meta">解析器 <strong>{{ release.parserLabel }}</strong> · 索引 <code>{{ release.physicalName }}</code> · {{ release.createdBy }}</p>
+        <p class="meta">解析器 <strong>{{ release.parserLabel }}</strong> · 字段格式 {{ schemaLabel || "未知" }} · 索引 <code>{{ release.physicalName }}</code> · {{ release.createdBy }}</p>
       </div>
       <el-tag :type="status.type" effect="light">{{ status.text }}</el-tag>
     </header>

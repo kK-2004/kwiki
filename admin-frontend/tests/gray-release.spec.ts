@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/vue";
 import { createPinia } from "pinia";
 import ElementPlus, { ElMessageBox } from "element-plus";
 import { ApiError, type GrayRelease } from "../src/api";
 
-const mocks = vi.hoisted(() => ({ grayReleases: vi.fn(), parsers: vi.fn(), adminKnowledgeBases: vi.fn(), grayCommand: vi.fn(), createGrayRelease: vi.fn() }));
+const mocks = vi.hoisted(() => ({ versions: vi.fn(), plugins: vi.fn(), grayReleases: vi.fn(), parsers: vi.fn(), adminKnowledgeBases: vi.fn(), grayCommand: vi.fn(), createGrayRelease: vi.fn() }));
 vi.mock("../src/api", async original => {
   const actual = await original<typeof import("../src/api")>();
   return { ...actual, api: { ...actual.api, ...mocks } };
@@ -25,6 +25,7 @@ const base: GrayRelease = {
   allowedActions: { sync: false, switch: true, switchBack: false, end: true },
 };
 const plugins = [createPinia(), ElementPlus];
+beforeEach(()=>{mocks.versions.mockResolvedValue([{versionNumber:4,selected:true,indexSchemaLabel:"实体格式",configuration:{indexSchema:"modern",chunkerVersion:"c"}}]);mocks.plugins.mockImplementation(async()=>({schemas:[{id:"modern",label:"实体格式",available:true,capabilities:["RESOURCE_IDS"],unavailableReason:null}],chunkers:[{id:"c",label:"分块器",available:true,unavailableReason:null}],parsers:await mocks.parsers(),defaults:{indexSchema:"modern"}}))});
 
 describe("灰度发布页", () => {
   it("按 allowedActions 显示操作按钮，并展示解析器、知识库与进度", async () => {
@@ -32,6 +33,7 @@ describe("灰度发布页", () => {
     render(GrayReleaseView, { global: { plugins } });
     await waitFor(() => expect(screen.getByText("pdfbox-v2 灰度 #1")).toBeTruthy());
     expect(screen.getByText("产品文档")).toBeTruthy();
+    expect(screen.getByText(/字段格式.*实体格式/)).toBeTruthy();
     expect(screen.getByText("kwiki-chunks-v4")).toBeTruthy();
     expect(screen.getByText("存量迁移：已排队 10 · 已完成 10 · 处理中 0 · 失败 0 ｜ 双写积压 0")).toBeTruthy();
     expect(screen.getByRole("button", { name: "切换到灰度索引" })).toBeTruthy();
@@ -95,8 +97,8 @@ describe("灰度卡片确认", () => {
 describe("新建灰度弹窗", () => {
   it("搜索知识库；已在其他灰度中的知识库置灰；不可用解析器置灰", async () => {
     mocks.parsers.mockResolvedValue([
-      { id: "kwiki-parse-1", label: "tika-v1", available: true, unavailableReason: null },
-      { id: "kwiki-parse-2", label: "pdfbox-v2", available: false, unavailableReason: "缺少配置：vision" },
+      { id: "kwiki-parse-1", label: "tika-v1", available: true, unavailableReason: null, requiredCapabilities: [] },
+      { id: "kwiki-parse-2", label: "pdfbox-v2", available: false, unavailableReason: "缺少配置：vision", requiredCapabilities: [] },
     ]);
     mocks.adminKnowledgeBases.mockResolvedValue([{ id: 7, name: "产品文档" }, { id: 8, name: "技术规范" }, { id: 9, name: "运维手册" }]);
     render(GrayReleaseCreateDialog, { props: { modelValue: true, occupied: { 8: "pdfbox-v2 灰度 #1" } }, global: { plugins } });
@@ -110,12 +112,12 @@ describe("新建灰度弹窗", () => {
   });
 
   it("名称留空时提交 name 为 undefined", async () => {
-    mocks.parsers.mockResolvedValue([{ id: "kwiki-parse-2", label: "pdfbox-v2", available: true, unavailableReason: null }]);
+    mocks.parsers.mockResolvedValue([{ id: "kwiki-parse-2", label: "pdfbox-v2", available: true, unavailableReason: null, requiredCapabilities: [] }]);
     mocks.adminKnowledgeBases.mockResolvedValue([{ id: 7, name: "产品文档" }]);
     mocks.createGrayRelease.mockResolvedValue({ id: 2, status: "CREATED" });
     render(GrayReleaseCreateDialog, { props: { modelValue: true, occupied: {} }, global: { plugins } });
     await fireEvent.click(await screen.findByRole("checkbox", { name: /产品文档/ }));
     await fireEvent.click(screen.getByRole("button", { name: "创建灰度" }));
-    await waitFor(() => expect(mocks.createGrayRelease).toHaveBeenCalledWith({ name: undefined, parserVersion: "kwiki-parse-2", kbIds: [7] }));
+    await waitFor(() => expect(mocks.createGrayRelease).toHaveBeenCalledWith({ name: undefined, parserVersion: "kwiki-parse-2", indexSchema: "modern", chunkerVersion: "c", kbIds: [7] }));
   });
 });

@@ -2,12 +2,17 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { grayErrorMessage } from "../grayErrors";
-import { api, ApiError, type GrayRelease } from "../api";
+import { api, ApiError, type GrayRelease, type Version } from "../api";
 import { useAuth } from "../auth";
 import GrayReleaseCard from "../components/GrayReleaseCard.vue";
 import GrayReleaseCreateDialog from "../components/GrayReleaseCreateDialog.vue";
 
 const auth = useAuth();
+const versions = ref<Version[]>([]);
+const schemaLabel = (release: GrayRelease) => {
+  const version = versions.value.find(item => item.versionNumber === release.indexVersionNumber);
+  return version ? `${version.indexSchemaLabel}（${version.configuration.indexSchema}）` : "未知";
+};
 const releases = ref<GrayRelease[]>([]);
 const loading = ref(false);
 const creating = ref(false);
@@ -28,7 +33,9 @@ async function load(silent = false) {
   if (!silent) loading.value = true;
   inFlight = true;
   try {
-    releases.value = await api.grayReleases();
+    const [releaseList, versionList] = await Promise.all([api.grayReleases(), api.versions()]);
+    releases.value = releaseList;
+    versions.value = versionList;
     // 成功后恢复正常节奏：有同步中的灰度时 3 秒，否则 15 秒
     pollDelay = releases.value.some(release => release.status === "SYNCING") ? 3000 : 15000;
   } catch (error) {
@@ -87,10 +94,10 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
       <el-button type="primary" @click="creating = true">新建灰度</el-button>
     </section>
     <el-empty v-if="!loading && !active.length" description="暂无进行中的灰度" />
-    <div class="grid"><GrayReleaseCard v-for="release in active" :key="release.id" :release="release" :busy="busyIds.has(release.id)" @command="command(release, $event)" /></div>
+    <div class="grid"><GrayReleaseCard v-for="release in active" :key="release.id" :release="release" :schema-label="schemaLabel(release)" :busy="busyIds.has(release.id)" @command="command(release, $event)" /></div>
     <section v-if="ended.length" class="ended">
       <el-button text @click="showEnded = !showEnded">{{ showEnded ? "收起" : "查看" }}已结束的灰度（{{ ended.length }}）</el-button>
-      <div v-if="showEnded" class="grid"><GrayReleaseCard v-for="release in ended" :key="release.id" :release="release" :busy="false" /></div>
+      <div v-if="showEnded" class="grid"><GrayReleaseCard v-for="release in ended" :key="release.id" :release="release" :schema-label="schemaLabel(release)" :busy="false" /></div>
     </section>
     <GrayReleaseCreateDialog v-model="creating" :occupied="occupied" @created="load(true)" />
   </main>
