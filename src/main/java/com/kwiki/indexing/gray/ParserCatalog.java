@@ -93,9 +93,10 @@ public class ParserCatalog {
 
     public List<ParserOption> options() {
         return registry.all().stream().map(plugin -> {
-            String problem = plugin.availability().available() ? manifestProblem(plugin.id())
-                    : plugin.availability().unavailableReason();
-            return new ParserOption(plugin.id(), plugin.label(), plugin.availability().available() && problem == null, problem,
+            var availability = plugin.availability();
+            String problem = availability.available() ? manifestProblem(plugin.id())
+                    : availability.unavailableReason();
+            return new ParserOption(plugin.id(), plugin.label(), availability.available() && problem == null, problem,
                     capabilityNames(plugin.id()));
         }).toList();
     }

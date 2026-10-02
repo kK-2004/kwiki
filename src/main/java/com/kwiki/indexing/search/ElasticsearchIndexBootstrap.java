@@ -32,8 +32,8 @@ import java.util.regex.Pattern;
  *   <li>别名与版本元数据都不存在 → 首次部署：创建 v{bootstrapVersion}、
  *       校验 mapping、持久化 configRevision==builtConfigRevision 的已构建
  *       selected/writeEnabled 行并写入空库基线迁移记录，再幂等挂载别名。
- *       管理写操作已开启且多模态配置齐全（并有兼容的结构清单）时直接以
- *       kwiki-parse-2 建首个版本，否则用 kwiki-parse-1。</li>
+ *       管理写操作开启时按默认解析器偏好选择首个可用且与默认字段格式
+ *       有受支持组合的插件；关闭时使用偏好列表最后一项作为基线。</li>
  *   <li>ES 已有别名而数据库无元数据 → 升级部署收养：唯一目标且能与当前
  *       部署配置安全匹配（名称 + 维度 + 必需字段）时收养为 selected；
  *       无法证明匹配时按别名事实持久化 selected 行并标记

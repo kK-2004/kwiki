@@ -79,6 +79,43 @@ class ElasticsearchIndexBootstrapTest {
     }
 
     @Test
+    void 首个可用解析器清单不兼容时选择后续兼容插件() {
+        assertThat(preferenceBootstrap(false).firstDeploymentConfig().parserVersion()).isEqualTo("later-parser");
+    }
+
+    @Test
+    void 所有可用解析器均无兼容清单时失败关闭() {
+        assertThatThrownBy(() -> preferenceBootstrap(true).firstDeploymentConfig())
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("没有与默认字段格式兼容");
+    }
+
+    /** 使用真实目录与流水线注册表，验证偏好选择不会只看插件可用性。 */
+    private static ElasticsearchIndexBootstrap preferenceBootstrap(boolean incompatible) {
+        var defaults = new com.kwiki.indexing.config.IndexingDefaultsProperties("kwiki-schema-1",
+                List.of("first-parser", "later-parser"));
+        var registry = new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(
+                new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser("first-parser", java.util.Set.of(), java.util.Set.of(), true),
+                new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser("later-parser", java.util.Set.of(), java.util.Set.of(), true)));
+        var settings = indexing(true);
+        var configured = new com.kwiki.indexing.config.IndexingProperties(List.of(
+                new com.kwiki.indexing.config.IndexingProperties.Manifest("first", "first-parser", "kwiki-chunk-1", "default", "other-model", 768, "kwiki-schema-1"),
+                new com.kwiki.indexing.config.IndexingProperties.Manifest("later", "later-parser", "kwiki-chunk-1", "default",
+                        incompatible ? "other-model" : "text-embedding-v4", incompatible ? 768 : 1024, "kwiki-schema-1")),
+                settings.embeddings(), settings.rebuild(), settings.catchup(), settings.capacity(), settings.management());
+        var pipelines = new com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry(configured, properties(), registry,
+                providerOf(Mockito.mock(com.kwiki.indexing.pipeline.ChunkEmbeddingPort.class)),
+                providerOf(org.springframework.web.reactive.function.client.WebClient.builder()),
+                com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+        var catalog = new com.kwiki.indexing.gray.ParserCatalog(registry, pipelines, null, defaults);
+        var bootstrap = new ElasticsearchIndexBootstrap(new FakeIndexManager(false, List.of(), null),
+                providerOf(new InMemoryRegistry().proxy), new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()),
+                properties(), 1, defaults);
+        bootstrap.setFirstDeploymentSupport(catalog, configured,
+                Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class));
+        return bootstrap;
+    }
+
+    @Test
     void firstDeploymentCreatesIndexPersistsMetadataAndMountsAlias() throws Exception {
         FakeIndexManager indexes = new FakeIndexManager(false, List.of(), null);
         InMemoryRegistry registry = new InMemoryRegistry();

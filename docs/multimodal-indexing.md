@@ -35,7 +35,10 @@ kwiki 在 Java 进程内原生完成 PDF 内嵌图片与发布后 Markdown 图�
 
 ## 2. 功能开关与索引版本（rollout）
 
-多模态属于解析代 `kwiki-parse-2`。CHUNK 索引字段格式由独立插件决定，
+多模态由 `PdfboxMultimodalParserV2` 解析器插件（id `kwiki-parse-2`）提供。
+插件始终登记在 `DocumentParserRegistry` 中；仅当多模态总开关开启、视觉
+模型配置齐全且多模态服务已装配时可用，否则返回脱敏的不可用原因。
+CHUNK 索引字段格式由独立插件决定，
 当前内置 `kwiki-schema-1`（「图文 + 实体关联 v1」）：保留原结构 3 的映射
 与投影语义，提供 `RESOURCE_IDS`、`ENTITY_LINKING` 能力。父/子块按原文
 标记提取去重 `contentIds`，子块包含实体关联字段；规范原文 `content`
@@ -52,7 +55,12 @@ kwiki 在 Java 进程内原生完成 PDF 内嵌图片与发布后 Markdown 图�
    `kwiki-parse-2` 组合。向量配置沿用 `kwiki.qwen-embedding.*`。
    任一多模态必需配置缺失时，服务可启动并在管理端显示缺失项，但
    `kwiki-parse-2` 不可用；不会显示密钥值。
-3. `kwiki.indexing.defaults.index-schema` 默认为 `kwiki-schema-1`，用于
+3. `kwiki.indexing.defaults.parsers` 是有序偏好列表，默认
+   `[kwiki-parse-2, kwiki-parse-1]`。首次部署管理写操作关闭时使用最后一项
+   作为基线；开启时按顺序选择首个可用且与默认字段格式存在受支持组合
+   的解析器，没有兼容组合则失败关闭。列表必须非空、所有 id 必须已注册，
+   最后一项必须可用，否则启动失败；基线应选择恒可用插件。
+   `kwiki.indexing.defaults.index-schema` 默认为 `kwiki-schema-1`，用于
    首次部署和新建版本的默认字段格式；默认 id 未注册会阻止启动。
    修改默认值不会修改已有版本的配置或物理索引。管理端通过插件目录
    展示名称、id、能力和不可用原因；新建版本与灰度均可显式选择字段格式，
@@ -74,9 +82,9 @@ kwiki 在 Java 进程内原生完成 PDF 内嵌图片与发布后 Markdown 图�
    contentId 属于页面索引，因此沿用页面读取权限。导入来源附件本身
    不作为普通附件索引；后续手动编辑的修订按其已发布 Markdown 索引。
 7. 提示词/模型变更会形成新的摘要身份并复用已上传 contentId；存量文档
-   必须重建后才获得新摘要。若需要新解析代，应先实现并接入解析器，再
-   登记清单；当前适配器只支持 `kwiki-parse-1`、`kwiki-parse-2`，在清单中
-   写入任意新名称（例如 `kwiki-parse-2-p2`）不会自动产生可执行解析器。
+   必须重建后才获得新摘要。若需要新解析代，应新增
+   `DocumentParserPlugin` 实现并注册为 Spring Bean，再登记清单或使用默认
+   组合；仅写入新清单 id 不会自动产生可执行解析器。
 
 ### 显式清单示例
 
@@ -88,6 +96,7 @@ kwiki:
   indexing:
     defaults:
       index-schema: kwiki-schema-1
+      parsers: [kwiki-parse-2, kwiki-parse-1]
     manifests:
       - id: text-with-resources-and-entities
         parser-version: kwiki-parse-1
@@ -108,10 +117,21 @@ kwiki:
 随后登记需要的显式清单（或使用默认组合），创建版本、重建、校验、切换。
 应覆盖映射与摘要稳定性、投影、能力门禁、未知/不可用插件及清单匹配测试。
 
-当前字段格式已由注册表驱动；解析器与分块器目录仍适配既有实现，
-`VersionedIndexingPipelineRegistry` 仍只装配两种解析代和
-`kwiki-chunk-1`。新增字段格式无需修改这些适配器的字段格式分支，但新增
-解析器或分块器仍需接入实际流水线，不能只新增目录项或清单 id。
+### 新增解析器
+
+新增解析器 = 新建 `DocumentParserPlugin` 实现类并注册为 Spring Bean；
+`DocumentParserRegistry` 自动收集插件，目录、默认组合和执行调用统一使用注册表。
+实现须提供稳定唯一的 `id`、显示名、可用性及脱敏原因、`requiredCapabilities`、
+小写 MIME 集合 `indexableAttachmentTypes`，以及页面、非图片附件、导入文件的
+解析方法。图片附件仍由公共元数据路径处理；附件字节通过请求中的 Supplier 按需读取。
+字段格式必须包含解析器所需全部能力；默认组合只生成可用且能力兼容的组合。
+显式清单仍须登记完整配置，且向量档案、模型、维度与运行环境一致。
+
+上线新插件后，可按需加入 `defaults.parsers` 偏好列表，创建版本、重建、校验、
+切换别名；已有版本不会自动更换解析器。已使用的 id 不得改变语义，行为变化
+须使用新 id 和实现。测试应覆盖三个解析入口、附件类型分流、可用性诊断、
+能力门禁、清单匹配及首次部署偏好。分块器仍为既有 `kwiki-chunk-1`，
+新增分块器需另行接入实际流水线。
 
 ### 回滚
 

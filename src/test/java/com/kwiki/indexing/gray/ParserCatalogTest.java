@@ -42,6 +42,23 @@ class ParserCatalogTest {
         assertThat(catalog.label("custom")).isEqualTo("custom");
     }
 
+    @Test
+    void 单次目录读取只采集一次插件可用性避免状态与原因矛盾() {
+        var plugin = mock(com.kwiki.indexing.parse.plugin.DocumentParserPlugin.class);
+        when(plugin.id()).thenReturn("changing-parser");
+        when(plugin.label()).thenReturn("变化解析器");
+        when(plugin.requiredCapabilities()).thenReturn(java.util.Set.of());
+        when(plugin.availability()).thenReturn(
+                com.kwiki.indexing.plugin.PluginAvailability.unavailable("暂不可用"),
+                com.kwiki.indexing.plugin.PluginAvailability.ok());
+        var catalog = new ParserCatalog(new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(plugin)));
+        assertThat(catalog.options()).singleElement().satisfies(option -> {
+            assertThat(option.available()).isFalse();
+            assertThat(option.unavailableReason()).isEqualTo("暂不可用");
+        });
+        org.mockito.Mockito.verify(plugin).availability();
+    }
+
     private static com.kwiki.indexing.config.IndexingProperties.Manifest manifest(
             String parser, String model, int dims, String schema) {
         return new com.kwiki.indexing.config.IndexingProperties.Manifest(
