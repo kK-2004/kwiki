@@ -257,6 +257,25 @@ class VersionedIndexingPipelineRegistryTest {
         assertThat(registry.resolve(new EditableIndexConfig("offline-parser", "kwiki-chunk-1", "default", "model", 1024, "resource-schema"))).isEmpty();
     }
 
+    @Test
+    void 缺失能力诊断按名称排序且只列出未提供能力() {
+        var required = java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.RESOURCE_IDS,
+                com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING);
+        var parser = new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser("diagnostic-parser",
+                java.util.Set.of("text/plain"), required, true);
+        var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), external("model", 1024),
+                new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(parser)), provider(defaultEmbeddings), nullProvider(),
+                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema("empty-schema", java.util.Set.of(), true),
+                        schema("resource-schema", java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.RESOURCE_IDS), true))));
+        var empty = new EditableIndexConfig("diagnostic-parser", "kwiki-chunk-1", "default", "model", 1024, "empty-schema");
+        assertThat(registry.resolve(empty)).isEmpty();
+        assertThat(registry.unsupportedReason(empty)).contains(
+                "字段格式 empty-schema 不支持解析器 diagnostic-parser 要求的能力：ENTITY_LINKING, RESOURCE_IDS");
+        var partial = new EditableIndexConfig("diagnostic-parser", "kwiki-chunk-1", "default", "model", 1024, "resource-schema");
+        assertThat(registry.unsupportedReason(partial)).contains(
+                "字段格式 resource-schema 不支持解析器 diagnostic-parser 要求的能力：ENTITY_LINKING");
+    }
+
     private static com.kwiki.indexing.schema.ChunkIndexSchema schema(String id,
             java.util.Set<com.kwiki.indexing.plugin.IndexCapability> capabilities, boolean available) {
         var schema = mock(com.kwiki.indexing.schema.ChunkIndexSchema.class);

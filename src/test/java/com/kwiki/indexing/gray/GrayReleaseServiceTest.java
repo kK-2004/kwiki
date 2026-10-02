@@ -88,6 +88,29 @@ class GrayReleaseServiceTest {
     }
 
     @Test
+    void 第三方解析器缺失实体能力时灰度返回精确诊断且不写入() {
+        var parser = new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser("entity-parser",
+                java.util.Set.of("text/plain"), java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING), true);
+        var schema = mock(com.kwiki.indexing.schema.ChunkIndexSchema.class);
+        when(schema.id()).thenReturn("resource-schema");
+        when(schema.capabilities()).thenReturn(java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.RESOURCE_IDS));
+        when(schema.availability()).thenReturn(com.kwiki.indexing.plugin.PluginAvailability.ok());
+        var realPipelines = new com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry(
+                mock(com.kwiki.indexing.config.IndexingProperties.class),
+                mock(com.kwiki.infrastructure.config.ExternalServicesProperties.class),
+                new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(parser)), null, null,
+                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)));
+        var realService = new GrayReleaseService(store, admin, versions, scope, writes, migrations,
+                validations, runs, parsers, null, realPipelines);
+        assertThatThrownBy(() -> realService.create(null, "entity-parser", "resource-schema", null, List.of(7L), "admin"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("当前部署不支持所选索引组合：字段格式 resource-schema 不支持解析器 entity-parser 要求的能力：ENTITY_LINKING");
+        verify(admin, never()).createVersion(any());
+        verifyNoInteractions(scope);
+        assertThat(store.activeReleaseByKb(List.of(7L))).isEmpty();
+    }
+
+    @Test
     void 创建灰度_以全局配置为基础替换解析器并登记知识库范围() {
         when(parsers.label("kwiki-parse-2")).thenReturn("pdfbox-v2");
         GrayRelease created = service.create(null, "kwiki-parse-2", null, null, List.of(7L, 9L), "admin");

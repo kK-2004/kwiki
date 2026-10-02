@@ -122,8 +122,13 @@ public class VersionedIndexingPipelineRegistry {
         var plugin = parserRegistry.find(config.parserVersion());
         if (plugin.isEmpty()) return Optional.of("解析器 " + config.parserVersion() + " 未注册");
         if (!plugin.get().availability().available()) return Optional.of("解析器 " + config.parserVersion() + " 不可用：" + plugin.get().availability().unavailableReason());
-        if (plugin.isPresent() && !schema.get().capabilities().containsAll(plugin.get().requiredCapabilities())) {
-            return Optional.of("字段格式 " + config.indexSchema() + " 不支持解析器要求的能力");
+        // 仅列出缺失能力并固定排序，诊断只包含注册表标识及枚举名称。
+        var missingCapabilities = plugin.get().requiredCapabilities().stream()
+                .filter(capability -> !schema.get().capabilities().contains(capability))
+                .map(IndexCapability::name).sorted().toList();
+        if (!missingCapabilities.isEmpty()) {
+            return Optional.of("字段格式 " + schema.get().id() + " 不支持解析器 " + plugin.get().id()
+                    + " 要求的能力：" + String.join(", ", missingCapabilities));
         }
         if (!parserVersionSupported(config.parserVersion())) {
             return Optional.of("parser version is not supported by this deployment: "
