@@ -32,7 +32,8 @@ class ChunkMappingTest {
     }
 
     private static TypeMapping typedMapping(int dimensions, boolean indexed) {
-        TypeMapping.Builder mapping = new TypeMapping.Builder();
+        TypeMapping.Builder mapping = new TypeMapping.Builder()
+                .dynamic(co.elastic.clients.elasticsearch._types.mapping.DynamicMapping.Strict);
         for (String field : java.util.List.of(
                 "chunkLevel", "chunkKey", "parentChunkKey", "resourceType", "resourceId",
                 "revisionId", "lifecycleVersion", "kbId", "headingPath", "charStart",
@@ -100,7 +101,7 @@ class ChunkMappingTest {
         trimmed.remove("parserVersion");
 
         String error = MappingValidator.validate(
-                Map.of("mappings", Map.of("properties", trimmed)), 1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields());
+                Map.of("mappings", Map.of("dynamic", "strict", "properties", trimmed)), 1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields());
         assertThat(error).contains("parserVersion");
     }
 
@@ -131,7 +132,7 @@ class ChunkMappingTest {
         assertThat(MappingValidator.validate(mapping, 1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields())).isNull();
         var missing = new HashMap<>(properties);
         missing.remove("sourceChunkId");
-        assertThat(MappingValidator.validate(Map.of("mappings", Map.of("properties", missing)),
+        assertThat(MappingValidator.validate(Map.of("mappings", Map.of("dynamic", "strict", "properties", missing)),
                 1024, new com.kwiki.indexing.schema.KwikiSchemaV1().requiredFields())).contains("sourceChunkId");
 
     }

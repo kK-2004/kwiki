@@ -46,7 +46,7 @@ async function load() {
     indexSchema.value = online?.configuration.indexSchema || catalog.defaults.indexSchema;
     chunkerVersion.value = online?.configuration.chunkerVersion || catalog.chunkers.find(chunker => chunker.available)?.id || "";
     bases.value = baseList;
-    parserVersion.value = catalog.parsers.find(parser => parser.available && parser.id !== "kwiki-parse-1")?.id ?? "";
+    parserVersion.value = online?.configuration.parserVersion || catalog.parsers.find(parser => parser.available)?.id || "";
   } catch (error) {
     if (seq === loadSeq) ElMessage.error(grayErrorMessage(error, "解析器或知识库加载失败"));
   }

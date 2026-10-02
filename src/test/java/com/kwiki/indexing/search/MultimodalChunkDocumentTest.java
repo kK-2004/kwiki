@@ -46,7 +46,7 @@ class MultimodalChunkDocumentTest {
         var properties = new java.util.LinkedHashMap<>((Map<String, Object>)
                 ((Map<?, ?>) mapping.get("mappings")).get("properties"));
         properties.remove("contentIds");
-        assertThat(MappingValidator.validate(Map.of("mappings", Map.of("properties", properties)),
+        assertThat(MappingValidator.validate(Map.of("mappings", Map.of("dynamic", "strict", "properties", properties)),
                 1024, schema.requiredFields())).isEqualTo("missing required field: contentIds");
     }
 }

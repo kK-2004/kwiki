@@ -1,5 +1,6 @@
 package com.kwiki.indexing.search;
 
+import co.elastic.clients.elasticsearch._types.mapping.DynamicMapping;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch._types.mapping.TypeMapping;
 
@@ -22,6 +23,9 @@ public final class MappingValidator {
                                   Set<String> requiredFields) {
         if (mapping == null) {
             return "missing mappings section";
+        }
+        if (mapping.dynamic() != DynamicMapping.Strict) {
+            return "dynamic mapping must be strict";
         }
         Map<String, Property> properties = mapping.properties();
         if (properties == null || properties.isEmpty()) {
@@ -53,6 +57,9 @@ public final class MappingValidator {
         if (!(mappingsNode instanceof Map<?, ?> mappings)) {
             return "missing mappings section";
         }
+        if (!"strict".equals(mappings.get("dynamic"))) {
+            return "dynamic mapping must be strict";
+        }
         Object propertiesNode = ((Map<String, Object>) mappings).get("properties");
         if (!(propertiesNode instanceof Map<?, ?> properties)) {
             return "missing properties section";
@@ -65,6 +72,9 @@ public final class MappingValidator {
         }
         Object vector = typed.get("vector");
         if (vector instanceof Map<?, ?> vectorField) {
+            if (!"dense_vector".equals(vectorField.get("type"))) {
+                return "vector field is malformed";
+            }
             Object dims = vectorField.get("dims");
             if (!(dims instanceof Number number) || number.intValue() != expectedDimensions) {
                 return "vector dimension mismatch: expected " + expectedDimensions;

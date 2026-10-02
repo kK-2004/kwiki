@@ -25,7 +25,7 @@ const base: GrayRelease = {
   allowedActions: { sync: false, switch: true, switchBack: false, end: true },
 };
 const plugins = [createPinia(), ElementPlus];
-beforeEach(()=>{mocks.versions.mockResolvedValue([{versionNumber:4,selected:true,indexSchemaLabel:"实体格式",configuration:{indexSchema:"modern",chunkerVersion:"c"}}]);mocks.plugins.mockImplementation(async()=>({schemas:[{id:"modern",label:"实体格式",available:true,capabilities:["RESOURCE_IDS"],unavailableReason:null}],chunkers:[{id:"c",label:"分块器",available:true,unavailableReason:null}],parsers:await mocks.parsers(),defaults:{indexSchema:"modern"}}))});
+beforeEach(()=>{mocks.versions.mockResolvedValue([{versionNumber:4,selected:true,indexSchemaLabel:"实体格式",configuration:{indexSchema:"modern",chunkerVersion:"c",parserVersion:"kwiki-parse-2"}}]);mocks.plugins.mockImplementation(async()=>({schemas:[{id:"modern",label:"实体格式",available:true,capabilities:["RESOURCE_IDS"],unavailableReason:null}],chunkers:[{id:"c",label:"分块器",available:true,unavailableReason:null}],parsers:await mocks.parsers(),defaults:{indexSchema:"modern"}}))});
 
 describe("灰度发布页", () => {
   it("按 allowedActions 显示操作按钮，并展示解析器、知识库与进度", async () => {
@@ -95,6 +95,56 @@ describe("灰度卡片确认", () => {
 });
 
 describe("新建灰度弹窗", () => {
+  it.each([true, false])("线上 parse-1 在 parse-2 可用性为 %s 时仍作为三项默认值", async available => {
+    mocks.versions.mockResolvedValue([{ selected: true, kbScoped: false, configuration: { parserVersion: "kwiki-parse-1", indexSchema: "online-schema", chunkerVersion: "online-chunker" } }]);
+    mocks.plugins.mockResolvedValue({
+      parsers: [
+        { id: "kwiki-parse-1", label: "线上解析器", available: true, requiredCapabilities: [] },
+        { id: "kwiki-parse-2", label: "备选解析器", available, requiredCapabilities: [] },
+      ],
+      schemas: [
+        { id: "catalog-schema", label: "目录格式", available: true, capabilities: [] },
+        { id: "online-schema", label: "线上格式", available: true, capabilities: [] },
+        { id: "disabled-schema", label: "停用格式", available: false, unavailableReason: "格式停用", capabilities: [] },
+      ],
+      chunkers: [
+        { id: "catalog-chunker", label: "目录分块器", available: true },
+        { id: "online-chunker", label: "线上分块器", available: true },
+        { id: "disabled-chunker", label: "停用分块器", available: false, unavailableReason: "分块器停用" },
+      ],
+      defaults: { indexSchema: "catalog-schema" },
+    });
+    mocks.adminKnowledgeBases.mockResolvedValue([{ id: 7, name: "产品文档" }]);
+    mocks.createGrayRelease.mockResolvedValue({ id: 2, status: "CREATED" });
+    render(GrayReleaseCreateDialog, { props: { modelValue: true, occupied: {} }, global: { plugins } });
+    await fireEvent.click(await screen.findByRole("checkbox", { name: /产品文档/ }));
+    expect((screen.getByRole("radio", { name: /线上解析器/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: /备选解析器/ }) as HTMLInputElement).disabled).toBe(!available);
+    expect(screen.getByRole("combobox", { name: "字段格式" }).closest(".el-select")?.textContent).toContain("线上格式（online-schema）");
+    expect(screen.getByRole("combobox", { name: "分块器" }).closest(".el-select")?.textContent).toContain("线上分块器（online-chunker）");
+    await fireEvent.click(screen.getByRole("button", { name: "创建灰度" }));
+    await waitFor(() => expect(mocks.createGrayRelease).toHaveBeenCalledWith({ name: undefined, parserVersion: "kwiki-parse-1", indexSchema: "online-schema", chunkerVersion: "online-chunker", kbIds: [7] }));
+    for (const [label, option, disabled] of [["字段格式", "目录格式（catalog-schema）", "停用格式（disabled-schema）"], ["分块器", "目录分块器（catalog-chunker）", "停用分块器（disabled-chunker）"]]) {
+      await fireEvent.click(screen.getByRole("combobox", { name: label }));
+      const disabledOption = await screen.findByRole("option", { name: new RegExp(disabled.replace(/[()]/g, "\\$&")) });
+      expect(disabledOption.getAttribute("aria-disabled")).toBe("true");
+      await fireEvent.click(await screen.findByRole("option", { name: option }));
+    }
+    await fireEvent.click(screen.getByRole("button", { name: "创建灰度" }));
+    await waitFor(() => expect(mocks.createGrayRelease).toHaveBeenLastCalledWith({ name: undefined, parserVersion: "kwiki-parse-1", indexSchema: "catalog-schema", chunkerVersion: "catalog-chunker", kbIds: [7] }));
+  });
+
+  it("没有全局线上版本时才使用目录字段格式默认值", async () => {
+    mocks.versions.mockResolvedValue([{ selected: true, kbScoped: true, configuration: { parserVersion: "scoped-parser", indexSchema: "scoped-schema", chunkerVersion: "scoped-chunker" } }]);
+    mocks.parsers.mockResolvedValue([{ id: "kwiki-parse-1", label: "tika-v1", available: true, requiredCapabilities: [] }]);
+    mocks.adminKnowledgeBases.mockResolvedValue([{ id: 7, name: "产品文档" }]);
+    mocks.createGrayRelease.mockResolvedValue({ id: 2, status: "CREATED" });
+    render(GrayReleaseCreateDialog, { props: { modelValue: true, occupied: {} }, global: { plugins } });
+    await fireEvent.click(await screen.findByRole("checkbox", { name: /产品文档/ }));
+    await fireEvent.click(screen.getByRole("button", { name: "创建灰度" }));
+    await waitFor(() => expect(mocks.createGrayRelease).toHaveBeenCalledWith({ name: undefined, parserVersion: "kwiki-parse-1", indexSchema: "modern", chunkerVersion: "c", kbIds: [7] }));
+  });
+
   it("搜索知识库；已在其他灰度中的知识库置灰；不可用解析器置灰", async () => {
     mocks.parsers.mockResolvedValue([
       { id: "kwiki-parse-1", label: "tika-v1", available: true, unavailableReason: null, requiredCapabilities: [] },
