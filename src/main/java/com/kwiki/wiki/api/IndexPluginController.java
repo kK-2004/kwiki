@@ -3,7 +3,6 @@ package com.kwiki.wiki.api;
 import com.kk2004.common.response.TransDTO;
 import com.kwiki.indexing.config.IndexingDefaultsProperties;
 import com.kwiki.indexing.gray.ParserCatalog;
-import com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry;
 import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,7 +42,7 @@ public class IndexPluginController {
                     availability.unavailableReason(), schema.capabilities().stream().sorted().map(Enum::name).toList());
         }).toList();
         return TransDTO.success(new Catalog(options, parsers.options(),
-                List.of(new ChunkerOption(VersionedIndexingPipelineRegistry.SUPPORTED_CHUNKER_VERSION,
+                List.of(new ChunkerOption(com.kwiki.indexing.chunk.plugin.KwikiChunkV1.ID,
                         "父子分块 v1", true, null)), new Defaults(defaults.indexSchema(), defaults.parsers())));
     }
 }

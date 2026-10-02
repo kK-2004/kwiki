@@ -118,6 +118,8 @@ class VersionedMultiWriteTest {
         VersionedIndexingPipelineRegistry registry = new VersionedIndexingPipelineRegistry(
                 indexing, external,
                 com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
+                new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
                 StandardTestProperties.providerOf(embeddings),
                 StandardTestProperties.nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 

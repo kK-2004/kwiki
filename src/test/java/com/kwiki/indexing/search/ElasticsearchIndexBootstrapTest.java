@@ -103,6 +103,8 @@ class ElasticsearchIndexBootstrapTest {
                         incompatible ? "other-model" : "text-embedding-v4", incompatible ? 768 : 1024, "kwiki-schema-1")),
                 settings.embeddings(), settings.rebuild(), settings.catchup(), settings.capacity(), settings.management());
         var pipelines = new com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry(configured, properties(), registry,
+                new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
                 providerOf(Mockito.mock(com.kwiki.indexing.pipeline.ChunkEmbeddingPort.class)),
                 providerOf(org.springframework.web.reactive.function.client.WebClient.builder()),
                 com.kwiki.indexing.schema.SchemaTestFixtures.schemas());

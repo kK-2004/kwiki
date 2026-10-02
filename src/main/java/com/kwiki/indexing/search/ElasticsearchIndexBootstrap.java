@@ -5,7 +5,6 @@ import com.kwiki.indexing.config.IndexingDefaultsProperties;
 import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.gray.ParserCatalog;
 import com.kwiki.indexing.version.BootstrapMigrationRecorder;
-import com.kwiki.indexing.job.IndexingWorker;
 import com.kwiki.indexing.version.EditableIndexConfig;
 import com.kwiki.indexing.version.SearchIndexVersion;
 import com.kwiki.indexing.version.SearchIndexVersionRepository;
@@ -127,7 +126,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
     private EditableIndexConfig deployedConfig() {
         return new EditableIndexConfig(
                 defaults.parsers().get(defaults.parsers().size() - 1),
-                IndexingWorker.CHUNKER_VERSION,
+                com.kwiki.indexing.chunk.plugin.KwikiChunkV1.ID,
                 IndexingProperties.DEFAULT_EMBEDDING_PROFILE,
                 properties.qwenEmbedding().model(),
                 properties.qwenEmbedding().dimensions(),

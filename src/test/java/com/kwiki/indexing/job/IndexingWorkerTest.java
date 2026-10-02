@@ -101,6 +101,8 @@ class IndexingWorkerTest {
         VersionedIndexingPipelineRegistry registry = new VersionedIndexingPipelineRegistry(
                 emptyManifests(), properties(),
                 com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
+                new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
                 StandardTestProperties.providerOf(embeddings),
                 StandardTestProperties.nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         SearchIndexVersion v2 = SearchIndexVersion.bootstrapped(
@@ -193,6 +195,25 @@ class IndexingWorkerTest {
                 assertThat(child.parentKey()).startsWith("PAGE:7:103:P"));
         // 目标级完成：目标行进入 COMPLETED
         verify(jdbc).update(contains("indexing_job_target SET state = 'COMPLETED'"), eq(1L));
+    }
+
+    @Test
+    void 页面写入委派父子分块给所选插件() {
+        stubPageResource(7L, 103L, "# 标题\n\n" + "正文".repeat(100));
+        var chunker = org.mockito.Mockito.spy(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(StandardTestProperties.nullProvider()));
+        var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), properties(),
+                com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
+                new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(List.of(chunker)),
+                StandardTestProperties.providerOf(embeddings), StandardTestProperties.nullProvider(),
+                com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+        worker = new IndexingWorker(claimer, targets, registry, StandardTestProperties.providerOf(versionRepository),
+                index, null, pages, knowledgeBases, revisions, attachments, storage, new SimpleMeterRegistry(), 8, 30, 3600);
+        worker.process(targetRow(1L, "UPSERT", "PAGE", 7L, 103L), new IndexingWorker.JobIntermediates());
+        verify(chunker).parents(eq("PAGE:7:103"), any());
+        var captured = ArgumentCaptor.forClass(IndexedVersion.class);
+        verify(index).upsertChunks(captured.capture(), eq(PHYSICAL));
+        assertThat(captured.getValue().parents()).isNotEmpty();
+        for (var parent : captured.getValue().parents()) verify(chunker).children(eq(parent), any());
     }
 
     @Test

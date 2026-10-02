@@ -57,7 +57,6 @@ public class IndexingWorker {
 
     private static final Logger log = LoggerFactory.getLogger(IndexingWorker.class);
 
-    public static final String CHUNKER_VERSION = "kwiki-chunk-1";
 
     private final IndexingJobTargetClaimer targetClaimer;
     private final IndexingJobTargetStore targets;
@@ -377,13 +376,13 @@ public class IndexingWorker {
         StructuredDocument document = intermediates.documents.computeIfAbsent(documentKey,
                 key -> documentSupplier.load(pipeline));
         List<ParentChunk> parents = intermediates.parents.computeIfAbsent(chunkerKey,
-                key -> pipeline.parentChunker().chunk(
+                key -> pipeline.chunker().parents(
                         chunkKeyPrefix(resourceType, resourceId, revisionId), document));
         List<ChildChunk> children = intermediates.children.computeIfAbsent(chunkerKey,
                 key -> {
                     List<ChildChunk> all = new ArrayList<>();
                     for (ParentChunk parent : parents) {
-                        all.addAll(pipeline.childChunker().chunk(parent, document));
+                        all.addAll(pipeline.chunker().children(parent, document));
                     }
                     return all;
                 });

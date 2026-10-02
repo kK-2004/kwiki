@@ -78,8 +78,8 @@ class IndexingWorkerImportedPdfTest {
             var worker = new IndexingWorker(null,null,null,null,index,null,null,null,null,attachments,storage,
                     new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),8,30,3600);
             var pipeline = new ResolvedPipeline("test", id, "kwiki-chunk-1", plugin,
-                    new com.kwiki.indexing.chunk.ParentChunker(com.kwiki.indexing.chunk.ChunkingConfig.defaults()),
-                    new com.kwiki.indexing.chunk.ChildChunker(com.kwiki.indexing.chunk.ChunkingConfig.defaults()),
+                    new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
+                            new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)),
                     embeddings,"model",1024,"kwiki-schema-1",null);
             ReflectionTestUtils.invokeMethod(worker, "executeAttachmentUpsert", "chunks-v2", 2, 9L,
                     pipeline, new IndexingWorker.JobIntermediates());
@@ -115,6 +115,6 @@ class IndexingWorkerImportedPdfTest {
         return attachment;
     }
     private static ResolvedPipeline pipeline(DocumentParserPlugin parser) {
-        return new ResolvedPipeline("test", parser.id(), "kwiki-chunk-1", parser, null,null,null,"model",1024,"kwiki-schema-1",null);
+        return new ResolvedPipeline("test", parser.id(), "kwiki-chunk-1", parser, null,null,"model",1024,"kwiki-schema-1",null);
     }
 }
