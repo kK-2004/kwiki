@@ -24,7 +24,7 @@ kwiki 在 Java 进程内原生完成 PDF 内嵌图片与发布后 Markdown 图�
 | `KWIKI_MULTIMODAL_EXTERNAL_IMAGE_TIMEOUT` | `20s` | 外链抓取总时限（含全部重定向） |
 | `KWIKI_MULTIMODAL_EXTERNAL_IMAGE_MAX_REDIRECTS` | `3` | 重定向上限；每跳重新执行地址策略 |
 | `KWIKI_MULTIMODAL_EXTERNAL_IMAGE_ALLOWED_PORTS` | `443` | 允许的外链 HTTPS 端口白名单 |
-| `KWIKI_VISION_BASE_URL` / `KWIKI_VISION_API_KEY` | 空 | 视觉模型（OpenAI-compatible）；缺失时管理端显示原因并禁止创建或切换到 v2 |
+| `KWIKI_VISION_BASE_URL` / `KWIKI_VISION_API_KEY` | 空 | 视觉模型（OpenAI-compatible）；缺失时管理端显示原因并禁止创建或切换到 kwiki-parse-2 |
 | `KWIKI_VISION_MODEL` | `qwen3.7-flash` | 模型名（与提示词版本共同构成摘要身份） |
 | `KWIKI_VISION_TIMEOUT` / `KWIKI_VISION_CONNECT_TIMEOUT` | `60s` / `5s` | 视觉调用超时 |
 | `KWIKI_VISION_MAX_RETRIES` / `KWIKI_VISION_CONCURRENCY` | `2` / `4` | 瞬时故障（429/5xx/超时）有界重试与并发信号量 |
@@ -35,41 +35,89 @@ kwiki 在 Java 进程内原生完成 PDF 内嵌图片与发布后 Markdown 图�
 
 ## 2. 功能开关与索引版本（rollout）
 
-多模态属于新的解析代 `kwiki-parse-2`，配合 mapping schema v2
-（chunk 文档新增去重 `contentIds` 数组，规范原文 `content` 保持完整标记，
-仍是资源字段可重建的事实来源）：
+多模态属于解析代 `kwiki-parse-2`。CHUNK 索引字段格式由独立插件决定，
+当前内置 `kwiki-schema-1`（「图文 + 实体关联 v1」）：保留原结构 3 的映射
+与投影语义，提供 `RESOURCE_IDS`、`ENTITY_LINKING` 能力。父/子块按原文
+标记提取去重 `contentIds`，子块包含实体关联字段；规范原文 `content`
+仍保留完整标记，是资源字段可重建的事实来源。字段格式 id 是字符串，
+不能按编号大小推断能力；COMMUNITY 索引仍使用独立的数字映射版本。
 
-1. 默认关闭。旧版本（`kwiki-parse-1` / mapping v1）行为完全不变，
-   旧物理索引继续可读。
+1. 默认关闭多模态。`kwiki-parse-1` 保留文本解析行为，字段格式默认使用
+   `kwiki-schema-1`。历史 CHUNK 结构 1 / 2 版本登记为
+   `legacy-schema-1` / `legacy-schema-2`，当前部署未注册这些插件，因此
+   不可创建、重建或选为目标；不能仅更改 id 将旧映射当作新格式。
 2. 配置 `KWIKI_MULTIMODAL_ENABLED=true`、`KWIKI_VISION_BASE_URL` 和
-   `KWIKI_VISION_API_KEY` 后，默认清单会同时支持原有
-   `kwiki-parse-1` / mapping v1 和 `kwiki-parse-2` / mapping v2。
-   不配置显式清单时，两个解析器还都支持最新的 mapping v3（含实体映射
-   字段，可用于图构建）；全新部署的首个版本与管理端新建版本默认使用 v3。
-   如果部署使用显式 `kwiki.indexing.manifests`，系统不再补充任何默认组合，
-   必须在清单中登记仍在使用的全部组合（历史版本的 v1 / v2 与新的 v3）。任一必需配置缺失时，服务可启动并在管理端显示缺失项，
-   但不支持创建或切换到 v2；不会显示密钥值。
-3. 经管理端（`KWIKI_INDEX_MANAGEMENT_MUTATIONS_ENABLED=true`）创建新
+   `KWIKI_VISION_API_KEY` 后，不配置显式清单时，系统为每个可用字段格式
+   生成 `kwiki-parse-1` 组合，并为具有 `RESOURCE_IDS` 能力的字段格式生成
+   `kwiki-parse-2` 组合。向量配置沿用 `kwiki.qwen-embedding.*`。
+   任一多模态必需配置缺失时，服务可启动并在管理端显示缺失项，但
+   `kwiki-parse-2` 不可用；不会显示密钥值。
+3. `kwiki.indexing.defaults.index-schema` 默认为 `kwiki-schema-1`，用于
+   首次部署和新建版本的默认字段格式；默认 id 未注册会阻止启动。
+   修改默认值不会修改已有版本的配置或物理索引。管理端通过插件目录
+   展示名称、id、能力和不可用原因；新建版本与灰度均可显式选择字段格式，
+   灰度保留全局版本的向量模型和维度。
+4. 如果部署使用显式 `kwiki.indexing.manifests`，系统不再补充默认组合。
+   清单须准确登记解析器、分块器、向量档案、模型、维度和字段格式；字段名
+   是 `index-schema`，不再使用 CHUNK 的 `mapping-schema-version`。
+   插件存在且可用、解析器能力需求满足、完整清单匹配后，组合才可执行。
+5. 经管理端（`KWIKI_INDEX_MANAGEMENT_MUTATIONS_ENABLED=true`）创建新
    版本、重建、校验、切换别名——存量文档只有显式重建后才携带图片语义，
-   绝不静默混用新旧解析结果。
-   三项部署配置预先加载后，已建好且完成补齐、校验的 v1 / v2 版本
-   可以在管理端热切换读别名，无需重启。只有修改环境变量本身才需
-   重新加载应用配置。
-4. 开启多模态后：新上传的普通 PDF 附件进入索引队列；重建基线扫描
+   绝不静默混用新旧解析结果。部署配置预先加载后，已完成补齐、校验且
+   当前流水线可执行的版本可以热切换读别名，无需重启；修改环境变量需
+   重新加载应用配置。图构建另要求 `ENTITY_LINKING` 能力。
+6. 开启多模态后：新上传的普通 PDF 附件进入索引队列；重建基线扫描
    （parse-2 版本）包含存量 STORED 普通 PDF。PDF 导入任务按当前选中
-   的 parser 选择文本提取策略：v1 使用 Tika，v2 使用 PDFBox。
+   的 parser 选择文本提取策略：parse-1 使用 Tika，parse-2 使用 PDFBox。
    导入页 Markdown 仍是可编辑的纯文本；导入成功并建立来源关联后，
-   v2 对导入时发布的页面修订按原 PDF 顺序索引正文与图片，摘要和
+   parse-2 对导入时发布的页面修订按原 PDF 顺序索引正文与图片，摘要和
    contentId 属于页面索引，因此沿用页面读取权限。导入来源附件本身
    不作为普通附件索引；后续手动编辑的修订按其已发布 Markdown 索引。
-5. 提示词/模型变更：修改 `KWIKI_MULTIMODAL_PROMPT_VERSION`（或模型名）
-   会为新身份生成新摘要并复用已上传 contentId；要让存量索引吃到新摘要，
-   需以新的 parser 代（例如 `kwiki-parse-2-p2`）登记清单并重建。
+7. 提示词/模型变更会形成新的摘要身份并复用已上传 contentId；存量文档
+   必须重建后才获得新摘要。若需要新解析代，应先实现并接入解析器，再
+   登记清单；当前适配器只支持 `kwiki-parse-1`、`kwiki-parse-2`，在清单中
+   写入任意新名称（例如 `kwiki-parse-2-p2`）不会自动产生可执行解析器。
+
+### 显式清单示例
+
+下面只登记文本解析组合；启用多模态时须另加相同字段格式且
+`parser-version: kwiki-parse-2` 的完整条目。模型和维度须与实际部署一致：
+
+```yaml
+kwiki:
+  indexing:
+    defaults:
+      index-schema: kwiki-schema-1
+    manifests:
+      - id: text-with-resources-and-entities
+        parser-version: kwiki-parse-1
+        chunker-version: kwiki-chunk-1
+        embedding-profile: default
+        embedding-model: ${KWIKI_QWEN_EMBEDDING_MODEL}
+        dimensions: ${KWIKI_QWEN_EMBEDDING_DIMENSIONS}
+        index-schema: kwiki-schema-1
+```
+
+### 新增字段格式
+
+新增字段格式 = 新建 `ChunkIndexSchema` 实现类并注册为 Spring Bean。
+实现须提供稳定且唯一的 `id`、显示名、可用性、完整 ES 映射、必需字段、
+父/子块特有字段装饰和能力集合；`ChunkIndexSchemaRegistry` 自动收集实现，
+统一计算映射摘要，映射构建、校验和文档投影通过该插件执行。
+已被版本使用的实现不得修改字段或 id 语义；字段变化须新 id、新实现，
+随后登记需要的显式清单（或使用默认组合），创建版本、重建、校验、切换。
+应覆盖映射与摘要稳定性、投影、能力门禁、未知/不可用插件及清单匹配测试。
+
+当前字段格式已由注册表驱动；解析器与分块器目录仍适配既有实现，
+`VersionedIndexingPipelineRegistry` 仍只装配两种解析代和
+`kwiki-chunk-1`。新增字段格式无需修改这些适配器的字段格式分支，但新增
+解析器或分块器仍需接入实际流水线，不能只新增目录项或清单 id。
 
 ### 回滚
 
-关闭 `KWIKI_MULTIMODAL_ENABLED` 并把别名切回旧版本即可；kwiki-parse-2
-流水线随即不可解析（fail closed）。派生资产与摘要记录（
+应先将别名切回已重建、校验且当前部署可执行的 `kwiki-parse-1` 版本，
+再关闭 `KWIKI_MULTIMODAL_ENABLED`；不要以未注册的历史字段格式作为回滚目标。
+`kwiki-parse-2` 流水线随即不可解析（fail closed）。派生资产与摘要记录（
 `derived_image_asset` / `derived_image_summary`）保留，供再次启用时复用；
 回滚路径绝不删除内容中心对象。
 
