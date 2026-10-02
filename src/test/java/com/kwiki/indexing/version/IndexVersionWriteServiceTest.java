@@ -3,6 +3,7 @@ package com.kwiki.indexing.version;
 import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.search.ChunkMappingBuilder;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
+import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -26,6 +27,7 @@ class IndexVersionWriteServiceTest {
     private final ElasticsearchIndexManager indexes = mock(ElasticsearchIndexManager.class);
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
+    private final KwikiDistributedLocks locks = mock(KwikiDistributedLocks.class);
     private final EditableIndexConfig config =
             new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, 3);
     private final String hash = new ChunkMappingBuilder().mappingHash(1024, 3);
@@ -41,7 +43,8 @@ class IndexVersionWriteServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new IndexVersionWriteService(versions, runs, indexes, jdbc, tx, properties(true));
+        when(locks.acquire(anyString(), any(Duration.class))).thenReturn(() -> { });
+        service = new IndexVersionWriteService(versions, runs, indexes, jdbc, tx, properties(true), locks);
     }
 
     private SearchIndexVersion offline() {
@@ -102,8 +105,34 @@ class IndexVersionWriteServiceTest {
 
     @Test
     void 管理写操作关闭时拒绝() {
-        service = new IndexVersionWriteService(versions, runs, indexes, jdbc, tx, properties(false));
+        service = new IndexVersionWriteService(versions, runs, indexes, jdbc, tx, properties(false), locks);
         assertThatThrownBy(() -> service.enable(2))
                 .hasMessage(SearchIndexAdminService.MUTATIONS_DISABLED_MESSAGE);
+    }
+
+    @Test
+    void 版本锁被占用时拒绝开启且不清空索引() throws Exception {
+        offline();
+        when(locks.acquire(anyString(), any(Duration.class))).thenReturn(null);
+        assertThatThrownBy(() -> service.enable(2)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("busy");
+        verify(indexes, never()).recreateOfflineVersion(anyString(), anyInt(), anyInt());
+        verify(indexes, never()).recreateOfflineVersion(anyString(), anyInt());
+    }
+
+    @Test
+    void 开启写入在版本锁内完成清空() throws Exception {
+        offline();
+        when(jdbc.queryForObject(contains("indexing_job_target"), eq(Long.class), anyInt())).thenReturn(0L);
+        when(jdbc.queryForObject(contains("search_index_change_event"), eq(Long.class))).thenReturn(42L);
+        AutoCloseable handle = mock(AutoCloseable.class);
+        when(locks.acquire(eq("index-rebuild:v2"), any(Duration.class))).thenReturn(handle);
+
+        service.enable(2);
+
+        InOrder order = inOrder(locks, indexes, handle);
+        order.verify(locks).acquire(eq("index-rebuild:v2"), any(Duration.class));
+        order.verify(indexes).recreateOfflineVersion("kwiki-chunks-v2", 1024, 3);
+        order.verify(handle).close();
     }
 }

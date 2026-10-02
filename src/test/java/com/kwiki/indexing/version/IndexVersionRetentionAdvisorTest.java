@@ -62,6 +62,23 @@ class IndexVersionRetentionAdvisorTest {
                 .singleElement().extracting(IndexVersionRetentionAdvisor.VersionRecommendation::cleanupCandidate).isEqualTo(true);
     }
 
+    @Test
+    void 从未开启写入的旧版本也可清理() {
+        SearchIndexVersionRepository repository = mock(SearchIndexVersionRepository.class);
+        SearchIndexVersion selected = SearchIndexVersion.bootstrapped(
+                1, "kwiki-chunks-v1", CONFIG, "mapping");
+        SearchIndexVersion neverEnabled = new SearchIndexVersion(2, "kwiki-chunks-v2", CONFIG, "mapping");
+        SearchIndexVersion v3 = builtVersion(3);
+        when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc())
+                .thenReturn(List.of(selected, neverEnabled, v3));
+
+        var items = new IndexVersionRetentionAdvisor(repository).recommend().versions();
+
+        assertThat(items).filteredOn(item -> item.versionNumber() == 2)
+                .singleElement().extracting(IndexVersionRetentionAdvisor.VersionRecommendation::cleanupCandidate)
+                .isEqualTo(true);
+    }
+
     private static SearchIndexVersion builtVersion(int versionNumber) {
         SearchIndexVersion version = new SearchIndexVersion(
                 versionNumber, "kwiki-chunks-v" + versionNumber, CONFIG, "mapping");

@@ -169,6 +169,38 @@ class PdfMultimodalParserTest {
     }
 
     @Test
+    void imageOccurrencesRecordTheirPdfPageForSourceNavigation() throws Exception {
+        BufferedImage green = solidImage(40, 40, Color.GREEN);
+        BufferedImage red = solidImage(40, 40, Color.RED);
+        byte[] pdf = build(builder -> {
+            PDImageXObject first = embedded(builder.document, green);
+            PDImageXObject second = embedded(builder.document, red);
+            PDPage page1 = builder.addPage();
+            try (PDPageContentStream stream = builder.content(page1)) {
+                text(stream, "page one text", 50, 700);
+            }
+            PDPage page2 = builder.addPage();
+            try (PDPageContentStream stream = builder.content(page2)) {
+                text(stream, "page two text", 50, 700);
+                stream.drawImage(first, 50, 650, 40, 40);
+            }
+            PDPage page3 = builder.addPage();
+            try (PDPageContentStream stream = builder.content(page3)) {
+                text(stream, "page three text", 50, 700);
+                stream.drawImage(second, 50, 650, 40, 40);
+                stream.drawImage(first, 50, 600, 40, 40);
+            }
+        });
+        PdfExtraction extraction = parser.parse(pdf);
+        String greenHash = extraction.uniqueImages().get(0).sha256();
+        String redHash = extraction.uniqueImages().get(1).sha256();
+        // 重复出现的图片取首次出现页
+        assertThat(extraction.firstPageOf(greenHash)).hasValue(2);
+        assertThat(extraction.firstPageOf(redHash)).hasValue(3);
+        assertThat(extraction.firstPageOf("0".repeat(64))).isEmpty();
+    }
+
+    @Test
     void repeatedImageBytesAreDeduplicatedButEveryOccurrenceKept() throws Exception {
         BufferedImage same = solidImage(40, 40, Color.MAGENTA);
         byte[] pdf = build(builder -> {

@@ -15,6 +15,7 @@
           :file-name="source.fileName"
           :byte-size="source.byteSize"
           :http-headers="pdfInput.httpHeaders"
+          :target-page="targetPage"
           @ready="onPdfReady"
           @error="onPdfError"
         >
@@ -42,7 +43,7 @@ import { renderSource, SOURCE_PREVIEW_MAX_BYTES, type SourceRenderHandle } from 
 import PdfSourceViewer from './PdfSourceViewer.vue';
 import SourceWatermark from './SourceWatermark.vue';
 
-const props = defineProps<{ kbId: number; pageId: number; source: SourceDocumentSummary }>();
+const props = defineProps<{ kbId: number; pageId: number; source: SourceDocumentSummary; targetPage?: number | null }>();
 
 const auth = useAuthStore();
 const status = ref<'loading' | 'ready' | 'error'>('loading');

@@ -70,8 +70,15 @@ public class SearchIndexGrayReleaseController {
 
     public record CreateRequest(String name, @NotBlank String parserVersion, @NotEmpty List<Long> kbIds) { }
 
+    /**
+     * @param scanned          迁移扫描到并已排队的历史资源数
+     * @param succeeded        迁移任务中已完成的数量（实时）
+     * @param failed           迁移任务中永久失败的数量（实时）
+     * @param migrationPending 迁移任务中尚未完成的数量
+     * @param pendingTargets   双写积压：本写入会话起点之后的实时变更中尚未完成的任务数
+     */
     public record Progress(Long runId, String runState, String switchState, long scanned, long succeeded,
-                           long failed, long pendingTargets) { }
+                           long failed, long migrationPending, long pendingTargets) { }
 
     public record GrayReleaseView(long id, String name, String parserVersion, String parserLabel,
                                   int indexVersionNumber, String physicalName, String status, String lastError,
@@ -181,16 +188,46 @@ public class SearchIndexGrayReleaseController {
         return result;
     }
 
+    /**
+     * 迁移进度与双写积压分开统计：迁移任务按 run 的幂等键前缀（REBUILD:runId:）实时计数，
+     * 双写积压只算本写入会话起点 E 之后的实时变更任务。run 表上的成功/失败只在迁移结束时回写，
+     * 因此运行中改为从任务表实时统计。
+     */
+    private Progress progress(int version, SearchIndexRebuildRun run) {
+        long migrationSucceeded = 0, migrationFailed = 0, migrationPending = 0;
+        if (run != null) {
+            Map<String, Object> counts = jdbc.queryForMap("""
+                    SELECT
+                      COALESCE(SUM(CASE WHEN t.state='COMPLETED' THEN 1 ELSE 0 END),0) succeeded,
+                      COALESCE(SUM(CASE WHEN t.state='FAILED' THEN 1 ELSE 0 END),0) failed,
+                      COALESCE(SUM(CASE WHEN t.state IN ('PENDING','LEASED','RETRY_WAIT') THEN 1 ELSE 0 END),0) pending
+                    FROM indexing_job_target t JOIN indexing_job j ON j.id=t.job_id
+                    WHERE t.target_version=? AND j.idempotency_key LIKE ?
+                    """, version, "REBUILD:" + run.getId() + ":%");
+            migrationSucceeded = number(counts.get("succeeded"));
+            migrationFailed = number(counts.get("failed"));
+            migrationPending = number(counts.get("pending"));
+        }
+        Long writeEnabledEventId = versions == null ? null : versions.findByVersionNumber(version)
+                .map(SearchIndexVersion::getWriteEnabledEventId).orElse(null);
+        Long dualWritePending = writeEnabledEventId == null ? Long.valueOf(0L) : jdbc.queryForObject("""
+                SELECT COUNT(*) FROM indexing_job_target
+                WHERE target_version=? AND event_id>? AND state IN ('PENDING','LEASED','RETRY_WAIT')
+                """, Long.class, version, writeEnabledEventId);
+        return new Progress(run == null ? null : run.getId(),
+                run == null ? null : run.state().name(), run == null ? null : run.switchState().name(),
+                run == null ? 0 : run.getResourcesScanned(), migrationSucceeded, migrationFailed,
+                migrationPending, dualWritePending == null ? 0 : dualWritePending);
+    }
+
+    private static long number(Object value) {
+        return value instanceof Number n ? n.longValue() : 0L;
+    }
+
     private GrayReleaseView view(GrayRelease release) {
         int version = release.indexVersionNumber();
         SearchIndexRebuildRun run = runs.findFirstByVersionNumberOrderByIdDesc(version).orElse(null);
-        // 双写积压：该灰度版本尚未完成的写入目标数
-        Long pending = jdbc.queryForObject("SELECT COUNT(*) FROM indexing_job_target WHERE target_version = ?"
-                + " AND state IN ('PENDING','LEASED','RETRY_WAIT')", Long.class, version);
-        Progress progress = new Progress(run == null ? null : run.getId(),
-                run == null ? null : run.state().name(), run == null ? null : run.switchState().name(),
-                run == null ? 0 : run.getResourcesScanned(), run == null ? 0 : run.getResourcesSucceeded(),
-                run == null ? 0 : run.getResourcesFailed(), pending == null ? 0 : pending);
+        Progress progress = progress(version, run);
         // 物理名以版本行为准，版本行缺失时才按命名约定推导
         String physicalName = versions == null ? null : versions.findByVersionNumber(version)
                 .map(SearchIndexVersion::getPhysicalName).orElse(null);

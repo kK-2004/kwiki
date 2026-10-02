@@ -24,6 +24,8 @@ public class SearchIndexAudit {
     }
     void succeed(String result){outcome="SUCCESS";resultState=result;updatedAt=Instant.now();}
     void fail(String error){outcome="FAILURE";errorSummary=error;updatedAt=Instant.now();}
+    /** 成功执行但业务结果为否定（如校验未通过）时的说明，截断到列宽。 */
+    void annotate(String note){errorSummary=note==null?null:note.substring(0,Math.min(note.length(),1000));updatedAt=Instant.now();}
     void recovered(String result){outcome="RECOVERED";resultState=result;updatedAt=Instant.now();}
     public Long getId(){return id;} public String getOutcome(){return outcome;}
     public Integer getTargetVersion(){return targetVersion;} public String getAction(){return action;}

@@ -36,6 +36,7 @@
       :kb-id="props.kbId"
       :page-id="props.pageId"
       :source="page.sourceDocument!"
+      :target-page="sourceTargetPage"
     />
     <p v-if="selectionNotice" class="selection-notice" role="status">{{ selectionNotice }}</p>
     <div v-if="selectionText" class="selection-toolbar" :style="selectionToolbarStyle">
@@ -63,6 +64,7 @@ import { useWikiStore, normalizedError } from '../store';
 import { api, getAuthToken, setAuthToken } from '../api';
 import { locateChunk, clearCitationHighlight, type ChunkLocation } from './locateChunk';
 import type { CitationEntry } from '../sse';
+import { parseExcerpt, plainExcerpt } from '../imageBlocks';
 import type { TreeNodeDto } from '../api';
 import MediaMountRegion from './MediaMountRegion.vue';
 import SourcePreview from './SourcePreview.vue';
@@ -85,6 +87,8 @@ const router = useRouter();
 const page = computed(() => store.page);
 const formattedCreatedAt = computed(() => formatDateTime(page.value?.createdAt ?? ''));
 const chunkNotice = ref('');
+/** 引用片段为 PDF 图片时，源文件页签打开后跳转的页码。 */
+const sourceTargetPage = ref<number | null>(null);
 const contentRef = ref<InstanceType<typeof MediaMountRegion> | null>(null);
 
 function formatDateTime(value: string) {
@@ -98,7 +102,11 @@ const sourceFormat = computed(() => {
   return format === 'PDF' || format === 'DOCX' ? format : null;
 });
 const readerTab = ref<'parsed' | 'source'>('parsed');
-watch(() => [page.value?.createdAt, page.value?.revisionNo], () => { readerTab.value = 'parsed'; });
+// PDF 导入页默认展示源文件（版式与图片完整）；DOCX 与普通页面默认解析文本。
+// 引用定位会在其后按需切换页签（该侦听器 flush 为 pre，先于定位逻辑执行）。
+watch(() => [props.pageId, page.value?.createdAt, page.value?.revisionNo, sourceFormat.value], () => {
+  readerTab.value = sourceFormat.value === 'PDF' ? 'source' : 'parsed';
+}, { immediate: true });
 
 /**
  * 引用定位是一次性事务：以递增票据使旧任务失效，
@@ -131,6 +139,7 @@ watch(() => [props.chunkKey, page.value, props.pageId], async () => {
     citationLocation = null;
     clearCitationHighlight();
     chunkNotice.value = '';
+    sourceTargetPage.value = null;
   }
   if (!starting || props.pageId == null) return;
   const chunkKey = props.chunkKey;
@@ -138,6 +147,23 @@ watch(() => [props.chunkKey, page.value, props.pageId], async () => {
   try {
     const citation = await api.json<CitationEntry>(`/citations/${encodeURIComponent(chunkKey)}`);
     if (run !== citationTicket || citation.resourceId !== props.pageId) return;
+    // 图片片段的内容只存在于来源 PDF（解析文本中没有）：优先切到源文件并跳到图片所在页
+    const image = parseExcerpt(citation.excerpt).find(segment => segment.kind === 'image');
+    if (image && image.kind === 'image' && sourceFormat.value === 'PDF' && props.kbId) {
+      try {
+        const location = await api.json<{ page: number }>(
+          `/knowledge-bases/${props.kbId}/pages/${props.pageId}/source-preview/image-location?contentId=${image.contentId}`);
+        if (run !== citationTicket) return;
+        sourceTargetPage.value = location.page;
+        readerTab.value = 'source';
+        chunkNotice.value = `该片段来自源文件中的图片，已跳转到 PDF 第 ${location.page} 页。`;
+        await consumeChunkQuery();
+        return;
+      } catch {
+        if (run !== citationTicket) return;
+        // 无法定位到 PDF 页时回退为在解析文本中定位
+      }
+    }
     // 引用命中的是解析文本；若正在查看源文件页签则切回再定位。
     readerTab.value = 'parsed';
     // 就绪握手：等待正文提交与异步媒体挂载（MediaMountRegion 在下一个 tick reconcile）。
@@ -151,7 +177,8 @@ watch(() => [props.chunkKey, page.value, props.pageId], async () => {
       citationLocation = location;
     } else {
       location.cleanup();
-      chunkNotice.value = `页面内容可能已更新，未能精确定位原片段。引用摘要：“${citation.excerpt}”`;
+      const summary = plainExcerpt(parseExcerpt(citation.excerpt)).replace(/\s+/g, ' ').trim();
+      chunkNotice.value = `页面内容可能已更新，未能精确定位原片段。引用摘要：“${summary}”`;
     }
     await consumeChunkQuery();
   } catch {

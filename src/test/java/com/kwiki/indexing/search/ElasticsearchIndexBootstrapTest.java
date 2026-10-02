@@ -81,7 +81,7 @@ class ElasticsearchIndexBootstrapTest {
         bootstrap.run(null);
 
         assertThat(indexes.calls).containsExactly(
-                "available", "aliasExists", "create:kwiki-chunks-v1",
+                "available", "aliasExists", "create:kwiki-chunks-v1:schema1",
                 "validate:kwiki-chunks-v1:1024", "alias:kwiki-chunks-v1");
         assertThat(bootstrap.isReady()).isTrue();
         assertThat(registry.saves).isEqualTo(1);
@@ -92,6 +92,116 @@ class ElasticsearchIndexBootstrapTest {
         assertThat(v1.getBuiltConfigRevision()).isEqualTo(1L);
         assertThat(v1.getMappingHash()).hasSize(64);
         assertThat(v1.getNeedsAttentionReason()).isNull();
+    }
+
+    @Test
+    void firstDeploymentWithoutMutationsUsesParseOneAndRecordsEmptyBaseline() throws Exception {
+        FakeIndexManager indexes = new FakeIndexManager(false, List.of(), null);
+        InMemoryRegistry registry = new InMemoryRegistry();
+        ElasticsearchIndexBootstrap bootstrap =
+                new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
+                        new ChunkMappingBuilder(), properties(), 1);
+        com.kwiki.indexing.version.BootstrapMigrationRecorder recorder =
+                org.mockito.Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class);
+        com.kwiki.indexing.gray.ParserCatalog parsers =
+                org.mockito.Mockito.mock(com.kwiki.indexing.gray.ParserCatalog.class);
+        com.kwiki.indexing.config.MultimodalSwitchReadiness readiness =
+                org.mockito.Mockito.mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class);
+        org.mockito.Mockito.when(readiness.ready()).thenReturn(true);
+        EditableIndexConfig latestParseOne = new EditableIndexConfig(
+                "kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, 3);
+        org.mockito.Mockito.when(parsers.latestConfigFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-1"),
+                org.mockito.ArgumentMatchers.any())).thenReturn(java.util.Optional.of(latestParseOne));
+        bootstrap.setFirstDeploymentSupport(parsers, readiness, indexing(false), recorder);
+
+        bootstrap.run(null);
+
+        assertThat(indexes.calls).contains("create:kwiki-chunks-v1:schema3");
+        SearchIndexVersion v1 = registry.rows.get(1);
+        assertThat(v1.editableConfig()).isEqualTo(latestParseOne);
+        // 记录的映射哈希与结构版本一致，版本校验的构建清单项才能通过
+        assertThat(v1.getMappingHash()).isEqualTo(new ChunkMappingBuilder().mappingHash(1024, 3));
+        org.mockito.Mockito.verify(recorder).recordEmptyBaseline(v1);
+        org.mockito.Mockito.verify(parsers, org.mockito.Mockito.never())
+                .latestConfigFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void firstDeploymentWithMutationsAndMultimodalReadyUsesParseTwo() throws Exception {
+        FakeIndexManager indexes = new FakeIndexManager(false, List.of(), null);
+        InMemoryRegistry registry = new InMemoryRegistry();
+        ElasticsearchIndexBootstrap bootstrap =
+                new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
+                        new ChunkMappingBuilder(), properties(), 1);
+        com.kwiki.indexing.version.BootstrapMigrationRecorder recorder =
+                org.mockito.Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class);
+        com.kwiki.indexing.gray.ParserCatalog parsers =
+                org.mockito.Mockito.mock(com.kwiki.indexing.gray.ParserCatalog.class);
+        com.kwiki.indexing.config.MultimodalSwitchReadiness readiness =
+                org.mockito.Mockito.mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class);
+        org.mockito.Mockito.when(readiness.ready()).thenReturn(true);
+        EditableIndexConfig multimodal = new EditableIndexConfig(
+                "kwiki-parse-2", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, 3);
+        org.mockito.Mockito.when(parsers.latestConfigFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"),
+                org.mockito.ArgumentMatchers.any())).thenReturn(java.util.Optional.of(multimodal));
+        bootstrap.setFirstDeploymentSupport(parsers, readiness, indexing(true), recorder);
+
+        bootstrap.run(null);
+
+        assertThat(indexes.calls).contains("create:kwiki-chunks-v1:schema3");
+        SearchIndexVersion v1 = registry.rows.get(1);
+        assertThat(v1.editableConfig()).isEqualTo(multimodal);
+        assertThat(v1.getMappingHash()).isEqualTo(new ChunkMappingBuilder().mappingHash(1024, 3));
+        org.mockito.Mockito.verify(recorder).recordEmptyBaseline(v1);
+    }
+
+    @Test
+    void firstDeploymentFallsBackToParseOneWhenMultimodalConfigurationIsMissing() throws Exception {
+        FakeIndexManager indexes = new FakeIndexManager(false, List.of(), null);
+        InMemoryRegistry registry = new InMemoryRegistry();
+        ElasticsearchIndexBootstrap bootstrap =
+                new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
+                        new ChunkMappingBuilder(), properties(), 1);
+        com.kwiki.indexing.gray.ParserCatalog parsers =
+                org.mockito.Mockito.mock(com.kwiki.indexing.gray.ParserCatalog.class);
+        com.kwiki.indexing.config.MultimodalSwitchReadiness readiness =
+                org.mockito.Mockito.mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class);
+        org.mockito.Mockito.when(readiness.ready()).thenReturn(false);
+        bootstrap.setFirstDeploymentSupport(parsers, readiness, indexing(true),
+                org.mockito.Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class));
+
+        bootstrap.run(null);
+
+        assertThat(registry.rows.get(1).editableConfig().parserVersion()).isEqualTo("kwiki-parse-1");
+        org.mockito.Mockito.verify(parsers, org.mockito.Mockito.never())
+                .latestConfigFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void adoptingAnExistingAliasNeverRecordsABaseline() throws Exception {
+        FakeIndexManager indexes = new FakeIndexManager(true, List.of("kwiki-chunks-v1"), null);
+        InMemoryRegistry registry = new InMemoryRegistry();
+        ElasticsearchIndexBootstrap bootstrap =
+                new ElasticsearchIndexBootstrap(indexes, providerOf(registry.proxy),
+                        new ChunkMappingBuilder(), properties(), 1);
+        com.kwiki.indexing.version.BootstrapMigrationRecorder recorder =
+                org.mockito.Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class);
+        bootstrap.setFirstDeploymentSupport(
+                org.mockito.Mockito.mock(com.kwiki.indexing.gray.ParserCatalog.class),
+                org.mockito.Mockito.mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class),
+                indexing(true), recorder);
+
+        bootstrap.run(null);
+
+        org.mockito.Mockito.verifyNoInteractions(recorder);
+    }
+
+    private static com.kwiki.indexing.config.IndexingProperties indexing(boolean mutations) {
+        return new com.kwiki.indexing.config.IndexingProperties(List.of(), java.util.Map.of(),
+                new com.kwiki.indexing.config.IndexingProperties.Rebuild(50, 2, 20),
+                new com.kwiki.indexing.config.IndexingProperties.Catchup(100, java.time.Duration.ofSeconds(30)),
+                new com.kwiki.indexing.config.IndexingProperties.Capacity(20, 8, java.time.Duration.ofSeconds(5)),
+                new com.kwiki.indexing.config.IndexingProperties.Management(mutations));
     }
 
     @Test
@@ -299,6 +409,13 @@ class ElasticsearchIndexBootstrapTest {
         @Override
         public String createVersionedIndex(String indexName, int embeddingDimensions) {
             calls.add("create:" + indexName);
+            return indexName;
+        }
+
+        @Override
+        public String createVersionedIndex(String indexName, int embeddingDimensions,
+                                           int mappingSchemaVersion) {
+            calls.add("create:" + indexName + ":schema" + mappingSchemaVersion);
             return indexName;
         }
 

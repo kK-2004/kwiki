@@ -204,3 +204,7 @@
     padding: 16px;
   }
 }
+
+/* 版本列表「最近校验」结论着色 */
+.validation-pass { color: var(--k-green-deep); }
+.validation-fail { color: var(--k-danger, #d14343); }

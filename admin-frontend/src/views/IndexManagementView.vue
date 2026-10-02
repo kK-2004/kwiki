@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { api, ApiError, type Audit, type Config, type CommunityVersion, type MultimodalReadiness, type Run, type Validation, type Version } from "../api";
+import { api, ApiError, type Audit, type Config, type CommunityVersion, type MultimodalReadiness, type Run, type Version } from "../api";
 import { statusLabel, statusType } from "../status";
+import { auditActionLabel, auditOutcomeLabel, auditResultLabel, runKindLabel, runStateLabel, validationText } from "../labels";
 import { useAuth } from "../auth";
 import CurrentIndexCards from "../components/CurrentIndexCards.vue";
 
 const auth = useAuth();
 const versions = ref<Version[]>([]);
 const runs = ref<Run[]>([]);
-const validations = ref<Validation[]>([]);
 const audits = ref<Audit[]>([]);
 const stats = ref<Record<string, unknown>[]>([]);
 const alias = ref<string[]>([]);
@@ -30,12 +30,12 @@ const totalPending = computed(() => stats.value.reduce((n, row) => n + Number(ro
 async function load(silent = false) {
   if (!silent) loading.value = true;
   try {
-    const [v, r, a, vr, au, st, mm] = await Promise.all([
-      api.versions(), api.runs(), api.alias(), api.validations(), api.audits(), api.stats(), api.multimodalReadiness(),
+    const [v, r, a, au, st, mm] = await Promise.all([
+      api.versions(), api.runs(), api.alias(), api.audits(), api.stats(), api.multimodalReadiness(),
     ]);
     versions.value = v; runs.value = r; alias.value = a.targets;
     multimodalReadiness.value = mm;
-    validations.value = vr; audits.value = au; stats.value = st;
+    audits.value = au; stats.value = st;
     if (currentRun.value) {
       selectedRun.value = currentRun.value.runId;
       localStorage.setItem("kwiki_admin_run", String(currentRun.value.runId));
@@ -77,18 +77,21 @@ onMounted(() => load());
 onBeforeUnmount(() => clearTimeout(timer));
 
 const dialog = reactive({ config: false, editing: null as Version | null, delete: false, target: null as Version | null, confirmation: "", select: false, sourceDest: "" });
-const form = reactive<Config>({ parserVersion: "", chunkerVersion: "", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, mappingSchemaVersion: 1 });
+const form = reactive<Config>({ parserVersion: "", chunkerVersion: "", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, mappingSchemaVersion: 3 });
 
 function edit(target?: Version) {
   dialog.editing = target || null;
   const base = target?.configuration || versions.value.find(v => v.selected)?.configuration || versions.value[0]?.configuration;
-  Object.assign(form, base || { parserVersion: "kwiki-parse-1", chunkerVersion: "kwiki-chunk-1", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, mappingSchemaVersion: 1 });
+  Object.assign(form, base || { parserVersion: "kwiki-parse-1", chunkerVersion: "kwiki-chunk-1", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, mappingSchemaVersion: 3 });
+  // 新建版本以线上版本为模板，但结构版本取最新 v3；编辑保留原值
+  if (!target) form.mappingSchemaVersion = 3;
   dialog.config = true;
 }
 
 function setParserVersion(value: string) {
   form.parserVersion = value;
-  form.mappingSchemaVersion = value === "kwiki-parse-2" ? 2 : 1;
+  // 新建版本默认使用最新结构版本 v3（含实体映射字段，可用于图构建）；旧结构版本仍可手动填写
+  form.mappingSchemaVersion = 3;
 }
 
 async function save() {
@@ -200,7 +203,6 @@ function percent(range: { minId: number; maxId: number; lastSeenId: number }) {
   return Math.max(0, Math.min(100, Math.round((range.lastSeenId - range.minId + 1) * 100 / total)));
 }
 
-const latestValidation = (v: number) => validations.value.find(r => r.versionNumber === v);
 const displayLabel = (value: string) => statusLabel[value as Version["displayStatus"]] || value;
 </script>
 <template>
@@ -331,10 +333,14 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
                   <div class="muted">{{ row.configuration.embeddingModel }} · {{ row.configuration.embeddingDimensions }}D</div>
                 </template>
               </el-table-column>
-              <el-table-column label="同步与健康" min-width="190">
+              <el-table-column label="最近校验" min-width="190">
                 <template #default="{ row }">
-                  {{ row.catchupStatus }} / {{ row.healthSummary || "未知" }}
-                  <div class="muted">{{ row.validationSummary || "尚未校验" }}</div>
+                  <el-tooltip :content="row.validationSummary" :disabled="!row.validationSummary" placement="top">
+                    <span :class="{ 'validation-pass': validationText(row.validationSummary).passed === true, 'validation-fail': validationText(row.validationSummary).passed === false }">
+                      {{ validationText(row.validationSummary).text }}
+                    </span>
+                  </el-tooltip>
+                  <div v-if="row.lastValidationAt" class="muted">{{ row.lastValidationAt.replace("T", " ").slice(0, 19) }}</div>
                 </template>
               </el-table-column>
               <el-table-column label="可执行操作" min-width="410">
@@ -359,12 +365,13 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
               <el-descriptions :column="4" border>
                 <el-descriptions-item label="runId">{{ currentRun.runId }}</el-descriptions-item>
                 <el-descriptions-item label="版本">v{{ currentRun.versionNumber }}</el-descriptions-item>
-                <el-descriptions-item label="状态">{{ currentRun.kind }} / {{ currentRun.state }}</el-descriptions-item>
+                <el-descriptions-item label="状态">{{ runKindLabel(currentRun.kind) }} · {{ runStateLabel(currentRun.state) }}</el-descriptions-item>
                 <el-descriptions-item label="双写起点">{{ currentRun.buildStartEventId }}</el-descriptions-item>
               </el-descriptions>
-              <p>
-                <el-button @click="control('pause')">暂停</el-button>
-                <el-button @click="control('resume')">恢复</el-button>
+              <!-- 只有进行中的任务可控制：进行中可暂停，已暂停可恢复（从断点继续扫描），两者都可取消 -->
+              <p v-if="currentRun.state === 'RUNNING' || currentRun.state === 'PAUSED'">
+                <el-button v-if="currentRun.state === 'RUNNING'" @click="control('pause')">暂停</el-button>
+                <el-button v-if="currentRun.state === 'PAUSED'" @click="control('resume')">继续</el-button>
                 <el-button type="danger" @click="control('cancel')">取消</el-button>
               </p>
               <el-table :data="currentRun.ranges">
@@ -398,26 +405,28 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
               <el-table-column prop="last_transition_at" label="最近变化"/>
             </el-table>
           </el-tab-pane>
-          <el-tab-pane label="校验">
-            <p class="tab-desc">切换别名前的硬门禁检查结果；只有通过校验的版本才允许上线。</p>
-            <el-table :data="validations">
-              <el-table-column prop="versionNumber" label="版本"/>
-              <el-table-column prop="status" label="结论"/>
-              <el-table-column prop="summary" label="硬门禁/诊断" min-width="500"/>
-              <el-table-column prop="createdAt" label="时间"/>
-            </el-table>
-          </el-tab-pane>
           <el-tab-pane label="审计">
-            <p class="tab-desc">所有管理操作（创建 / 重建 / 切换 / 删除等）的留痕。</p>
+            <p class="tab-desc">所有管理操作（创建、写入开关、存量迁移、校验、切换、清理等）的留痕；校验结论与未通过原因也记录在此。</p>
             <el-table :data="audits">
-              <el-table-column prop="createdAt" label="时间"/>
-              <el-table-column prop="operator" label="操作者"/>
-              <el-table-column prop="action" label="动作"/>
-              <el-table-column prop="targetVersion" label="版本"/>
-              <el-table-column prop="priorState" label="原状态"/>
-              <el-table-column prop="resultState" label="结果状态"/>
-              <el-table-column prop="outcome" label="结果"/>
-              <el-table-column prop="errorSummary" label="净化错误"/>
+              <el-table-column label="时间" width="180">
+                <template #default="{ row }">{{ row.createdAt.replace("T", " ").slice(0, 19) }}</template>
+              </el-table-column>
+              <el-table-column prop="operator" label="操作者" width="120"/>
+              <el-table-column label="动作" width="150">
+                <template #default="{ row }">{{ auditActionLabel(row.action) }}</template>
+              </el-table-column>
+              <el-table-column label="版本" width="80">
+                <template #default="{ row }">{{ row.targetVersion != null ? `v${row.targetVersion}` : "—" }}</template>
+              </el-table-column>
+              <el-table-column label="执行" width="100">
+                <template #default="{ row }">{{ auditOutcomeLabel(row.outcome) }}</template>
+              </el-table-column>
+              <el-table-column label="结果" width="130">
+                <template #default="{ row }">{{ auditResultLabel(row.resultState) }}</template>
+              </el-table-column>
+              <el-table-column label="说明" min-width="260">
+                <template #default="{ row }">{{ row.errorSummary ? (row.resultState === "FAIL" ? validationText(row.errorSummary).text : row.errorSummary) : "" }}</template>
+              </el-table-column>
             </el-table>
           </el-tab-pane>
         </el-tabs>
@@ -463,7 +472,7 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
       </template>
     </el-dialog>
     <el-dialog v-model="dialog.select" title="原子切换读别名" width="560">
-      <p>最新校验：{{ latestValidation(dialog.target?.versionNumber || 0)?.status || "无" }}。切换前服务端仍会重新校验状态与 ES 别名事实。</p>
+      <p>最新校验：{{ validationText(dialog.target?.validationSummary).text }}。切换前服务端仍会重新校验状态与 ES 别名事实。</p>
       <p>请输入 <strong>{{ alias[0] || "unknown" }}-&gt;{{ dialog.target?.physicalName }}</strong></p>
       <el-input v-model="dialog.sourceDest"/>
       <template #footer>

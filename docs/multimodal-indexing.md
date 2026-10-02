@@ -44,8 +44,10 @@ kwiki 在 Java 进程内原生完成 PDF 内嵌图片与发布后 Markdown 图�
 2. 配置 `KWIKI_MULTIMODAL_ENABLED=true`、`KWIKI_VISION_BASE_URL` 和
    `KWIKI_VISION_API_KEY` 后，默认清单会同时支持原有
    `kwiki-parse-1` / mapping v1 和 `kwiki-parse-2` / mapping v2。
-   如果部署使用显式 `kwiki.indexing.manifests`，仍须在清单中同时登记
-   这两代。任一必需配置缺失时，服务可启动并在管理端显示缺失项，
+   不配置显式清单时，两个解析器还都支持最新的 mapping v3（含实体映射
+   字段，可用于图构建）；全新部署的首个版本与管理端新建版本默认使用 v3。
+   如果部署使用显式 `kwiki.indexing.manifests`，系统不再补充任何默认组合，
+   必须在清单中登记仍在使用的全部组合（历史版本的 v1 / v2 与新的 v3）。任一必需配置缺失时，服务可启动并在管理端显示缺失项，
    但不支持创建或切换到 v2；不会显示密钥值。
 3. 经管理端（`KWIKI_INDEX_MANAGEMENT_MUTATIONS_ENABLED=true`）创建新
    版本、重建、校验、切换别名——存量文档只有显式重建后才携带图片语义，

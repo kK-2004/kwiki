@@ -92,7 +92,7 @@ import 'element-plus/es/components/button/style/css';
 import 'element-plus/es/components/input/style/css';
 import 'element-plus/es/components/select/style/css';
 import 'element-plus/es/components/tooltip/style/css';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElButton, ElInput, ElOption, ElSelect, ElTooltip } from 'element-plus';
 import type { ComponentPublicInstance, CSSProperties } from 'vue';
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist';
@@ -102,6 +102,8 @@ const props = defineProps<{
   fileName: string;
   byteSize: number;
   httpHeaders?: Record<string, string>;
+  /** 打开后跳转的页码（如引用片段中的图片所在页）；为空停留在第 1 页。 */
+  targetPage?: number | null;
 }>();
 
 const emit = defineEmits<{
@@ -196,6 +198,7 @@ async function loadPdf() {
     setupThumbnailObserver();
     setupViewerResizeObserver();
     await fitWidth();
+    if (!destroyed && props.targetPage && props.targetPage > 1) await goPage(props.targetPage);
     if (!destroyed) emit('ready');
   } catch (error) {
     if (!destroyed && (error as { name?: string }).name !== 'RenderingCancelledException') emit('error', error);
@@ -298,6 +301,11 @@ async function goPage(pageNumber: number) {
   thumbItems.get(nextPage)?.scrollIntoView({ block: 'nearest' });
   await renderCurrentPage();
 }
+
+// 已加载后目标页变化（同一页面内再次跳转到另一张图片）
+watch(() => props.targetPage, page => {
+  if (page && pdfDoc) void goPage(page);
+});
 
 function commitPage() { void goPage(Number(pageInput.value)); }
 function zoomIn() { autoFit.value = false; zoomPercent.value = Math.min(200, zoomPercent.value + 10); void renderCurrentPage(); }

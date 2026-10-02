@@ -17,7 +17,7 @@ const status = computed(() => STATUS[props.release.status]);
 const progressText = computed(() => {
   const p = props.release.progress;
   if (!p.runId) return "尚未同步";
-  return `已扫描 ${p.scanned} · 成功 ${p.succeeded} · 失败 ${p.failed} · 双写积压 ${p.pendingTargets}`;
+  return `存量迁移：已排队 ${p.scanned} · 已完成 ${p.succeeded} · 处理中 ${p.migrationPending} · 失败 ${p.failed} ｜ 双写积压 ${p.pendingTargets}`;
 });
 
 const CONFIRM: Record<"switch" | "switch-back" | "end", string> = {

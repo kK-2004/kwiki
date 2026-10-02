@@ -28,4 +28,11 @@ public interface DerivedImageAssetRepository extends JpaRepository<DerivedImageA
     int markOrphanCandidates(@Param("ids") List<Long> ids);
 
     long countByCleanupState(String cleanupState);
+
+    /** 记录来源 PDF 页码；按 id 直接更新，不参与资产状态机的乐观锁。 */
+    @Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query("update DerivedImageAsset a set a.sourcePage = :page "
+            + "where a.id = :id and (a.sourcePage is null or a.sourcePage <> :page)")
+    int updateSourcePage(@Param("id") long id, @Param("page") int page);
 }

@@ -3,6 +3,8 @@ package com.kwiki.indexing.version;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kwiki.indexing.search.ChunkMappingBuilder;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -19,6 +21,7 @@ import java.util.Optional;
 /** 持久化结构门禁；摘要不包含凭据、原文或堆栈。 */
 @Service
 public class SearchIndexValidationService {
+    private static final Logger log=LoggerFactory.getLogger(SearchIndexValidationService.class);
     private final SearchIndexVersionRepository versions;
     private final SearchIndexRebuildRunRepository runs;
     private final SearchIndexRebuildRangeRepository ranges;
@@ -187,11 +190,13 @@ public class SearchIndexValidationService {
                 ||run.state()!=RebuildRunState.COMPLETED||!version.isWriteEnabled()
                 ||!Objects.equals(version.getWriteEnabledEventId(),run.getBuildStartEventId())
                 ||!IndexCatchupStatus.CURRENT.name().equals(version.getCatchupStatus()))return false;
+        // 只统计本写入会话（E 之后）的双写目标：上一会话遗留的 FAILED 目标指向已被清空的旧索引，不应阻塞校验
         Long unresolved=jdbc.queryForObject("""
                 SELECT COUNT(*) FROM indexing_job_target t JOIN indexing_job j ON j.id=t.job_id
                 WHERE t.target_version=? AND t.state<>'COMPLETED'
-                  AND (t.event_id<=? OR j.idempotency_key LIKE ?)
-                """,Long.class,run.getVersionNumber(),barrier,"REBUILD:"+run.getId()+":%");
+                  AND ((t.event_id>? AND t.event_id<=?) OR j.idempotency_key LIKE ?)
+                """,Long.class,run.getVersionNumber(),run.getBuildStartEventId(),barrier,
+                "REBUILD:"+run.getId()+":%");
         return unresolved!=null&&unresolved==0;
     }
 
@@ -208,7 +213,12 @@ public class SearchIndexValidationService {
     private boolean smoke(SearchIndexVersion version){
         try{indexes.runValidationSmokeQueries(version.getPhysicalName(),
                 version.editableConfig().embeddingDimensions());return true;}
-        catch(Exception failure){return false;}
+        catch(Exception failure){
+            // 摘要只记布尔结果，原因写日志，避免冒烟失败无从排查
+            log.warn("validation smoke query failed index={} errorClass={} message={}",
+                    version.getPhysicalName(),failure.getClass().getSimpleName(),failure.getMessage());
+            return false;
+        }
     }
 
     private String aliasFingerprint(){

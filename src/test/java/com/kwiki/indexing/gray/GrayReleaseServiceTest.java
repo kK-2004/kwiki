@@ -156,6 +156,22 @@ class GrayReleaseServiceTest {
     }
 
     @Test
+    void 推进_迁移准入繁忙时不记失败_下一轮自动重试() {
+        GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
+        store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);
+        grayVersion(true, 42L);
+        when(migrations.migrate(eq(2), any())).thenReturn(
+                new VersionRebuildCoordinator.StartResult(false, null, false, "BUSY"));
+
+        GrayRelease first = service.advance(created.id());
+        assertThat(first.lastError()).isNull();
+
+        when(migrations.migrate(eq(2), any())).thenReturn(acceptedMigration());
+        service.advance(created.id());
+        verify(migrations, times(2)).migrate(eq(2), any());
+    }
+
+    @Test
     void 推进_本会话迁移完成后校验_通过即已同步() {
         GrayRelease created = service.create(null, "kwiki-parse-2", List.of(7L), "admin");
         store.setStatus(created.id(), GrayReleaseStatus.SYNCING, null);

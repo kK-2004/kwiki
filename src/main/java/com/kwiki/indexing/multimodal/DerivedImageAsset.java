@@ -42,6 +42,8 @@ public class DerivedImageAsset {
 
     private String sourceKind;
     private String sourceRef;
+    /** PDF 派生图片在来源 PDF 中首次出现的页码（从 1 开始）；未知为 null。 */
+    private Integer sourcePage;
     private long sourceKbId;
     private String parserVersion;
 
@@ -124,6 +126,10 @@ public class DerivedImageAsset {
         if (CLEANUP_NONE.equals(this.cleanupState)) {
             this.cleanupState = CLEANUP_ORPHAN_CANDIDATE;
         }
+    }
+
+    public Integer getSourcePage() {
+        return sourcePage;
     }
 
     public Long getId() {

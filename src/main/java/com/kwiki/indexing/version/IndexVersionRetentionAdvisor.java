@@ -39,7 +39,7 @@ public class IndexVersionRetentionAdvisor {
         Set<Integer> retained = new LinkedHashSet<>();
         active.stream().filter(SearchIndexVersion::isSelected)
                 .forEach(version -> retained.add(version.getVersionNumber()));
-        // 灰度版本不占保留名额：结束灰度停用后即可成为清理候选
+        // 灰度版本不占保留名额：结束灰度关闭写入后即可成为清理候选
         active.stream()
                 .filter(version -> !scoped(version))
                 .sorted(Comparator.comparingInt(SearchIndexVersion::getVersionNumber).reversed())
@@ -51,7 +51,8 @@ public class IndexVersionRetentionAdvisor {
         List<VersionRecommendation> items = new ArrayList<>();
         for (SearchIndexVersion version : active) {
             boolean keep = retained.contains(version.getVersionNumber());
-            boolean cleanupCandidate = !keep && version.isAdminDisabled()
+            // 写入关闭即可清理：从未开启过写入的版本没有 adminDisabled 标记，也应能被清理
+            boolean cleanupCandidate = !keep
                     && !version.isSelected() && !version.isWriteEnabled();
             items.add(new VersionRecommendation(version.getVersionNumber(),
                     version.getPhysicalName(), keep, cleanupCandidate));

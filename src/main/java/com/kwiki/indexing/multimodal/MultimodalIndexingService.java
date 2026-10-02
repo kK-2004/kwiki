@@ -171,6 +171,9 @@ public class MultimodalIndexingService {
                             IndexingWorker.PARSER_VERSION_MULTIMODAL, null),
                     image.pngBytes(), image.contentType(),
                     "attachment-" + attachmentId + "-image.png");
+            // 首次出现页随索引写入，检索命中图片时可直接跳到来源 PDF 对应页
+            extraction.firstPageOf(image.sha256())
+                    .ifPresent(page -> imageResources.recordSourcePage(asset, page));
             uniqueImages.add(withSummary(asset));
         }
         StructuredTextAssembler assembler = new StructuredTextAssembler();

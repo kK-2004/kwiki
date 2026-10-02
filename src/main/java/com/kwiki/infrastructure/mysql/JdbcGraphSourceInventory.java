@@ -8,7 +8,6 @@ import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.KnowledgeBaseAuthorizationService;
 import com.kwiki.wiki.access.ResourceAuthorizationService;
 import com.kwiki.wiki.access.WikiAction;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.stereotype.Component;
@@ -24,7 +23,6 @@ import java.util.List;
  */
 @Component
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
-@ConditionalOnBean(JdbcOperations.class)
 public class JdbcGraphSourceInventory implements GraphSourceInventoryPort {
 
     private final JdbcOperations jdbc;

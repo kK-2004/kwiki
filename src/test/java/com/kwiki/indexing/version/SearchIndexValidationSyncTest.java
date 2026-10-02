@@ -33,7 +33,7 @@ class SearchIndexValidationSyncTest {
         when(version.isWriteEnabled()).thenReturn(true);
         when(version.getWriteEnabledEventId()).thenReturn(42L);
         when(version.getCatchupStatus()).thenReturn(IndexCatchupStatus.CURRENT.name());
-        when(jdbc.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(0L);
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(), any(), any(), any())).thenReturn(0L);
     }
 
     @Test
@@ -55,7 +55,14 @@ class SearchIndexValidationSyncTest {
 
     @Test
     void 双写仍有积压_不算同步() {
-        when(jdbc.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(5L);
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(), any(), any(), any())).thenReturn(5L);
         assertThat(service.synchronizedState(run, version, 100L)).isFalse();
+    }
+
+    @Test
+    void 积压只统计本写入会话起点之后的双写目标() {
+        service.synchronizedState(run, version, 100L);
+        verify(jdbc).queryForObject(contains("t.event_id>? AND t.event_id<=?"), eq(Long.class),
+                eq(2), eq(42L), eq(100L), eq("REBUILD:9:%"));
     }
 }

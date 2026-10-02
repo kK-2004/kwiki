@@ -180,6 +180,12 @@ public class PageSourcePreviewService {
         return new SourcePreviewLink(url);
     }
 
+    /** 当前用户可读页面的来源附件 id；无可预览来源时为空。 */
+    public Optional<Long> sourceAttachmentId(CurrentUser user, long kbId, long pageId) {
+        requirePage(user, kbId, pageId);
+        return previewableSource(kbId, pageId).map(Attachment::getId);
+    }
+
     /** 该页面派生、同库、STORED、file id 可用且声明类型可预览的来源附件。 */
     private Optional<Attachment> previewableSource(long kbId, long pageId) {
         WikiPage page = pages.findByIdAndStatus(pageId, WikiPage.STATUS_ACTIVE)

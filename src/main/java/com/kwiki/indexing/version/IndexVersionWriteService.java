@@ -2,17 +2,21 @@ package com.kwiki.indexing.version;
 
 import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
+import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.util.List;
 
 /**
  * 管理员显式控制版本是否承接实时索引写入（双写）。系统中不再存在任何隐式开启写入的路径。
  * 开启时先清空物理索引，再在锁定版本行的事务中加入写目标集合并记录事件水位 E：
  * 实时入队读取写目标时与该行锁互斥，因此 E 之前的事件不会写入本版本，E 之后的事件一定会。
+ * 「检查 → 清空 → 开启」整段持有与迁移协调器相同的版本级分布式锁，避免并发开启时
+ * 后到的请求在双写已开始后再次清空索引。
  */
 @Service
 public class IndexVersionWriteService {
@@ -20,6 +24,7 @@ public class IndexVersionWriteService {
     private static final List<String> ACTIVE_RUN_STATES = List.of(
             RebuildRunState.PENDING.name(), RebuildRunState.RUNNING.name(),
             RebuildRunState.PAUSED.name());
+    private static final Duration LOCK_WAIT = Duration.ofMillis(500);
 
     private final SearchIndexVersionRepository versions;
     private final SearchIndexRebuildRunRepository runs;
@@ -27,22 +32,40 @@ public class IndexVersionWriteService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final IndexingProperties properties;
+    private final KwikiDistributedLocks locks;
 
     public IndexVersionWriteService(SearchIndexVersionRepository versions,
                                     SearchIndexRebuildRunRepository runs,
                                     ElasticsearchIndexManager indexes, JdbcTemplate jdbc,
                                     PlatformTransactionManager transactionManager,
-                                    IndexingProperties properties) {
+                                    IndexingProperties properties, KwikiDistributedLocks locks) {
         this.versions = versions;
         this.runs = runs;
         this.indexes = indexes;
         this.jdbc = jdbc;
         this.transactions = new TransactionTemplate(transactionManager);
         this.properties = properties;
+        this.locks = locks;
     }
 
     public SearchIndexVersion enable(int versionNumber) {
         requireMutationsEnabled();
+        // 与 VersionRebuildCoordinator 共用锁名：开启写入与迁移准入、并发开启三者互斥
+        AutoCloseable held = locks.acquire("index-rebuild:v" + versionNumber, LOCK_WAIT);
+        if (held == null) {
+            throw new IllegalStateException(
+                    "version " + versionNumber + " is busy with another write toggle or migration");
+        }
+        try (held) {
+            return enableWhileLocked(versionNumber);
+        } catch (RuntimeException failure) {
+            throw failure;
+        } catch (Exception closeFailure) {
+            throw new IllegalStateException("failed to release version lock", closeFailure);
+        }
+    }
+
+    private SearchIndexVersion enableWhileLocked(int versionNumber) {
         SearchIndexVersion observed = versions.findByVersionNumber(versionNumber)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "unknown index version: " + versionNumber));

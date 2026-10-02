@@ -42,6 +42,21 @@ public class ParserCatalog {
      */
     public java.util.Optional<com.kwiki.indexing.version.EditableIndexConfig> configFor(
             String parserVersion, com.kwiki.indexing.version.EditableIndexConfig base) {
+        return configFor(parserVersion, base, true);
+    }
+
+    /**
+     * 新部署用：同样要求向量模型与维度一致，但直接取该解析器受支持的最高结构版本
+     * （默认即含实体映射字段的 v3，可用于图构建），不向基准版本的结构版本靠拢。
+     */
+    public java.util.Optional<com.kwiki.indexing.version.EditableIndexConfig> latestConfigFor(
+            String parserVersion, com.kwiki.indexing.version.EditableIndexConfig base) {
+        return configFor(parserVersion, base, false);
+    }
+
+    private java.util.Optional<com.kwiki.indexing.version.EditableIndexConfig> configFor(
+            String parserVersion, com.kwiki.indexing.version.EditableIndexConfig base,
+            boolean preferBaseSchema) {
         if (pipelines == null) {
             return java.util.Optional.of(new com.kwiki.indexing.version.EditableIndexConfig(parserVersion,
                     base.chunkerVersion(), base.embeddingProvider(), base.embeddingModel(),
@@ -53,7 +68,7 @@ public class ParserCatalog {
                         && manifest.dimensions().intValue() == base.embeddingDimensions().intValue())
                 // 与全局结构版本相同的清单优先，其次取结构版本最高的
                 .sorted(java.util.Comparator.<com.kwiki.indexing.config.IndexingProperties.Manifest>comparingInt(
-                                manifest -> manifest.mappingSchemaVersion().intValue()
+                                manifest -> preferBaseSchema && manifest.mappingSchemaVersion().intValue()
                                         == base.mappingSchemaVersion().intValue() ? 0 : 1)
                         .thenComparing(manifest -> -manifest.mappingSchemaVersion()))
                 .map(manifest -> new com.kwiki.indexing.version.EditableIndexConfig(parserVersion,

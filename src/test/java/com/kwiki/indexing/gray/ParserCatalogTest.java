@@ -65,6 +65,21 @@ class ParserCatalogTest {
     }
 
     @Test
+    void 新部署取解析器受支持的最高结构版本_灰度仍优先与全局结构版本一致() {
+        var base = new com.kwiki.indexing.version.EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "qwen", 1024, 1);
+        ParserCatalog catalog = catalogWith(List.of(manifest("kwiki-parse-1", "qwen", 1024, 1),
+                manifest("kwiki-parse-1", "qwen", 1024, 3), manifest("kwiki-parse-2", "qwen", 1024, 2),
+                manifest("kwiki-parse-2", "qwen", 1024, 3), manifest("kwiki-parse-2", "other", 768, 3)), base);
+
+        assertThat(catalog.latestConfigFor("kwiki-parse-1", base).orElseThrow().mappingSchemaVersion()).isEqualTo(3);
+        var latest = catalog.latestConfigFor("kwiki-parse-2", base).orElseThrow();
+        assertThat(latest.mappingSchemaVersion()).isEqualTo(3);
+        assertThat(latest.embeddingModel()).isEqualTo("qwen");
+        // 灰度：全局为结构 1 时 parse-2 没有结构 1，退回最高的 3
+        assertThat(catalog.configFor("kwiki-parse-1", base).orElseThrow().mappingSchemaVersion()).isEqualTo(1);
+    }
+
+    @Test
     void 灰度配置取目标解析器的受支持清单_而不是沿用全局的结构版本() {
         var base = new com.kwiki.indexing.version.EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "qwen", 1024, 1);
         ParserCatalog catalog = catalogWith(List.of(manifest("kwiki-parse-1", "qwen", 1024, 1),

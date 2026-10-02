@@ -53,6 +53,13 @@ public final class TestMultimodalRepos {
             // 模拟乐观读：每次返回行内的最新状态（同一对象引用）
             return Optional.ofNullable(asset);
         });
+        when(repo.updateSourcePage(org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyInt())).thenAnswer(inv -> {
+            DerivedImageAsset asset = backing.byId.get((Long) inv.getArgument(0));
+            if (asset == null) return 0;
+            setField(asset, "sourcePage", inv.getArgument(1));
+            return 1;
+        });
         when(repo.findBySourceKindAndSourceRefAndParserVersionAndImageSha256(
                 any(), any(), any(), any())).thenAnswer(inv -> Optional.ofNullable(
                 backing.byKey.get(assetKey(inv.getArgument(0), inv.getArgument(1),
@@ -97,10 +104,14 @@ public final class TestMultimodalRepos {
     }
 
     private static void assignId(Object entity, long id) {
+        setField(entity, "id", id);
+    }
+
+    private static void setField(Object entity, String name, Object value) {
         try {
-            Field field = entity.getClass().getDeclaredField("id");
+            Field field = entity.getClass().getDeclaredField(name);
             field.setAccessible(true);
-            field.set(entity, id);
+            field.set(entity, value);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

@@ -89,23 +89,24 @@ describe('PageReader 来源页签可见性', () => {
     return { view, store };
   }
 
-  it('PDF 导入页显示“PDF 源文件 / 解析文本”页签，默认展示解析文本', async () => {
+  it('PDF 导入页显示“PDF 源文件 / 解析文本”页签，默认展示 PDF 源文件', async () => {
     stubFetch(() => okBlob);
     const { view } = makeReader('PDF');
     await flush();
-    expect(view.getByRole('tab', { name: 'PDF 源文件' })).toBeTruthy();
-    const parsedTab = view.getByRole('tab', { name: '解析文本' });
-    expect(parsedTab.getAttribute('aria-selected')).toBe('true');
-    expect(view.getByTestId('page-content').textContent).toContain('解析后的正文内容');
-    expect(view.queryByTestId('source-preview')).toBeNull();
+    const sourceTab = view.getByRole('tab', { name: 'PDF 源文件' });
+    expect(sourceTab.getAttribute('aria-selected')).toBe('true');
+    expect(view.getByRole('tab', { name: '解析文本' }).getAttribute('aria-selected')).toBe('false');
+    expect(view.getByTestId('source-preview')).toBeTruthy();
     view.unmount();
   });
 
-  it('DOCX 导入页显示“DOCX 源文件”页签', async () => {
+  it('DOCX 导入页显示“DOCX 源文件”页签，默认仍展示解析文本', async () => {
     stubFetch(() => okBlob);
     const { view } = makeReader('DOCX');
     await flush();
     expect(view.getByRole('tab', { name: 'DOCX 源文件' })).toBeTruthy();
+    expect(view.getByRole('tab', { name: '解析文本' }).getAttribute('aria-selected')).toBe('true');
+    expect(view.queryByTestId('source-preview')).toBeNull();
     view.unmount();
   });
 

@@ -37,6 +37,8 @@ public class VersionedIndexingPipelineRegistry {
     public static final String SUPPORTED_CHUNKER_VERSION =
             com.kwiki.indexing.job.IndexingWorker.CHUNKER_VERSION;
     public static final String ENTITY_LINKING_VERSION = "entity-linking-v1";
+    /** 最新的 CHUNK 映射结构版本（含实体映射字段）；新部署与新建版本默认使用。 */
+    public static final int LATEST_MAPPING_SCHEMA_VERSION = 3;
 
     /** 一个受支持结构代的具体执行流水线。 */
     public record ResolvedPipeline(
@@ -168,32 +170,36 @@ public class VersionedIndexingPipelineRegistry {
         return Optional.empty();
     }
 
-    /** 当前部署受支持的全部结构代（显式清单优先，否则隐式默认代）。 */
+    /**
+     * 当前部署受支持的全部结构代（显式清单优先，否则隐式默认代）。
+     * 隐式默认代：每个解析器同时支持其历史结构版本（parse-1 → 1、parse-2 → 2，保证已建版本
+     * 升级后仍受支持）与最新结构版本 3（含实体映射字段，可用于图构建）。新部署与新建版本
+     * 默认取最高结构版本。
+     */
     public List<IndexingProperties.Manifest> effectiveManifests() {
         if (indexingProperties.manifests() != null && !indexingProperties.manifests().isEmpty()) {
             return indexingProperties.manifests();
         }
-        var qwen = externalProperties.qwenEmbedding();
-        IndexingProperties.Manifest original = new IndexingProperties.Manifest(
-                "implicit-default",
-                SUPPORTED_PARSER_VERSION,
-                SUPPORTED_CHUNKER_VERSION,
-                IndexingProperties.DEFAULT_EMBEDDING_PROFILE,
-                qwen.model(),
-                qwen.dimensions(),
-                1);
-        if (!parserVersionSupported(
-                com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL)) {
-            return List.of(original);
+        List<IndexingProperties.Manifest> manifests = new java.util.ArrayList<>();
+        manifests.add(implicitManifest("implicit-default", SUPPORTED_PARSER_VERSION, 1));
+        manifests.add(implicitManifest("implicit-default-entity", SUPPORTED_PARSER_VERSION,
+                LATEST_MAPPING_SCHEMA_VERSION));
+        if (parserVersionSupported(com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL)) {
+            manifests.add(implicitManifest("implicit-multimodal",
+                    com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL, 2));
+            manifests.add(implicitManifest("implicit-multimodal-entity",
+                    com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL,
+                    LATEST_MAPPING_SCHEMA_VERSION));
         }
-        return List.of(original, new IndexingProperties.Manifest(
-                "implicit-multimodal",
-                com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL,
-                SUPPORTED_CHUNKER_VERSION,
-                IndexingProperties.DEFAULT_EMBEDDING_PROFILE,
-                qwen.model(),
-                qwen.dimensions(),
-                2));
+        return List.copyOf(manifests);
+    }
+
+    private IndexingProperties.Manifest implicitManifest(String id, String parserVersion,
+                                                         int mappingSchemaVersion) {
+        var qwen = externalProperties.qwenEmbedding();
+        return new IndexingProperties.Manifest(id, parserVersion, SUPPORTED_CHUNKER_VERSION,
+                IndexingProperties.DEFAULT_EMBEDDING_PROFILE, qwen.model(), qwen.dimensions(),
+                mappingSchemaVersion);
     }
 
     /** 多模态指标（未启用时为 null，计数为空操作）。 */

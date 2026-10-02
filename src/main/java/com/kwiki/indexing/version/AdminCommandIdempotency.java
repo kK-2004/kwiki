@@ -54,7 +54,13 @@ public class AdminCommandIdempotency {
         try {
             row.complete("SUCCESS:" + json.writeValueAsString(response));
             rows.save(row);
-            if(audit!=null){audit.succeed("SUCCESS");audits.save(audit);}
+            if(audit!=null){
+                // 命令自带业务结果（如校验 PASS/FAIL）时记入审计，未通过原因一并留痕
+                String result=response.get("status") instanceof String status?status:"SUCCESS";
+                audit.succeed(result);
+                if("FAIL".equals(result)&&response.get("summary") instanceof String summary)audit.annotate(summary);
+                audits.save(audit);
+            }
         } catch (Exception failure) {
             row.complete("FAILURE:response_serialization");
             rows.save(row);

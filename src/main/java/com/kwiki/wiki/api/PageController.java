@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -126,6 +127,29 @@ public class PageController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
                 .body(TransDTO.success(sourcePreviews.previewLink(user, kbId, pageId)));
+    }
+
+    /** 片段图片 → 来源 PDF 页码；可选依赖，未装配（离线测试）时接口返回 404。 */
+    private SourceImageLocator imageLocator;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setImageLocator(SourceImageLocator imageLocator) {
+        this.imageLocator = imageLocator;
+    }
+
+    /** 检索片段中的图片在页面来源 PDF 中的页码，供阅读页直接跳到源文件对应页。 */
+    @GetMapping("/{pageId}/source-preview/image-location")
+    ResponseEntity<TransDTO<SourceImageLocator.ImageLocation>> sourceImageLocation(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable long kbId,
+            @PathVariable long pageId,
+            @RequestParam long contentId) {
+        if (imageLocator == null) {
+            throw new NotFoundException("image location not found");
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .body(TransDTO.success(imageLocator.locate(user, kbId, pageId, contentId)));
     }
 
     /** 同源读取供 PDF.js 渲染，避免对象存储下载响应及跨域限制。 */

@@ -274,9 +274,11 @@ public class ElasticsearchIndexManager {
         client.search(request -> request.index(indexName).size(1).source(source -> source.fetch(false))
                 .query(query -> query.match(match -> match.field("content")
                         .query("__kwiki_validation_probe__"))), Map.class);
-        List<Float> zeroVector = java.util.Collections.nCopies(dimensions, 0.0f);
+        // 向量字段未显式指定 similarity，ES 默认 cosine；cosine 拒绝零模长查询向量，故用单位向量探测
+        List<Float> probeVector = new java.util.ArrayList<>(java.util.Collections.nCopies(dimensions, 0.0f));
+        probeVector.set(0, 1.0f);
         client.search(request -> request.index(indexName).size(1).source(source -> source.fetch(false))
-                .knn(knn -> knn.field("vector").queryVector(zeroVector).k(1).numCandidates(10)),
+                .knn(knn -> knn.field("vector").queryVector(probeVector).k(1).numCandidates(10)),
                 Map.class);
     }
 }

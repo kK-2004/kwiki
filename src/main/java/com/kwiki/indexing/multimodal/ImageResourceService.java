@@ -141,6 +141,23 @@ public class ImageResourceService {
         return asset;
     }
 
+    /**
+     * 记录 PDF 派生图片在来源 PDF 中的页码，供检索片段跳转到源文件对应页。
+     * 页码只是辅助导航信息：写入失败只记日志，绝不让索引任务失败。
+     */
+    public void recordSourcePage(DerivedImageAsset asset, int page) {
+        if (asset == null || asset.getId() == null || page < 1
+                || Integer.valueOf(page).equals(asset.getSourcePage())) {
+            return;
+        }
+        try {
+            assets.updateSourcePage(asset.getId(), page);
+        } catch (RuntimeException failure) {
+            log.warn("derived image source page not recorded assetId={} page={} errorClass={}",
+                    asset.getId(), page, failure.getClass().getSimpleName());
+        }
+    }
+
     /** 按 contentId 换取内容中心 CDN URL（每次调用新签发，绝不持久化）。 */
     public String cdnUrl(long contentId) {
         return storage.cdnLink(contentId);

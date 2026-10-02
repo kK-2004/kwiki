@@ -57,8 +57,11 @@ public class PdfMultimodalParser {
     public record TextItem(String text) implements ContentItem {
     }
 
-    /** occurrenceIndex 指向 occurrences；imageIndex 指向 uniqueImages。 */
-    public record ImageRefItem(int occurrenceIndex, int imageIndex) implements ContentItem {
+    /** occurrenceIndex 指向 occurrences；imageIndex 指向 uniqueImages；page 为所在 PDF 页码（从 1 开始，未知为 0）。 */
+    public record ImageRefItem(int occurrenceIndex, int imageIndex, int page) implements ContentItem {
+        public ImageRefItem(int occurrenceIndex, int imageIndex) {
+            this(occurrenceIndex, imageIndex, 0);
+        }
     }
 
     /**
@@ -69,6 +72,21 @@ public class PdfMultimodalParser {
     public record PdfExtraction(List<ContentItem> items,
                                 List<ImageRefItem> occurrences,
                                 List<PdfImage> uniqueImages) {
+
+        /** 规范化字节哈希为 sha256 的图片首次出现的页码（从 1 开始）；不存在时为空。 */
+        public java.util.OptionalInt firstPageOf(String sha256) {
+            for (int index = 0; index < uniqueImages.size(); index++) {
+                if (!uniqueImages.get(index).sha256().equals(sha256)) {
+                    continue;
+                }
+                int imageIndex = index;
+                return occurrences.stream()
+                        .filter(occurrence -> occurrence.imageIndex() == imageIndex && occurrence.page() > 0)
+                        .mapToInt(ImageRefItem::page)
+                        .findFirst();
+            }
+            return java.util.OptionalInt.empty();
+        }
 
         public boolean hasText() {
             return items.stream().anyMatch(item -> item instanceof TextItem text
@@ -222,7 +240,7 @@ public class PdfMultimodalParser {
                 if (imageIndex < 0) {
                     continue; // 装饰/损坏资源：位置不进入阅读序列
                 }
-                ImageRefItem ref = new ImageRefItem(occurrences.size(), imageIndex);
+                ImageRefItem ref = new ImageRefItem(occurrences.size(), imageIndex, entry.page);
                 occurrences.add(ref);
                 items.add(ref);
             }

@@ -144,6 +144,7 @@ public class GrayReleaseService {
         SearchIndexRebuildRun run = sessionRun(number, version.getWriteEnabledEventId()).orElse(null);
         if (run == null) {
             try {
+                // 迁移名额或版本锁暂被占用（BUSY）时不记失败，下一轮自动重试
                 startMigration(number, release.createdBy());
             } catch (RuntimeException failure) {
                 store.transition(id, GrayReleaseStatus.SYNCING, GrayReleaseStatus.SYNCING,
@@ -194,14 +195,16 @@ public class GrayReleaseService {
         if (run != null && (run.state().active() || run.state() == RebuildRunState.COMPLETED)) {
             return;
         }
-        startMigration(number, operator);
+        if (!startMigration(number, operator)) {
+            // 灰度已进入同步中且无失败原因，同步驱动器会在下一轮自动重新发起
+            throw new ConflictException("另一个索引迁移正在进行，系统会在空闲后自动开始存量迁移");
+        }
     }
 
-    private void startMigration(int number, String operator) {
+    /** 返回 false 表示准入繁忙（BUSY），属于暂时状态；其他失败以异常抛出。 */
+    private boolean startMigration(int number, String operator) {
         VersionRebuildCoordinator.StartResult result = migrations.migrate(number, operator);
-        if (result == null || !result.accepted()) {
-            throw new ConflictException("另一个索引迁移正在进行，请稍后再开始同步");
-        }
+        return result != null && result.accepted();
     }
 
     /**

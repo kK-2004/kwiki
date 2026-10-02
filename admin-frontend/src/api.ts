@@ -24,7 +24,7 @@ export interface GraphSchedule{scheduleDate:string;status:string;linkedBatchId:n
 export interface GraphSnapshotRow{id:number;kbId:number;graphVersion:number;chunkIndexVersion:number;communityIndexVersion:number;communityPhysicalIndex:string;state:string;entityCount:number;relationCount:number;communityCount:number;sealedAt?:string;retiredAt?:string;createdAt:string}
 export interface GraphServiceStatus{enabled:boolean;algorithmMode:string;scheduleCron:string;scheduleZone:string;autoPublish:boolean;capacity:Record<string,number>;activeBatchId:number}
 export interface ParserOption{id:string;label:string;available:boolean;unavailableReason:string|null}
-export interface GrayProgress{runId:number|null;runState:string|null;switchState:string|null;scanned:number;succeeded:number;failed:number;pendingTargets:number}
+export interface GrayProgress{runId:number|null;runState:string|null;switchState:string|null;scanned:number;succeeded:number;failed:number;migrationPending:number;pendingTargets:number}
 export interface GrayRelease{id:number;name:string;parserVersion:string;parserLabel:string;indexVersionNumber:number;physicalName:string;status:"CREATED"|"SYNCING"|"SYNCED"|"SWITCHED"|"ENDED";lastError:string|null;createdBy:string;createdAt:string;switchedAt:string|null;endedAt:string|null;kbs:{kbId:number;name:string}[];progress:GrayProgress;allowedActions:{sync:boolean;switch:boolean;switchBack:boolean;end:boolean}}
 export const api={
   login:(username:string,password:string)=>request<{token:string;tokenType:string;expiresInSeconds:number;user:{id:number;username:string;admin:boolean}}>("/auth/login",{method:"POST",body:JSON.stringify({username,password})}),

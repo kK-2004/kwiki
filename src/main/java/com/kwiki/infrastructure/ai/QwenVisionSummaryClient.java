@@ -165,10 +165,26 @@ public class QwenVisionSummaryClient implements ImageSummaryPort {
                     "vision response contains forbidden marker syntax");
         }
         if (normalized.length() > maxSummaryChars) {
-            throw new VisionSummaryException(VisionSummaryException.Category.PERMANENT,
-                    "vision response summary exceeds the configured limit");
+            // 信息密集的图片摘要偏长属正常现象，截断到上限内而不是让整页索引永久失败
+            String truncated = truncateAtSentence(normalized, maxSummaryChars);
+            log.info("vision summary truncated model={} originalChars={} keptChars={}",
+                    model, normalized.length(), truncated.length());
+            return truncated;
         }
         return normalized;
+    }
+
+    /** 优先在上限内的最后一个句末标点处截断；句末过早（不足一半）时直接按上限截断。 */
+    static String truncateAtSentence(String text, int maxChars) {
+        String head = text.substring(0, maxChars);
+        int cut = -1;
+        for (int i = head.length() - 1; i >= 0; i--) {
+            if ("。！？；.!?;".indexOf(head.charAt(i)) >= 0) {
+                cut = i + 1;
+                break;
+            }
+        }
+        return (cut >= maxChars / 2 ? head.substring(0, cut) : head).strip();
     }
 
     private Duration effectiveTimeout() {

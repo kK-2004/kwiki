@@ -220,6 +220,9 @@ class MultimodalEndToEndTest {
                 "设计文档.pdf", "application/pdf", pdf);
         assertThat(storage.uploads.get()).isEqualTo(2); // 两张唯一图片全部镜像
         assertThat(vision.calls.get()).isEqualTo(2);
+        // 每张图片在来源 PDF 中的首次出现页随索引写入（第 1 页、第 2 页各一张）
+        assertThat(assetBacking.byId.values()).extracting(DerivedImageAsset::getSourcePage)
+                .containsExactlyInAnyOrder(1, 2);
 
         IndexedProjection indexed = projectToIndex(document);
         List<Map<String, Object>> withResources = indexed.documents().stream()

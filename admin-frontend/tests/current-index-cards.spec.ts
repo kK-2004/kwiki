@@ -22,7 +22,7 @@ describe("全局索引顶部卡片", () => {
       props: { versions: [version(1, "kwiki-parse-1", true, false), version(2, "kwiki-parse-2", false, true), version(3, "kwiki-parse-2", false, false, true)], aliasTargets: ["kwiki-chunks-v1"] },
       global: { plugins: [ElementPlus] },
     });
-    await fireEvent.click(screen.getByRole("button", { name: /当前解析器/ }));
+    await fireEvent.click(screen.getByRole("button", { name: /当前线上索引/ }));
     await waitFor(() => expect(screen.getByText(/解析器随索引版本一起切换/)).toBeTruthy());
     expect(screen.getByRole("radio", { name: /kwiki-chunks-v2/ })).toBeTruthy();
     expect(screen.queryByRole("radio", { name: /kwiki-chunks-v3/ })).toBeNull();
@@ -33,7 +33,7 @@ describe("全局索引顶部卡片", () => {
       props: { versions: [version(1, "kwiki-parse-1", true, false), version(4, "kwiki-parse-2", false, true, true)], aliasTargets: ["kwiki-chunks-v1"] },
       global: { plugins: [ElementPlus] },
     });
-    await fireEvent.click(screen.getByRole("button", { name: /当前别名/ }));
+    await fireEvent.click(screen.getByRole("button", { name: /当前线上索引/ }));
     await waitFor(() => expect(screen.getByText(/暂无可发布的版本/)).toBeTruthy());
     expect(screen.queryByRole("radio", { name: /kwiki-chunks-v4/ })).toBeNull();
   });
@@ -44,7 +44,7 @@ describe("全局索引顶部卡片", () => {
       props: { versions: [version(1, "kwiki-parse-1", true, false), v2], aliasTargets: ["kwiki-chunks-v1"] },
       global: { plugins: [ElementPlus] },
     });
-    await fireEvent.click(screen.getByRole("button", { name: /当前别名/ }));
+    await fireEvent.click(screen.getByRole("button", { name: /当前线上索引/ }));
     await waitFor(() => expect(screen.getByRole("radio", { name: /kwiki-chunks-v2/ })).toBeTruthy());
     await fireEvent.click(screen.getByRole("radio", { name: /kwiki-chunks-v2/ }));
     await fireEvent.click(screen.getByRole("button", { name: "下一步" }));

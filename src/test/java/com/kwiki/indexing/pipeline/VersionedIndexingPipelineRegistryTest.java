@@ -114,10 +114,20 @@ class VersionedIndexingPipelineRegistryTest {
                 emptyManifests(), configured, provider(DocumentParseService.forTests()),
                 provider(defaultEmbeddings), nullProvider(), nullProvider(), multimodal);
 
-        assertThat(registry.effectiveManifests()).extracting(IndexingProperties.Manifest::parserVersion)
-                .containsExactly("kwiki-parse-1", "kwiki-parse-2");
+        // 每个解析器同时支持历史结构版本与最新的 v3
+        assertThat(registry.effectiveManifests())
+                .extracting(IndexingProperties.Manifest::parserVersion, IndexingProperties.Manifest::mappingSchemaVersion)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("kwiki-parse-1", 1),
+                        org.assertj.core.groups.Tuple.tuple("kwiki-parse-1", 3),
+                        org.assertj.core.groups.Tuple.tuple("kwiki-parse-2", 2),
+                        org.assertj.core.groups.Tuple.tuple("kwiki-parse-2", 3));
         assertThat(registry.supports(new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1",
                 "default", "text-embedding-v4", 1024, 2))).isTrue();
+        assertThat(registry.supportsEntityLinking(new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1",
+                "default", "text-embedding-v4", 1024, 3))).isTrue();
+        assertThat(registry.supportsEntityLinking(new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1",
+                "default", "text-embedding-v4", 1024, 3))).isTrue();
     }
 
     @Test

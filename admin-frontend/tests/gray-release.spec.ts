@@ -21,7 +21,7 @@ const base: GrayRelease = {
   id: 1, name: "pdfbox-v2 灰度 #1", parserVersion: "kwiki-parse-2", parserLabel: "pdfbox-v2", indexVersionNumber: 4,
   physicalName: "kwiki-chunks-v4", status: "SYNCED", lastError: null, createdBy: "admin", createdAt: "2026-09-27T00:00:00Z",
   switchedAt: null, endedAt: null, kbs: [{ kbId: 7, name: "产品文档" }],
-  progress: { runId: 9, runState: "COMPLETED", switchState: "READY", scanned: 10, succeeded: 10, failed: 0, pendingTargets: 0 },
+  progress: { runId: 9, runState: "COMPLETED", switchState: "READY", scanned: 10, succeeded: 10, failed: 0, migrationPending: 0, pendingTargets: 0 },
   allowedActions: { sync: false, switch: true, switchBack: false, end: true },
 };
 const plugins = [createPinia(), ElementPlus];
@@ -33,7 +33,7 @@ describe("灰度发布页", () => {
     await waitFor(() => expect(screen.getByText("pdfbox-v2 灰度 #1")).toBeTruthy());
     expect(screen.getByText("产品文档")).toBeTruthy();
     expect(screen.getByText("kwiki-chunks-v4")).toBeTruthy();
-    expect(screen.getByText("已扫描 10 · 成功 10 · 失败 0 · 双写积压 0")).toBeTruthy();
+    expect(screen.getByText("存量迁移：已排队 10 · 已完成 10 · 处理中 0 · 失败 0 ｜ 双写积压 0")).toBeTruthy();
     expect(screen.getByRole("button", { name: "切换到灰度索引" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "切回原索引" })).toBeNull();
     expect(screen.queryByRole("button", { name: "开始同步" })).toBeNull();

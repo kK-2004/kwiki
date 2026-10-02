@@ -13,7 +13,6 @@ import com.kwiki.indexing.pipeline.ChunkEmbeddingPort;
 import com.kwiki.indexing.version.SearchIndexVersionRepository;
 import com.kwiki.rag.retrieval.GraphRetrievalEnhancer;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,8 +23,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * 图增强装配：仅当 kwiki.graph.enabled=true 且全部端口可用时创建
- * GraphRetrievalEnhancer。默认关闭时不连接 ArcadeDB，工作流保持原有
+ * 图增强装配：仅当 kwiki.graph.enabled=true 时创建 GraphRetrievalEnhancer，
+ * 来源清单等必需端口通过依赖注入校验。默认关闭时不连接 ArcadeDB，工作流保持原有
  * Chunk 检索路径。
  */
 @Configuration

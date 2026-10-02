@@ -28,17 +28,19 @@ function next() {
 
 <template>
   <section class="current-cards">
-    <button type="button" class="current-card" aria-label="当前别名，点击切换" @click="openDialog">
-      <span class="label">当前别名</span>
-      <strong>{{ aliasTargets.join(", ") || "未指向任何索引" }}</strong>
-      <span class="sub">kwiki-chunks → 线上读请求实际命中的物理索引</span>
+    <!-- 解析器随索引版本一起切换，别名与解析器是同一次选择，故合为一张卡片、一个切换入口 -->
+    <button type="button" class="current-card" aria-label="当前线上索引，点击切换" @click="openDialog">
       <span class="action">切换</span>
-    </button>
-    <button type="button" class="current-card" aria-label="当前解析器，点击切换" @click="openDialog">
-      <span class="label">当前解析器</span>
-      <strong>{{ current ? parserLabel(current.configuration.parserVersion) : "—" }}</strong>
-      <span class="sub">{{ current?.configuration.parserVersion }} · 新导入的 PDF 与全局索引使用该解析器</span>
-      <span class="action">切换</span>
+      <span class="field">
+        <span class="label">当前别名</span>
+        <strong>{{ aliasTargets.join(", ") || "未指向任何索引" }}</strong>
+        <span class="sub">kwiki-chunks → 线上读请求实际命中的物理索引</span>
+      </span>
+      <span class="field">
+        <span class="label">当前解析器</span>
+        <strong>{{ current ? parserLabel(current.configuration.parserVersion) : "—" }}</strong>
+        <span class="sub">{{ current?.configuration.parserVersion }} · 新导入的 PDF 与全局索引使用该解析器</span>
+      </span>
     </button>
     <el-dialog v-model="open" title="切换全局索引" width="560">
       <p class="note">解析器随索引版本一起切换：选择一个已同步、已校验的版本，线上检索与新导入都会改用它。只想让部分知识库试用新解析器，请使用「灰度发布」。</p>
@@ -57,14 +59,15 @@ function next() {
 </template>
 
 <style scoped>
-.current-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
-.current-card { position: relative; display: grid; gap: 6px; padding: 18px 20px; border: 1px solid var(--k-line); border-radius: var(--k-r-lg); background: var(--k-canvas); color: var(--k-ink); font: inherit; text-align: left; cursor: pointer; transition: border-color var(--k-ease), box-shadow var(--k-ease); }
+.current-cards { margin-bottom: 24px; }
+.current-card { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; width: 100%; padding: 18px 20px; border: 1px solid var(--k-line); border-radius: var(--k-r-lg); background: var(--k-canvas); color: var(--k-ink); font: inherit; text-align: left; cursor: pointer; transition: border-color var(--k-ease), box-shadow var(--k-ease); }
 .current-card:hover { border-color: var(--k-line-strong); box-shadow: var(--k-shadow); }
+.field { display: grid; gap: 6px; align-content: start; }
 .label { color: var(--k-muted); font-size: 12px; font-weight: 500; }
 strong { font-family: var(--k-font-mono); font-size: 22px; font-weight: 600; letter-spacing: -0.4px; }
 .sub { color: var(--k-muted); font-size: 12px; }
 .action { position: absolute; top: 16px; right: 18px; color: var(--k-green-deep); font-size: 13px; font-weight: 500; }
 .note { margin: 0 0 14px; color: var(--k-ink-2); line-height: 1.6; }
 .choices { display: grid; gap: 8px; }
-@media (max-width: 900px) { .current-cards { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .current-card { grid-template-columns: 1fr; } }
 </style>
