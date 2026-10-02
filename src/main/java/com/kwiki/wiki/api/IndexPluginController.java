@@ -19,18 +19,20 @@ public class IndexPluginController {
     private final ChunkIndexSchemaRegistry schemas;
     private final ParserCatalog parsers;
     private final IndexingDefaultsProperties defaults;
+    private final com.kwiki.indexing.chunk.plugin.ChunkerRegistry chunkers;
 
     public IndexPluginController(ChunkIndexSchemaRegistry schemas, ParserCatalog parsers,
-                                 IndexingDefaultsProperties defaults) {
+                                 IndexingDefaultsProperties defaults, com.kwiki.indexing.chunk.plugin.ChunkerRegistry chunkers) {
         this.schemas = schemas;
         this.parsers = parsers;
         this.defaults = defaults;
+        this.chunkers = chunkers;
     }
 
     public record SchemaOption(String id, String label, boolean available, String unavailableReason,
                                List<String> capabilities) { }
     public record ChunkerOption(String id, String label, boolean available, String unavailableReason) { }
-    public record Defaults(String indexSchema, List<String> parsers) { }
+    public record Defaults(String indexSchema, List<String> parsers, String chunker) { }
     public record Catalog(List<SchemaOption> schemas, List<ParserCatalog.ParserOption> parsers,
                           List<ChunkerOption> chunkers, Defaults defaults) { }
 
@@ -42,7 +44,10 @@ public class IndexPluginController {
                     availability.unavailableReason(), schema.capabilities().stream().sorted().map(Enum::name).toList());
         }).toList();
         return TransDTO.success(new Catalog(options, parsers.options(),
-                List.of(new ChunkerOption(com.kwiki.indexing.chunk.plugin.KwikiChunkV1.ID,
-                        "父子分块 v1", true, null)), new Defaults(defaults.indexSchema(), defaults.parsers())));
+                chunkers.all().stream().map(chunker -> {
+                    var availability = chunker.availability();
+                    return new ChunkerOption(chunker.id(), chunker.label(), availability.available(),
+                            availability.unavailableReason());
+                }).toList(), new Defaults(defaults.indexSchema(), defaults.parsers(), defaults.chunker())));
     }
 }

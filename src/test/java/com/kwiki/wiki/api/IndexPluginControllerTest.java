@@ -34,6 +34,18 @@ class IndexPluginControllerTest {
             when(unavailable.capabilities()).thenReturn(java.util.Set.of());
             return new ChunkIndexSchemaRegistry(List.of(new com.kwiki.indexing.schema.KwikiSchemaV1(), unavailable));
         }
+        @Bean com.kwiki.indexing.chunk.plugin.ChunkerRegistry chunkers() {
+            return new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(List.of(chunker("third-chunker", "第三分块器", false),
+                    chunker("kwiki-chunk-1", "父子分块 v1", true)));
+        }
+        private com.kwiki.indexing.chunk.plugin.ChunkerPlugin chunker(String id, String label, boolean available) {
+            var plugin = mock(com.kwiki.indexing.chunk.plugin.ChunkerPlugin.class);
+            when(plugin.id()).thenReturn(id);
+            when(plugin.label()).thenReturn(label);
+            when(plugin.availability()).thenReturn(available ? com.kwiki.indexing.plugin.PluginAvailability.ok()
+                    : com.kwiki.indexing.plugin.PluginAvailability.unavailable("测试分块器不可用"));
+            return plugin;
+        }
         @Bean IndexingDefaultsProperties defaults() { return SchemaTestFixtures.defaults(); }
         @Bean ParserCatalog parsers() {
             var readiness = mock(MultimodalSwitchReadiness.class);
@@ -44,8 +56,8 @@ class IndexPluginControllerTest {
                             java.util.Set.of(), java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING), true))).toList()));
         }
         @Bean IndexPluginController controller(ChunkIndexSchemaRegistry schemas, ParserCatalog parsers,
-                                              IndexingDefaultsProperties defaults) {
-            return new IndexPluginController(schemas, parsers, defaults);
+                                              IndexingDefaultsProperties defaults, com.kwiki.indexing.chunk.plugin.ChunkerRegistry chunkers) {
+            return new IndexPluginController(schemas, parsers, defaults, chunkers);
         }
     }
     @Autowired MockMvc mvc;
@@ -73,6 +85,13 @@ class IndexPluginControllerTest {
                 .andExpect(jsonPath("$.data.parsers[2].requiredCapabilities[0]").value("ENTITY_LINKING"))
                 .andExpect(jsonPath("$.data.defaults.parsers[0]").value("kwiki-parse-2"))
                 .andExpect(jsonPath("$.data.chunkers[0].id").value("kwiki-chunk-1"))
+                .andExpect(jsonPath("$.data.chunkers[0].label").value("父子分块 v1"))
+                .andExpect(jsonPath("$.data.chunkers[0].available").value(true))
+                .andExpect(jsonPath("$.data.chunkers[1].id").value("third-chunker"))
+                .andExpect(jsonPath("$.data.chunkers[1].label").value("第三分块器"))
+                .andExpect(jsonPath("$.data.chunkers[1].available").value(false))
+                .andExpect(jsonPath("$.data.chunkers[1].unavailableReason").value("测试分块器不可用"))
+                .andExpect(jsonPath("$.data.defaults.chunker").value("kwiki-chunk-1"))
                 .andExpect(jsonPath("$.data.defaults.indexSchema").value("kwiki-schema-1"));
     }
 }

@@ -98,7 +98,9 @@ class KwikiSchemaV1Test {
 
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(IndexingDefaultsProperties.class)
-    @Import({KwikiSchemaV1.class, ChunkIndexSchemaRegistry.class, IndexingDefaultsValidator.class})
+    @Import({KwikiSchemaV1.class, ChunkIndexSchemaRegistry.class, IndexingDefaultsValidator.class,
+            com.kwiki.indexing.chunk.plugin.KwikiChunkV1.class,
+            com.kwiki.indexing.chunk.plugin.ChunkerRegistry.class})
     static class SchemaConfiguration {
         @org.springframework.context.annotation.Bean
         com.kwiki.indexing.parse.plugin.DocumentParserRegistry parsers() {

@@ -126,7 +126,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
     private EditableIndexConfig deployedConfig() {
         return new EditableIndexConfig(
                 defaults.parsers().get(defaults.parsers().size() - 1),
-                com.kwiki.indexing.chunk.plugin.KwikiChunkV1.ID,
+                defaults.chunker(),
                 IndexingProperties.DEFAULT_EMBEDDING_PROFILE,
                 properties.qwenEmbedding().model(),
                 properties.qwenEmbedding().dimensions(),

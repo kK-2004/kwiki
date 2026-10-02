@@ -74,8 +74,9 @@ class ElasticsearchIndexBootstrapTest {
     void 首次部署使用注入的默认字段格式() {
         var bootstrap = new ElasticsearchIndexBootstrap(new FakeIndexManager(false, List.of(), null), providerOf(new InMemoryRegistry().proxy),
                 new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1,
-                new com.kwiki.indexing.config.IndexingDefaultsProperties("custom-schema"));
+                new com.kwiki.indexing.config.IndexingDefaultsProperties("custom-schema", List.of("kwiki-parse-1"), "custom-chunker"));
         assertThat(bootstrap.firstDeploymentConfig().indexSchema()).isEqualTo("custom-schema");
+        assertThat(bootstrap.firstDeploymentConfig().chunkerVersion()).isEqualTo("custom-chunker");
     }
 
     @Test

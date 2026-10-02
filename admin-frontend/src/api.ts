@@ -26,7 +26,7 @@ export interface GraphServiceStatus{enabled:boolean;algorithmMode:string;schedul
 export interface PluginOption{id:string;label:string;available:boolean;unavailableReason:string|null}
 export interface ParserOption extends PluginOption{requiredCapabilities:string[]}
 export interface SchemaOption extends PluginOption{capabilities:string[]}
-export interface PluginCatalog{schemas:SchemaOption[];parsers:ParserOption[];chunkers:PluginOption[];defaults:{indexSchema:string}}
+export interface PluginCatalog{schemas:SchemaOption[];parsers:ParserOption[];chunkers:PluginOption[];defaults:{indexSchema:string;parsers?:string[];chunker?:string}}
 export interface GrayProgress{runId:number|null;runState:string|null;switchState:string|null;scanned:number;succeeded:number;failed:number;migrationPending:number;pendingTargets:number}
 export interface GrayRelease{id:number;name:string;parserVersion:string;parserLabel:string;indexVersionNumber:number;physicalName:string;status:"CREATED"|"SYNCING"|"SYNCED"|"SWITCHED"|"ENDED";lastError:string|null;createdBy:string;createdAt:string;switchedAt:string|null;endedAt:string|null;kbs:{kbId:number;name:string}[];progress:GrayProgress;allowedActions:{sync:boolean;switch:boolean;switchBack:boolean;end:boolean}}
 export const api={

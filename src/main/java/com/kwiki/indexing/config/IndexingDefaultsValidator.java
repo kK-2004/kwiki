@@ -3,11 +3,15 @@ package com.kwiki.indexing.config;
 import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
 import org.springframework.stereotype.Component;
 
-/** 启动时确认默认字段格式已注册，防止错误配置进入运行阶段。 */
+/** 启动时确认默认插件已注册，防止错误配置进入运行阶段。 */
 @Component
 public class IndexingDefaultsValidator {
     public IndexingDefaultsValidator(IndexingDefaultsProperties defaults, ChunkIndexSchemaRegistry schemas,
-            com.kwiki.indexing.parse.plugin.DocumentParserRegistry parsers) {
+            com.kwiki.indexing.parse.plugin.DocumentParserRegistry parsers,
+            com.kwiki.indexing.chunk.plugin.ChunkerRegistry chunkers) {
+        if (chunkers.find(defaults.chunker()).isEmpty()) {
+            throw new IllegalStateException("默认分块器未注册：" + defaults.chunker());
+        }
         if (defaults.parsers() == null || defaults.parsers().isEmpty()) {
             throw new IllegalStateException("默认解析器偏好列表不能为空");
         }

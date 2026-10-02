@@ -115,6 +115,16 @@ class IndexPipelineSupportReconcilerTest {
         assertThat(port.cacheIdentity()).isEqualTo(port.getClass().getName());
         assertThat(Map.of()).isNotNull();
     }
+    @Test void 未注册分块器的诊断进入版本健康状态() {
+        var unknown = new EditableIndexConfig("kwiki-parse-1", "missing-chunker", "default", "text-embedding-v4", 1024, "kwiki-schema-1");
+        var version = SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", unknown, "hash");
+        when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc()).thenReturn(List.of(version));
+        when(registry.unsupportedReason(unknown)).thenReturn(Optional.of("分块器 missing-chunker 未注册"));
+        assertThat(reconciler.reconcile()).isEqualTo(1);
+        assertThat(version.isPipelineSupported()).isFalse();
+        assertThat(version.getHealthSummary()).isEqualTo("分块器 missing-chunker 未注册");
+        assertThat(reconciler.reconcile()).isZero();
+    }
     @Test void 未注册解析器的脱敏诊断进入版本健康状态() {
         var version = SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", config(), "hash");
         when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc()).thenReturn(List.of(version));
