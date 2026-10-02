@@ -50,18 +50,20 @@ CHUNK 索引字段格式由独立插件决定，
    `legacy-schema-1` / `legacy-schema-2`，当前部署未注册这些插件，因此
    不可创建、重建或选为目标；不能仅更改 id 将旧映射当作新格式。
 2. 配置 `KWIKI_MULTIMODAL_ENABLED=true`、`KWIKI_VISION_BASE_URL` 和
-   `KWIKI_VISION_API_KEY` 后，不配置显式清单时，系统为每个可用字段格式
-   生成 `kwiki-parse-1` 组合，并为具有 `RESOURCE_IDS` 能力的字段格式生成
-   `kwiki-parse-2` 组合。向量配置沿用 `kwiki.qwen-embedding.*`。
+   `KWIKI_VISION_API_KEY` 后，不配置显式清单时，系统将每个可用字段格式
+   与每个可用分块器配对，生成能力兼容的解析器组合；`kwiki-parse-2` 要求
+   字段格式具有 `RESOURCE_IDS` 能力。向量配置沿用 `kwiki.qwen-embedding.*`。
    任一多模态必需配置缺失时，服务可启动并在管理端显示缺失项，但
    `kwiki-parse-2` 不可用；不会显示密钥值。
 3. `kwiki.indexing.defaults.parsers` 是有序偏好列表，默认
    `[kwiki-parse-2, kwiki-parse-1]`。首次部署管理写操作关闭时使用最后一项
    作为基线；开启时按顺序选择首个可用且与默认字段格式存在受支持组合
-   的解析器，没有兼容组合则失败关闭。列表必须非空、所有 id 必须已注册，
+   的解析器，且分块器固定为 `defaults.chunker`、向量配置固定为部署配置；
+   没有完整受支持组合则失败关闭。列表必须非空、所有 id 必须已注册，
    最后一项必须可用，否则启动失败；基线应选择恒可用插件。
    `kwiki.indexing.defaults.index-schema` 默认为 `kwiki-schema-1`，用于
    首次部署和新建版本的默认字段格式；默认 id 未注册会阻止启动。
+   `kwiki.indexing.defaults.chunker` 默认为 `kwiki-chunk-1`，未注册会阻止启动。
    修改默认值不会修改已有版本的配置或物理索引。管理端通过插件目录
    展示名称、id、能力和不可用原因；新建版本与灰度均可显式选择字段格式，
    灰度保留全局版本的向量模型和维度。
@@ -70,7 +72,8 @@ CHUNK 索引字段格式由独立插件决定，
    是 `index-schema`，不再使用 CHUNK 的 `mapping-schema-version`。
    插件存在且可用、解析器能力需求满足、完整清单匹配后，组合才可执行。
 5. 经管理端（`KWIKI_INDEX_MANAGEMENT_MUTATIONS_ENABLED=true`）创建新
-   版本、重建、校验、切换别名——存量文档只有显式重建后才携带图片语义，
+   版本或灰度 → 开启目标写入 → 存量迁移 → 校验 → 切换别名；
+   存量文档只有显式重建后才携带图片语义，
    绝不静默混用新旧解析结果。部署配置预先加载后，已完成补齐、校验且
    当前流水线可执行的版本可以热切换读别名，无需重启；修改环境变量需
    重新加载应用配置。图构建另要求 `ENTITY_LINKING` 能力。
@@ -97,6 +100,7 @@ kwiki:
     defaults:
       index-schema: kwiki-schema-1
       parsers: [kwiki-parse-2, kwiki-parse-1]
+      chunker: kwiki-chunk-1
     manifests:
       - id: text-with-resources-and-entities
         parser-version: kwiki-parse-1
@@ -114,7 +118,8 @@ kwiki:
 父/子块特有字段装饰和能力集合；`ChunkIndexSchemaRegistry` 自动收集实现，
 统一计算映射摘要，映射构建、校验和文档投影通过该插件执行。
 已被版本使用的实现不得修改字段或 id 语义；字段变化须新 id、新实现，
-随后登记需要的显式清单（或使用默认组合），创建版本、重建、校验、切换。
+随后登记需要的显式清单（或使用默认组合），创建版本、开启写入、迁移、
+校验、切换。
 应覆盖映射与摘要稳定性、投影、能力门禁、未知/不可用插件及清单匹配测试。
 
 ### 新增解析器
@@ -127,11 +132,11 @@ kwiki:
 字段格式必须包含解析器所需全部能力；默认组合只生成可用且能力兼容的组合。
 显式清单仍须登记完整配置，且向量档案、模型、维度与运行环境一致。
 
-上线新插件后，可按需加入 `defaults.parsers` 偏好列表，创建版本、重建、校验、
-切换别名；已有版本不会自动更换解析器。已使用的 id 不得改变语义，行为变化
+上线新插件后，可按需加入 `defaults.parsers` 偏好列表，创建版本、开启写入、
+存量迁移、校验、切换别名；已有版本不会自动更换解析器。已使用的 id 不得改变语义，行为变化
 须使用新 id 和实现。测试应覆盖三个解析入口、附件类型分流、可用性诊断、
-能力门禁、清单匹配及首次部署偏好。分块器仍为既有 `kwiki-chunk-1`，
-新增分块器需另行接入实际流水线。
+能力门禁、清单匹配及首次部署偏好。三类插件及分块器开发约定见
+[索引插件开发与上线说明](index-plugins.md)。
 
 ### 回滚
 
