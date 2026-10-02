@@ -118,7 +118,9 @@ public class PdfboxMultimodalParserV2 implements DocumentParserPlugin {
         if (!"application/pdf".equalsIgnoreCase(request.contentType())) {
             return parser.parse(request.fileName(), request.contentType(), new ByteArrayInputStream(request.content()));
         }
-        readiness.requireReadyFor(ID);
+        if (!availability().available()) {
+            throw new IllegalStateException("解析器 " + ID + " 不可用：" + availability().unavailableReason());
+        }
         requireMultimodal();
         PdfMultimodalParser.PdfExtraction extraction = parser.parsePdfMultimodal(
                 request.fileName(), request.contentType(), request.content());

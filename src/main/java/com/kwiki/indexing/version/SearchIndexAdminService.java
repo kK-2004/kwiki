@@ -4,7 +4,6 @@ import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry;
 import com.kwiki.indexing.plugin.IndexPluginValidationException;
 import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
-import com.kwiki.indexing.gray.ParserCatalog;
 import com.kwiki.indexing.search.ElasticsearchCapacityGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +28,7 @@ public class SearchIndexAdminService {
             "index management mutations are disabled by configuration";
 
     private final ChunkIndexSchemaRegistry schemas;
+    private final com.kwiki.indexing.parse.plugin.DocumentParserRegistry parsers;
     private final SearchIndexVersionService versions;
     private final VersionedIndexingPipelineRegistry pipelines;
     private final ElasticsearchCapacityGuard capacity;
@@ -40,7 +40,9 @@ public class SearchIndexAdminService {
                                    ElasticsearchCapacityGuard capacity,
                                    IndexingProperties indexingProperties,
                                    ObjectProvider<SearchIndexVersionRepository> registry,
-                                   ChunkIndexSchemaRegistry schemas) {
+                                   ChunkIndexSchemaRegistry schemas,
+                                   com.kwiki.indexing.parse.plugin.DocumentParserRegistry parsers) {
+        this.parsers = parsers;
         this.schemas = schemas;
         this.versions = versions;
         this.pipelines = pipelines;
@@ -87,7 +89,10 @@ public class SearchIndexAdminService {
         var schema = schemas.find(config.indexSchema())
                 .filter(plugin -> plugin.availability().available())
                 .orElseThrow(() -> IndexPluginValidationException.unavailableSchema(config.indexSchema()));
-        for (var capability : ParserCatalog.requiredCapabilities(config.parserVersion())) {
+        var parser = parsers.find(config.parserVersion()).orElseThrow(() ->
+                IndexPluginValidationException.unavailableParser(config.parserVersion()));
+        if (!parser.availability().available()) throw IndexPluginValidationException.unavailableParser(config.parserVersion());
+        for (var capability : parser.requiredCapabilities()) {
             if (!schema.capabilities().contains(capability)) {
                 throw IndexPluginValidationException.missingCapability(config.indexSchema(), config.parserVersion(), capability);
             }

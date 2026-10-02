@@ -53,7 +53,7 @@ class SearchIndexAdminServiceTest {
                 new IndexingProperties.Management(true));
         service = new SearchIndexAdminService(core, pipelines, capacity, indexing,
                 com.kwiki.testutil.StandardTestProperties.providerOf(repository),
-                com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+                com.kwiki.indexing.schema.SchemaTestFixtures.schemas(), com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth());
 
         when(repository.findMaxVersionNumber()).thenAnswer(inv ->
                 rows.keySet().stream().max(Integer::compare).orElse(null));
@@ -118,7 +118,7 @@ class SearchIndexAdminServiceTest {
                 pipelines, capacity, new IndexingProperties(null, null, null, null, null,
                 new IndexingProperties.Management(true)),
                 com.kwiki.testutil.StandardTestProperties.providerOf(repository),
-                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)));
+                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)), com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth());
         var config = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, "offline-schema");
         assertThatThrownBy(() -> restricted.createVersion(config)).isInstanceOf(IndexPluginValidationException.class)
                 .hasMessage("字段格式 offline-schema 未注册或不可用");
@@ -136,11 +136,29 @@ class SearchIndexAdminServiceTest {
                 pipelines, capacity, new IndexingProperties(null, null, null, null, null,
                 new IndexingProperties.Management(true)),
                 com.kwiki.testutil.StandardTestProperties.providerOf(repository),
-                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)));
+                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)), com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth());
         var config = new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, "text-only");
         assertThatThrownBy(() -> restricted.createVersion(config)).isInstanceOf(IndexPluginValidationException.class)
                 .hasMessage("字段格式 text-only 不提供解析器 kwiki-parse-2 需要的能力 RESOURCE_IDS");
         assertThatThrownBy(() -> restricted.editVersion(2, config)).isInstanceOf(IndexPluginValidationException.class).hasMessageContaining("RESOURCE_IDS");
+        Mockito.verifyNoInteractions(capacity);
+    }
+
+    @Test
+    void 第三方解析器能力缺失具有安全诊断() {
+        var schema = Mockito.mock(com.kwiki.indexing.schema.ChunkIndexSchema.class);
+        when(schema.id()).thenReturn("text-only");
+        when(schema.availability()).thenReturn(com.kwiki.indexing.plugin.PluginAvailability.ok());
+        when(schema.capabilities()).thenReturn(java.util.Set.of());
+        var restricted = new SearchIndexAdminService(Mockito.mock(SearchIndexVersionService.class),
+                pipelines, capacity, new IndexingProperties(null, null, null, null, null,
+                new IndexingProperties.Management(true)),
+                com.kwiki.testutil.StandardTestProperties.providerOf(repository),
+                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)), new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser("third-parser", java.util.Set.of(), java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING), true))));
+        var config = new EditableIndexConfig("third-parser", "kwiki-chunk-1", "default", "model", 1024, "text-only");
+        assertThatThrownBy(() -> restricted.createVersion(config)).isInstanceOf(IndexPluginValidationException.class)
+                .hasMessage("字段格式 text-only 不提供解析器 third-parser 需要的能力 ENTITY_LINKING");
+        assertThatThrownBy(() -> restricted.editVersion(2, config)).isInstanceOf(IndexPluginValidationException.class).hasMessageContaining("ENTITY_LINKING");
         Mockito.verifyNoInteractions(capacity);
     }
 
@@ -170,7 +188,7 @@ class SearchIndexAdminServiceTest {
                         new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas())),
                 pipelines, capacity, readOnly,
                 com.kwiki.testutil.StandardTestProperties.providerOf(repository),
-                com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+                com.kwiki.indexing.schema.SchemaTestFixtures.schemas(), com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth());
 
         assertThatThrownBy(() -> disabled.createVersion(config(1024)))
                 .isInstanceOf(IllegalStateException.class)

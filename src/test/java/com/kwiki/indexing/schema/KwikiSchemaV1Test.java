@@ -64,6 +64,8 @@ class KwikiSchemaV1Test {
             assertThat(context).hasNotFailed();
             assertThat(context.getBean(IndexingDefaultsProperties.class).indexSchema())
                     .isEqualTo(KwikiSchemaV1.ID);
+            assertThat(context.getBean(IndexingDefaultsProperties.class).parsers())
+                    .containsExactly("kwiki-parse-2", "kwiki-parse-1");
         });
     }
 
@@ -75,6 +77,20 @@ class KwikiSchemaV1Test {
                         .hasStackTraceContaining("默认字段格式未注册：legacy-schema-2"));
     }
 
+    @Test
+    void 配置偏好列表按顺序绑定且未知项阻止启动() {
+        contextRunner.withPropertyValues("kwiki.indexing.defaults.parsers=kwiki-parse-1,kwiki-parse-2")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(IndexingDefaultsProperties.class).parsers())
+                            .containsExactly("kwiki-parse-1", "kwiki-parse-2");
+                });
+        contextRunner.withPropertyValues("kwiki.indexing.defaults.parsers=unknown-parser,kwiki-parse-1")
+                .run(context -> assertThat(context).hasFailed().getFailure()
+                        .hasRootCauseInstanceOf(IllegalStateException.class)
+                        .hasStackTraceContaining("默认解析器未注册：unknown-parser"));
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<String, Object> properties(Map<String, Object> mapping) {
         return (Map<String, Object>) ((Map<String, Object>) mapping.get("mappings")).get("properties");
@@ -84,5 +100,9 @@ class KwikiSchemaV1Test {
     @EnableConfigurationProperties(IndexingDefaultsProperties.class)
     @Import({KwikiSchemaV1.class, ChunkIndexSchemaRegistry.class, IndexingDefaultsValidator.class})
     static class SchemaConfiguration {
+        @org.springframework.context.annotation.Bean
+        com.kwiki.indexing.parse.plugin.DocumentParserRegistry parsers() {
+            return com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth();
+        }
     }
 }

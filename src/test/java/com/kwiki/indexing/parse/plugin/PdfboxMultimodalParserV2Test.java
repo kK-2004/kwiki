@@ -55,6 +55,7 @@ class PdfboxMultimodalParserV2Test {
 
     @Test
     void importPdfOnlyAssemblesTextAndNonPdfPreservesTikaOutput() {
+        when(readiness.ready()).thenReturn(true);
         byte[] content = {1};
         when(parser.parsePdfMultimodal("source.pdf", "APPLICATION/PDF", content)).thenReturn(
                 new PdfMultimodalParser.PdfExtraction(List.of(new PdfMultimodalParser.TextItem("图片前"),
@@ -63,7 +64,7 @@ class PdfboxMultimodalParserV2Test {
         PdfboxMultimodalParserV2 plugin = plugin(multimodal, sources);
         assertThat(plugin.parseImport(new ImportParseRequest(3, "source.pdf", "APPLICATION/PDF", content))
                 .plainText()).isEqualTo("图片前\n\n图片后");
-        verify(readiness).requireReadyFor(PdfboxMultimodalParserV2.ID);
+        verify(readiness).ready();
         StructuredDocument expected = new StructuredDocument(List.of(), "正文");
         when(parser.parse(eq("source.docx"), eq("document/type"), any(InputStream.class)))
                 .thenAnswer(call -> {
@@ -85,11 +86,11 @@ class PdfboxMultimodalParserV2Test {
         assertThatThrownBy(() -> unavailable.parseImport(
                 new ImportParseRequest(3, "source.pdf", "application/pdf", new byte[]{1})))
                 .isInstanceOf(IllegalStateException.class);
-        doThrow(new IllegalStateException("missing configuration")).when(readiness)
-                .requireReadyFor(PdfboxMultimodalParserV2.ID);
+        when(readiness.ready()).thenReturn(false);
+        when(readiness.missingConfiguration()).thenReturn(List.of("missing configuration"));
         assertThatThrownBy(() -> plugin(multimodal, sources).parseImport(
                 new ImportParseRequest(3, "source.pdf", "application/pdf", new byte[]{1})))
-                .isInstanceOf(IllegalStateException.class).hasMessage("missing configuration");
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("missing configuration");
         verifyNoInteractions(parser, storage);
     }
 

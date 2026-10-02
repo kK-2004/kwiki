@@ -60,6 +60,7 @@ class SearchIndexGrayReleaseControllerTest {
 
     @Test
     void 列表视图带显示名_物理名与按状态计算的操作() {
+        when(parsers.label("kwiki-parse-2")).thenReturn("pdfbox-v2");
         when(service.list()).thenReturn(List.of(release(GrayReleaseStatus.SYNCED)));
         when(runs.findFirstByVersionNumberOrderByIdDesc(4)).thenReturn(Optional.empty());
         var views = controller.list().getData();

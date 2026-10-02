@@ -89,6 +89,7 @@ class GrayReleaseServiceTest {
 
     @Test
     void 创建灰度_以全局配置为基础替换解析器并登记知识库范围() {
+        when(parsers.label("kwiki-parse-2")).thenReturn("pdfbox-v2");
         GrayRelease created = service.create(null, "kwiki-parse-2", null, null, List.of(7L, 9L), "admin");
 
         verify(parsers).requireAvailable("kwiki-parse-2");

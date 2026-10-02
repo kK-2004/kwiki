@@ -115,12 +115,14 @@ class ElasticsearchIndexBootstrapTest {
                 org.mockito.Mockito.mock(com.kwiki.indexing.gray.ParserCatalog.class);
         com.kwiki.indexing.config.MultimodalSwitchReadiness readiness =
                 org.mockito.Mockito.mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class);
-        org.mockito.Mockito.when(readiness.ready()).thenReturn(true);
+        org.mockito.Mockito.when(parsers.options()).thenReturn(new com.kwiki.indexing.gray.ParserCatalog(com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth()).options());
+        org.mockito.Mockito.when(parsers.configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-1"), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> java.util.Optional.of((EditableIndexConfig) call.getArgument(1)));
         EditableIndexConfig latestParseOne = new EditableIndexConfig(
                 "kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "kwiki-schema-1");
         org.mockito.Mockito.when(parsers.configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-1"),
                 org.mockito.ArgumentMatchers.any())).thenReturn(java.util.Optional.of(latestParseOne));
-        bootstrap.setFirstDeploymentSupport(parsers, readiness, indexing(false), recorder);
+        bootstrap.setFirstDeploymentSupport(parsers, indexing(false), recorder);
 
         bootstrap.run(null);
 
@@ -147,12 +149,14 @@ class ElasticsearchIndexBootstrapTest {
                 org.mockito.Mockito.mock(com.kwiki.indexing.gray.ParserCatalog.class);
         com.kwiki.indexing.config.MultimodalSwitchReadiness readiness =
                 org.mockito.Mockito.mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class);
-        org.mockito.Mockito.when(readiness.ready()).thenReturn(true);
+        org.mockito.Mockito.when(parsers.options()).thenReturn(new com.kwiki.indexing.gray.ParserCatalog(com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth()).options());
+        org.mockito.Mockito.when(parsers.configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-1"), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> java.util.Optional.of((EditableIndexConfig) call.getArgument(1)));
         EditableIndexConfig multimodal = new EditableIndexConfig(
                 "kwiki-parse-2", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "kwiki-schema-1");
         org.mockito.Mockito.when(parsers.configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-2"),
                 org.mockito.ArgumentMatchers.any())).thenReturn(java.util.Optional.of(multimodal));
-        bootstrap.setFirstDeploymentSupport(parsers, readiness, indexing(true), recorder);
+        bootstrap.setFirstDeploymentSupport(parsers, indexing(true), recorder);
 
         bootstrap.run(null);
 
@@ -174,8 +178,10 @@ class ElasticsearchIndexBootstrapTest {
                 org.mockito.Mockito.mock(com.kwiki.indexing.gray.ParserCatalog.class);
         com.kwiki.indexing.config.MultimodalSwitchReadiness readiness =
                 org.mockito.Mockito.mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class);
-        org.mockito.Mockito.when(readiness.ready()).thenReturn(false);
-        bootstrap.setFirstDeploymentSupport(parsers, readiness, indexing(true),
+        org.mockito.Mockito.when(parsers.options()).thenReturn(new com.kwiki.indexing.gray.ParserCatalog(com.kwiki.indexing.parse.plugin.ParserTestFixtures.unavailableTwo()).options());
+        org.mockito.Mockito.when(parsers.configFor(org.mockito.ArgumentMatchers.eq("kwiki-parse-1"), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> java.util.Optional.of((EditableIndexConfig) call.getArgument(1)));
+        bootstrap.setFirstDeploymentSupport(parsers, indexing(true),
                 org.mockito.Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class));
 
         bootstrap.run(null);
@@ -196,7 +202,6 @@ class ElasticsearchIndexBootstrapTest {
                 org.mockito.Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class);
         bootstrap.setFirstDeploymentSupport(
                 org.mockito.Mockito.mock(com.kwiki.indexing.gray.ParserCatalog.class),
-                org.mockito.Mockito.mock(com.kwiki.indexing.config.MultimodalSwitchReadiness.class),
                 indexing(true), recorder);
 
         bootstrap.run(null);
@@ -432,5 +437,23 @@ class ElasticsearchIndexBootstrapTest {
         public void createInitialAlias(String indexName) {
             calls.add("alias:" + indexName);
         }
+    }
+
+    @Test void 自定义偏好在写入关闭取基线而开启取首个可执行第三方解析器() {
+        var defaults = new com.kwiki.indexing.config.IndexingDefaultsProperties("kwiki-schema-1",
+                List.of("third-parser", "kwiki-parse-1"));
+        var bootstrap = new ElasticsearchIndexBootstrap(new FakeIndexManager(false, List.of(), null),
+                providerOf(new InMemoryRegistry().proxy), new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()),
+                properties(), 1, defaults);
+        var registry = new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(
+                new com.kwiki.indexing.parse.plugin.TikaParserV1(com.kwiki.indexing.parse.DocumentParseService.forTests()),
+                new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser("third-parser", java.util.Set.of(), java.util.Set.of(), true)));
+        var catalog = new com.kwiki.indexing.gray.ParserCatalog(registry);
+        var recorder = Mockito.mock(com.kwiki.indexing.version.BootstrapMigrationRecorder.class);
+        bootstrap.setFirstDeploymentSupport(catalog, indexing(false), recorder);
+        assertThat(bootstrap.firstDeploymentConfig().parserVersion()).isEqualTo("kwiki-parse-1");
+        bootstrap.setFirstDeploymentSupport(catalog, indexing(true), recorder);
+        assertThat(bootstrap.firstDeploymentConfig().parserVersion()).isEqualTo("third-parser");
+        assertThat(bootstrap.firstDeploymentConfig().indexSchema()).isEqualTo("kwiki-schema-1");
     }
 }

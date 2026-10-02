@@ -18,15 +18,15 @@ class ParserCatalogTest {
         MultimodalSwitchReadiness readiness = mock(MultimodalSwitchReadiness.class);
         when(readiness.ready()).thenReturn(false);
         when(readiness.missingConfiguration()).thenReturn(List.of("kwiki.indexing.multimodal.vision.base-url"));
-        ParserCatalog catalog = new ParserCatalog(readiness);
+        ParserCatalog catalog = new ParserCatalog(com.kwiki.indexing.parse.plugin.ParserTestFixtures.unavailableTwo());
 
         assertThat(catalog.options()).extracting(ParserCatalog.ParserOption::id)
                 .containsExactly("kwiki-parse-1", "kwiki-parse-2");
         assertThat(catalog.options().get(0).label()).isEqualTo("tika-v1");
         assertThat(catalog.options().get(0).available()).isTrue();
-        assertThat(catalog.options().get(1).label()).isEqualTo("pdfbox-v2");
+        assertThat(catalog.options().get(1).label()).isEqualTo("kwiki-parse-2");
         assertThat(catalog.options().get(1).available()).isFalse();
-        assertThat(catalog.options().get(1).unavailableReason()).contains("base-url");
+        assertThat(catalog.options().get(1).unavailableReason()).contains("测试不可用");
     }
 
     @Test
@@ -34,12 +34,12 @@ class ParserCatalogTest {
         MultimodalSwitchReadiness readiness = mock(MultimodalSwitchReadiness.class);
         when(readiness.ready()).thenReturn(false);
         when(readiness.missingConfiguration()).thenReturn(List.of("x"));
-        ParserCatalog catalog = new ParserCatalog(readiness);
+        ParserCatalog catalog = new ParserCatalog(com.kwiki.indexing.parse.plugin.ParserTestFixtures.unavailableTwo());
         assertThatThrownBy(() -> catalog.requireAvailable("kwiki-parse-2")).isInstanceOf(ConflictException.class);
         assertThatThrownBy(() -> catalog.requireAvailable("nope")).isInstanceOf(ConflictException.class);
         catalog.requireAvailable("kwiki-parse-1");
-        assertThat(ParserCatalog.label("kwiki-parse-2")).isEqualTo("pdfbox-v2");
-        assertThat(ParserCatalog.label("custom")).isEqualTo("custom");
+        assertThat(catalog.label("kwiki-parse-2")).isEqualTo("kwiki-parse-2");
+        assertThat(catalog.label("custom")).isEqualTo("custom");
     }
 
     private static com.kwiki.indexing.config.IndexingProperties.Manifest manifest(
@@ -61,7 +61,7 @@ class ParserCatalogTest {
         com.kwiki.indexing.version.SearchIndexVersion version = mock(com.kwiki.indexing.version.SearchIndexVersion.class);
         when(version.editableConfig()).thenReturn(selected);
         when(versions.findBySelectedTrue()).thenReturn(java.util.Optional.of(version));
-        return new ParserCatalog(readiness, pipelines, versions, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
+        return new ParserCatalog(com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth(), pipelines, versions, com.kwiki.indexing.schema.SchemaTestFixtures.defaults());
     }
 
     @Test
@@ -104,5 +104,19 @@ class ParserCatalogTest {
         assertThat(option.available()).isFalse();
         assertThat(option.unavailableReason()).contains("qwen").contains("1024").contains("kwiki.indexing.manifests");
         assertThatThrownBy(() -> catalog.requireAvailable("kwiki-parse-2")).isInstanceOf(ConflictException.class);
+    }
+
+    @Test void 第三方目录来自注册表并展示能力及拒绝原因() {
+        var plugin = new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser("third-parser", java.util.Set.of(),
+                java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING), false);
+        var catalog = new ParserCatalog(new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(plugin)));
+        assertThat(catalog.options()).singleElement().satisfies(option -> {
+            assertThat(option.id()).isEqualTo("third-parser");
+            assertThat(option.requiredCapabilities()).containsExactly("ENTITY_LINKING");
+            assertThat(option.available()).isFalse();
+            assertThat(option.unavailableReason()).isEqualTo("测试不可用");
+        });
+        assertThat(catalog.label("unknown-parser")).isEqualTo("unknown-parser");
+        assertThatThrownBy(() -> catalog.requireAvailable("third-parser")).hasMessageContaining("测试不可用");
     }
 }

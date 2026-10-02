@@ -29,6 +29,7 @@ public class SearchIndexAdminQueryService {
     private final MeterRegistry metrics;
     private final MultimodalSwitchReadiness multimodalReadiness;
     private final ChunkIndexSchemaRegistry schemas;
+    private final com.kwiki.indexing.parse.plugin.DocumentParserRegistry parsers;
 
     public SearchIndexAdminQueryService(SearchIndexVersionRepository versions,
             SearchIndexRebuildRunRepository runs, SearchIndexRebuildRangeRepository ranges,
@@ -36,7 +37,8 @@ public class SearchIndexAdminQueryService {
             IndexVersionRetentionAdvisor retention, ElasticsearchIndexManager indexes,
             IndexingJobTargetStore targetStore, MeterRegistry metrics,
             MultimodalSwitchReadiness multimodalReadiness,
-            ChunkIndexSchemaRegistry schemas) {
+            ChunkIndexSchemaRegistry schemas, com.kwiki.indexing.parse.plugin.DocumentParserRegistry parsers) {
+        this.parsers = parsers;
         this.schemas = schemas;
         this.versions=versions; this.runs=runs; this.ranges=ranges;
         this.validations=validations; this.audits=audits; this.retention=retention;
@@ -130,12 +132,15 @@ public class SearchIndexAdminQueryService {
         boolean activeRun = runs.existsByVersionNumberAndStateIn(version.getVersionNumber(),
                 List.of(RebuildRunState.RUNNING.name(), RebuildRunState.PAUSED.name()));
         IndexVersionSnapshot snapshot=version.toSnapshot(activeRun);
-        boolean multimodalBlocked = multimodalReadiness.isMultimodal(
-                version.editableConfig().parserVersion()) && !multimodalReadiness.ready();
+        String parserId = version.editableConfig().parserVersion();
+        var parser = parsers.find(parserId);
+        String parserProblem = parser.isEmpty() ? "解析器 " + parserId + " 未注册"
+                : parser.get().availability().available() ? null
+                : "解析器 " + parserId + " 不可用：" + parser.get().availability().unavailableReason();
         // 灰度版本只服务范围内知识库，生命周期由灰度发布管理
         boolean scoped = kbScope != null && kbScope.isScoped(version.getVersionNumber());
         Actions actions = actionsFor(version, snapshot, activeRun, scoped,
-                multimodalBlocked, cleanupCandidate);
+                parserProblem, cleanupCandidate);
         EditableIndexConfig config=version.editableConfig();
         return new VersionView(version.getVersionNumber(),version.getPhysicalName(),config,
                 version.getConfigRevision(),version.getBuiltConfigRevision(),snapshot.dirty(),
@@ -159,7 +164,7 @@ public class SearchIndexAdminQueryService {
 
     /** 全局页可执行动作：写入由管理员开关控制，迁移只能在写入开启后发起。 */
     static Actions actionsFor(SearchIndexVersion version, IndexVersionSnapshot snapshot,
-                              boolean activeRun, boolean scoped, boolean multimodalBlocked,
+                              boolean activeRun, boolean scoped, String parserProblem,
                               boolean cleanupCandidate) {
         boolean writeEnabled = version.isWriteEnabled();
         boolean migrated = !snapshot.dirty() && snapshot.buildState() == IndexBuildState.BUILT
@@ -170,12 +175,12 @@ public class SearchIndexAdminQueryService {
         allowed.put("writeToggle", !scoped && idle && (writeEnabled
                 ? !version.isSelected() : version.isPipelineSupported()));
         allowed.put("migrate", !scoped && idle && writeEnabled && !migrated
-                && version.isPipelineSupported());
+                && version.isPipelineSupported() && parserProblem == null);
         allowed.put("validate", !scoped && idle && writeEnabled && migrated);
         allowed.put("select", !scoped && idle && !version.isSelected() && writeEnabled
-                && migrated && !multimodalBlocked);
+                && migrated && parserProblem == null);
         allowed.put("delete", cleanupCandidate && idle && !writeEnabled);
-        String blocked = !scoped && idle && !writeEnabled && !migrated ? "请先开启写入" : null;
+        String blocked = parserProblem != null ? parserProblem : !scoped && idle && !writeEnabled && !migrated ? "请先开启写入" : null;
         return new Actions(Map.copyOf(allowed), blocked);
     }
 

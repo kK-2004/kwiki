@@ -120,6 +120,8 @@ public class VersionedIndexingPipelineRegistry {
         if (!schema.get().availability().available()) return Optional.of("字段格式 " + config.indexSchema() + " 不可用："
                 + schema.get().availability().unavailableReason());
         var plugin = parserRegistry.find(config.parserVersion());
+        if (plugin.isEmpty()) return Optional.of("解析器 " + config.parserVersion() + " 未注册");
+        if (!plugin.get().availability().available()) return Optional.of("解析器 " + config.parserVersion() + " 不可用：" + plugin.get().availability().unavailableReason());
         if (plugin.isPresent() && !schema.get().capabilities().containsAll(plugin.get().requiredCapabilities())) {
             return Optional.of("字段格式 " + config.indexSchema() + " 不支持解析器要求的能力");
         }

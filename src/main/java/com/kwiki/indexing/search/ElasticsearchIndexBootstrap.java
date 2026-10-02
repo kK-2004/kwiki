@@ -1,11 +1,8 @@
 package com.kwiki.indexing.search;
 
-import com.kwiki.indexing.parse.plugin.PdfboxMultimodalParserV2;
-import com.kwiki.indexing.parse.plugin.TikaParserV1;
 import com.kwiki.indexing.config.IndexingDefaultsProperties;
 
 import com.kwiki.indexing.config.IndexingProperties;
-import com.kwiki.indexing.config.MultimodalSwitchReadiness;
 import com.kwiki.indexing.gray.ParserCatalog;
 import com.kwiki.indexing.version.BootstrapMigrationRecorder;
 import com.kwiki.indexing.job.IndexingWorker;
@@ -107,19 +104,16 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
         ready = true;
     }
 
-    /** 首次部署选择解析器与写入基线所需的协作者；未装配（离线测试）时退回 parse-1 且不写基线。 */
+    /** 首次部署选择解析器与写入基线所需的协作者；未装配（离线测试）时使用偏好基线。 */
     private ParserCatalog parsers;
-    private MultimodalSwitchReadiness multimodalReadiness;
     private IndexingProperties indexingProperties;
     private BootstrapMigrationRecorder baselineRecorder;
 
     @Autowired(required = false)
     public void setFirstDeploymentSupport(ParserCatalog parsers,
-                                          MultimodalSwitchReadiness multimodalReadiness,
                                           IndexingProperties indexingProperties,
                                           BootstrapMigrationRecorder baselineRecorder) {
         this.parsers = parsers;
-        this.multimodalReadiness = multimodalReadiness;
         this.indexingProperties = indexingProperties;
         this.baselineRecorder = baselineRecorder;
     }
@@ -132,7 +126,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
     /** 当前部署实际生效的结构配置（隐式默认代，见任务 1.4 注记）。 */
     private EditableIndexConfig deployedConfig() {
         return new EditableIndexConfig(
-                TikaParserV1.ID,
+                defaults.parsers().get(defaults.parsers().size() - 1),
                 IndexingWorker.CHUNKER_VERSION,
                 IndexingProperties.DEFAULT_EMBEDDING_PROFILE,
                 properties.qwenEmbedding().model(),
@@ -140,34 +134,21 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
                 defaults.indexSchema());
     }
 
-    /**
-     * 首次部署的全局配置：管理写操作已开启、多模态配置齐全且登记了与默认向量模型兼容的
-     * parse-2 结构清单时用 kwiki-parse-2，否则用 kwiki-parse-1；字段格式始终使用部署默认值。只影响全新部署，已有部署的解析器与结构版本只能通过
-     * 新建版本 → 存量迁移 → 切换来更换。
-     */
+    /** 首次部署按配置偏好选择可执行解析器，字段格式保持部署默认值。 */
     EditableIndexConfig firstDeploymentConfig() {
-        EditableIndexConfig legacy = deployedConfig();
-        if (parsers == null || multimodalReadiness == null || indexingProperties == null) {
-            return legacy;
-        }
-        EditableIndexConfig base = legacy;
-        if (!Boolean.TRUE.equals(indexingProperties.management().mutationsEnabled())) {
-            log.info("first deployment uses {}: management mutations are disabled", base.parserVersion());
+        EditableIndexConfig base = deployedConfig();
+        if (parsers == null || indexingProperties == null
+                || !Boolean.TRUE.equals(indexingProperties.management().mutationsEnabled())) {
             return base;
         }
-        if (!multimodalReadiness.ready()) {
-            log.info("first deployment uses {}: multimodal configuration missing {}",
-                    base.parserVersion(), multimodalReadiness.missingConfiguration());
-            return base;
+        for (String id : defaults.parsers()) {
+            boolean available = parsers.options().stream().anyMatch(option -> option.id().equals(id) && option.available());
+            if (!available) continue;
+            var candidate = parsers.configFor(id, base)
+                    .filter(config -> config.indexSchema().equals(defaults.indexSchema()));
+            if (candidate.isPresent()) return candidate.get();
         }
-        return parsers.configFor(PdfboxMultimodalParserV2.ID, base)
-                .filter(config -> config.indexSchema().equals(defaults.indexSchema()))
-                .orElseGet(() -> {
-                    log.warn("first deployment uses {}: no {} manifest compatible with model {} ({} dims)",
-                            base.parserVersion(), PdfboxMultimodalParserV2.ID,
-                            base.embeddingModel(), base.embeddingDimensions());
-                    return base;
-                });
+        throw new IllegalStateException("默认解析器偏好中没有与默认字段格式兼容的受支持流水线");
     }
 
     private void bootstrapFirstDeployment(SearchIndexVersionRepository registry) throws Exception {

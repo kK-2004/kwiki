@@ -44,7 +44,7 @@ class AliasSwitchServiceTest {
         when(audits.save(any())).thenAnswer(invocation->invocation.getArgument(0));
         AliasSwitchService service=new AliasSwitchService(new KwikiDistributedLocks(
                 com.kwiki.testutil.StandardTestProperties.providerOf(factory)),versions,
-                validations,indexes,selection,audits,properties(), mock(MultimodalSwitchReadiness.class));
+                validations,indexes,selection,audits,properties(), com.kwiki.indexing.parse.plugin.ParserTestFixtures.named("parser"));
 
         var result=service.select(2,"admin");
 
@@ -60,7 +60,7 @@ class AliasSwitchServiceTest {
                 com.kwiki.testutil.StandardTestProperties.nullProvider()),
                 mock(SearchIndexVersionRepository.class),mock(SearchIndexValidationService.class),
                 mock(ElasticsearchIndexManager.class),mock(SearchIndexSelectionRegistry.class),
-                mock(SearchIndexAuditRepository.class),properties(), mock(MultimodalSwitchReadiness.class));
+                mock(SearchIndexAuditRepository.class),properties(), com.kwiki.indexing.parse.plugin.ParserTestFixtures.named("parser"));
         assertThat(service.select(2,"admin").code()).isEqualTo("BUSY");
     }
 
@@ -78,9 +78,7 @@ class AliasSwitchServiceTest {
                 SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", config, "h")));
         when(versions.findByVersionNumber(2)).thenReturn(Optional.of(
                 SearchIndexVersion.bootstrapped(2, "kwiki-chunks-v2", config, "h")));
-        MultimodalSwitchReadiness readiness = mock(MultimodalSwitchReadiness.class);
-        org.mockito.Mockito.doThrow(new IllegalStateException("missing configuration: KWIKI_VISION_API_KEY"))
-                .when(readiness).requireReadyFor("kwiki-parse-2");
+        var readiness = com.kwiki.indexing.parse.plugin.ParserTestFixtures.unavailableTwo();
         var indexes = mock(ElasticsearchIndexManager.class);
         var audits = mock(SearchIndexAuditRepository.class);
         var validations = mock(SearchIndexValidationService.class);
@@ -90,7 +88,38 @@ class AliasSwitchServiceTest {
                 properties(), readiness);
 
         assertThatThrownBy(() -> service.select(2, "admin"))
-                .hasMessageContaining("KWIKI_VISION_API_KEY");
+                .hasMessageContaining("测试不可用");
+        verify(indexes, never()).atomicSwitchAlias(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        verify(validations, never()).currentReadyReport(2);
+        verify(lock).unlock();
+    }
+
+    @Test
+    void unknownParserPreventsAliasSwitch() throws Exception {
+        DistributedLock lock = mock(DistributedLock.class);
+        when(lock.tryLock(2000, 30000, TimeUnit.MILLISECONDS)).thenReturn(true);
+        when(lock.isHeldByCurrentThread()).thenReturn(true);
+        DistributedLockFactory factory = mock(DistributedLockFactory.class);
+        when(factory.getDistributedLock("kwiki:lock:search-index-alias")).thenReturn(lock);
+        var versions = mock(SearchIndexVersionRepository.class);
+        var config = new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1",
+                "default", "model", 1024, "kwiki-schema-1");
+        when(versions.findBySelectedTrue()).thenReturn(Optional.of(
+                SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", config, "h")));
+        when(versions.findByVersionNumber(2)).thenReturn(Optional.of(
+                SearchIndexVersion.bootstrapped(2, "kwiki-chunks-v2", config, "h")));
+        var readiness = com.kwiki.indexing.parse.plugin.ParserTestFixtures.named("other-parser");
+        var indexes = mock(ElasticsearchIndexManager.class);
+        var audits = mock(SearchIndexAuditRepository.class);
+        var validations = mock(SearchIndexValidationService.class);
+        AliasSwitchService service = new AliasSwitchService(new KwikiDistributedLocks(
+                com.kwiki.testutil.StandardTestProperties.providerOf(factory)), versions,
+                validations, indexes, mock(SearchIndexSelectionRegistry.class), audits,
+                properties(), readiness);
+
+        assertThatThrownBy(() -> service.select(2, "admin"))
+                .hasMessageContaining("kwiki-parse-2 未注册");
         verify(indexes, never()).atomicSwitchAlias(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
         verify(validations, never()).currentReadyReport(2);
@@ -103,7 +132,7 @@ class AliasSwitchServiceTest {
                 com.kwiki.testutil.StandardTestProperties.nullProvider()),
                 mock(SearchIndexVersionRepository.class), mock(SearchIndexValidationService.class),
                 mock(ElasticsearchIndexManager.class), mock(SearchIndexSelectionRegistry.class),
-                mock(SearchIndexAuditRepository.class), properties(), mock(MultimodalSwitchReadiness.class));
+                mock(SearchIndexAuditRepository.class), properties(), com.kwiki.indexing.parse.plugin.ParserTestFixtures.named("parser"));
         com.kwiki.indexing.gray.IndexVersionKbScope scope =
                 org.mockito.Mockito.mock(com.kwiki.indexing.gray.IndexVersionKbScope.class);
         org.mockito.Mockito.when(scope.isScoped(3)).thenReturn(true);

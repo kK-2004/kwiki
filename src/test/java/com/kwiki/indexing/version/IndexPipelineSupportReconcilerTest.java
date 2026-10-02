@@ -115,4 +115,12 @@ class IndexPipelineSupportReconcilerTest {
         assertThat(port.cacheIdentity()).isEqualTo(port.getClass().getName());
         assertThat(Map.of()).isNotNull();
     }
+    @Test void 未注册解析器的脱敏诊断进入版本健康状态() {
+        var version = SearchIndexVersion.bootstrapped(1, "kwiki-chunks-v1", config(), "hash");
+        when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc()).thenReturn(List.of(version));
+        when(registry.unsupportedReason(config())).thenReturn(Optional.of("解析器 missing-parser 未注册"));
+        reconciler.reconcile();
+        assertThat(version.isPipelineSupported()).isFalse();
+        assertThat(version.getHealthSummary()).isEqualTo("解析器 missing-parser 未注册");
+    }
 }

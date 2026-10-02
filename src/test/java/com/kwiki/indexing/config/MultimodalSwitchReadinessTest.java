@@ -22,11 +22,6 @@ class MultimodalSwitchReadinessTest {
         assertThat(readiness(false, "", "").missingConfiguration())
                 .containsExactly("KWIKI_MULTIMODAL_ENABLED=true", "KWIKI_VISION_BASE_URL",
                         "KWIKI_VISION_API_KEY");
-        assertThatThrownBy(() -> readiness(true, "", "secret")
-                .requireReadyFor("kwiki-parse-2"))
-                .hasMessageContaining("KWIKI_VISION_BASE_URL")
-                .hasMessageNotContaining("secret");
-        readiness(false, "", "").requireReadyFor("kwiki-parse-1");
         assertThat(readiness(true, "https://vision.example/v1", "secret").ready()).isTrue();
     }
 

@@ -1,39 +1,32 @@
 package com.kwiki.indexing.gray;
 
-import com.kwiki.indexing.parse.plugin.PdfboxMultimodalParserV2;
-import com.kwiki.indexing.parse.plugin.TikaParserV1;
-import com.kwiki.indexing.config.MultimodalSwitchReadiness;
 import com.kwiki.indexing.plugin.IndexCapability;
 import com.kwiki.wiki.api.ConflictException;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Map;
+import com.kwiki.indexing.parse.plugin.DocumentParserRegistry;
 
-/** 当前部署可用的解析器目录。新增解析器时在此登记（二期改为注册表）。 */
+/** 当前部署可用的解析器目录。由插件注册表提供。 */
 @Component
 public class ParserCatalog {
 
-    private static final Map<String, String> LABELS = Map.of(
-            TikaParserV1.ID, "tika-v1",
-            PdfboxMultimodalParserV2.ID, "pdfbox-v2");
-
-    private final MultimodalSwitchReadiness readiness;
+    private final DocumentParserRegistry registry;
     private final com.kwiki.indexing.config.IndexingDefaultsProperties defaults;
     /** 流水线注册表与版本注册表；为 null（离线测试）时不做结构清单匹配。 */
     private final com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines;
     private final com.kwiki.indexing.version.SearchIndexVersionRepository versions;
 
-    public ParserCatalog(MultimodalSwitchReadiness readiness) {
-        this(readiness, null, null, new com.kwiki.indexing.config.IndexingDefaultsProperties("kwiki-schema-1"));
+    public ParserCatalog(DocumentParserRegistry registry) {
+        this(registry, null, null, new com.kwiki.indexing.config.IndexingDefaultsProperties("kwiki-schema-1"));
     }
 
     @org.springframework.beans.factory.annotation.Autowired
-    public ParserCatalog(MultimodalSwitchReadiness readiness,
+    public ParserCatalog(DocumentParserRegistry registry,
                          @org.springframework.lang.Nullable com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines,
                          @org.springframework.lang.Nullable com.kwiki.indexing.version.SearchIndexVersionRepository versions,
                          com.kwiki.indexing.config.IndexingDefaultsProperties defaults) {
-        this.readiness = readiness;
+        this.registry = registry;
         this.defaults = defaults;
         this.pipelines = pipelines;
         this.versions = versions;
@@ -85,30 +78,26 @@ public class ParserCatalog {
     public record ParserOption(String id, String label, boolean available, String unavailableReason,
                                List<String> requiredCapabilities) { }
 
-    public static List<IndexCapability> requiredCapabilities(String parserVersion) {
-        return PdfboxMultimodalParserV2.ID.equals(parserVersion)
-                ? List.of(IndexCapability.RESOURCE_IDS) : List.of();
+    public List<IndexCapability> requiredCapabilities(String parserVersion) {
+        return registry.find(parserVersion).map(plugin -> plugin.requiredCapabilities().stream().sorted().toList())
+                .orElse(List.of());
     }
 
-    private static List<String> capabilityNames(String parserVersion) {
+    private List<String> capabilityNames(String parserVersion) {
         return requiredCapabilities(parserVersion).stream().map(Enum::name).toList();
     }
 
-    public static String label(String parserVersion) {
-        return LABELS.getOrDefault(parserVersion, parserVersion);
+    public String label(String parserVersion) {
+        return registry.find(parserVersion).map(plugin -> plugin.label()).orElse(parserVersion);
     }
 
     public List<ParserOption> options() {
-        String tikaProblem = manifestProblem(TikaParserV1.ID);
-        String multimodalProblem = readiness.ready()
-                ? manifestProblem(PdfboxMultimodalParserV2.ID)
-                : "缺少配置：" + String.join("、", readiness.missingConfiguration());
-        return List.of(
-                new ParserOption(TikaParserV1.ID, label(TikaParserV1.ID),
-                        tikaProblem == null, tikaProblem, capabilityNames(TikaParserV1.ID)),
-                new ParserOption(PdfboxMultimodalParserV2.ID,
-                        label(PdfboxMultimodalParserV2.ID), multimodalProblem == null, multimodalProblem,
-                        capabilityNames(PdfboxMultimodalParserV2.ID)));
+        return registry.all().stream().map(plugin -> {
+            String problem = plugin.availability().available() ? manifestProblem(plugin.id())
+                    : plugin.availability().unavailableReason();
+            return new ParserOption(plugin.id(), plugin.label(), plugin.availability().available() && problem == null, problem,
+                    capabilityNames(plugin.id()));
+        }).toList();
     }
 
     public void requireAvailable(String parserVersion) {

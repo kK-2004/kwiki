@@ -24,7 +24,7 @@ class SearchIndexAdminQueryServiceScopeTest {
             mock(SearchIndexRebuildRunRepository.class), mock(SearchIndexRebuildRangeRepository.class),
             mock(SearchIndexValidationReportRepository.class), mock(SearchIndexAuditRepository.class),
             retention, mock(ElasticsearchIndexManager.class), mock(IndexingJobTargetStore.class),
-            new SimpleMeterRegistry(), mock(MultimodalSwitchReadiness.class), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+            new SimpleMeterRegistry(), mock(MultimodalSwitchReadiness.class), com.kwiki.indexing.schema.SchemaTestFixtures.schemas(), com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth());
 
     private SearchIndexAdminQueryService.VersionView only(int number, boolean scoped) {
         when(versions.findByDeletedAtIsNullOrderByVersionNumberAsc())

@@ -1,13 +1,12 @@
 package com.kwiki.indexing.config;
 
-import com.kwiki.indexing.parse.plugin.PdfboxMultimodalParserV2;
 import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/** 管理端与实际别名切换共用的多模态部署就绪检查；不返回凭据值。 */
+/** parse-2 插件使用的多模态部署就绪检查；不返回凭据值。 */
 @Component
 public class MultimodalSwitchReadiness {
     private final MultimodalIndexingProperties multimodal;
@@ -17,10 +16,6 @@ public class MultimodalSwitchReadiness {
                                      ExternalServicesProperties external) {
         this.multimodal = multimodal;
         this.external = external;
-    }
-
-    public boolean isMultimodal(String parserVersion) {
-        return PdfboxMultimodalParserV2.ID.equals(parserVersion);
     }
 
     public List<String> missingConfiguration() {
@@ -43,10 +38,4 @@ public class MultimodalSwitchReadiness {
         return missingConfiguration().isEmpty();
     }
 
-    public void requireReadyFor(String parserVersion) {
-        if (isMultimodal(parserVersion) && !ready()) {
-            throw new IllegalStateException("kwiki-parse-2 cannot be selected; missing configuration: "
-                    + String.join(", ", missingConfiguration()));
-        }
-    }
 }

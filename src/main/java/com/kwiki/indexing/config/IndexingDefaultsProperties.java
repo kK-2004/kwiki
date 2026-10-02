@@ -5,5 +5,12 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /** 首次部署、新建版本、灰度使用的默认插件；由应用的配置属性扫描登记。 */
 @ConfigurationProperties(prefix = "kwiki.indexing.defaults")
-public record IndexingDefaultsProperties(@DefaultValue("kwiki-schema-1") String indexSchema) {
+public record IndexingDefaultsProperties(@DefaultValue("kwiki-schema-1") String indexSchema,
+        @DefaultValue({"kwiki-parse-2", "kwiki-parse-1"}) java.util.List<String> parsers) {
+    @org.springframework.boot.context.properties.bind.ConstructorBinding
+    public IndexingDefaultsProperties { }
+
+    public IndexingDefaultsProperties(String indexSchema) {
+        this(indexSchema, java.util.List.of("kwiki-parse-2", "kwiki-parse-1"));
+    }
 }

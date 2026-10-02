@@ -38,7 +38,10 @@ class IndexPluginControllerTest {
         @Bean ParserCatalog parsers() {
             var readiness = mock(MultimodalSwitchReadiness.class);
             when(readiness.missingConfiguration()).thenReturn(List.of("KWIKI_VISION_API_KEY"));
-            return new ParserCatalog(readiness);
+            return new ParserCatalog(new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(java.util.stream.Stream.concat(
+                    com.kwiki.indexing.parse.plugin.ParserTestFixtures.unavailableTwo().all().stream(),
+                    java.util.stream.Stream.of(new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser("third-parser",
+                            java.util.Set.of(), java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING), true))).toList()));
         }
         @Bean IndexPluginController controller(ChunkIndexSchemaRegistry schemas, ParserCatalog parsers,
                                               IndexingDefaultsProperties defaults) {
@@ -65,7 +68,10 @@ class IndexPluginControllerTest {
                 .andExpect(jsonPath("$.data.parsers[0].requiredCapabilities").isEmpty())
                 .andExpect(jsonPath("$.data.parsers[1].requiredCapabilities[0]").value("RESOURCE_IDS"))
                 .andExpect(jsonPath("$.data.parsers[1].available").value(false))
-                .andExpect(jsonPath("$.data.parsers[1].unavailableReason").value("缺少配置：KWIKI_VISION_API_KEY"))
+                .andExpect(jsonPath("$.data.parsers[1].unavailableReason").value("测试不可用"))
+                .andExpect(jsonPath("$.data.parsers[2].id").value("third-parser"))
+                .andExpect(jsonPath("$.data.parsers[2].requiredCapabilities[0]").value("ENTITY_LINKING"))
+                .andExpect(jsonPath("$.data.defaults.parsers[0]").value("kwiki-parse-2"))
                 .andExpect(jsonPath("$.data.chunkers[0].id").value("kwiki-chunk-1"))
                 .andExpect(jsonPath("$.data.defaults.indexSchema").value("kwiki-schema-1"));
     }

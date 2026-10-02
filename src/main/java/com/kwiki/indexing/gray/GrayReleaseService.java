@@ -97,7 +97,7 @@ public class GrayReleaseService {
         } catch (DataIntegrityViolationException raced) {
             throw new ConflictException("所选知识库刚被加入其他灰度，请刷新后重试");
         }
-        String finalName = name == null || name.isBlank() ? ParserCatalog.label(parserVersion) + " 灰度 #" + id : name.trim();
+        String finalName = name == null || name.isBlank() ? parsers.label(parserVersion) + " 灰度 #" + id : name.trim();
         store.rename(id, finalName);
         return find(id);
     }

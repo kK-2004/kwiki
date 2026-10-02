@@ -6,6 +6,10 @@ public final class IndexPluginValidationException extends IllegalArgumentExcepti
         super(message);
     }
 
+    public static IndexPluginValidationException unavailableParser(String parserId) {
+        return new IndexPluginValidationException("解析器 " + parserId + " 未注册或不可用");
+    }
+
     public static IndexPluginValidationException unavailableSchema(String schemaId) {
         return new IndexPluginValidationException("字段格式 " + schemaId + " 未注册或不可用");
     }

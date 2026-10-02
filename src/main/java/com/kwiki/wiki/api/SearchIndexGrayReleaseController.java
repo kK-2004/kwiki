@@ -235,7 +235,7 @@ public class SearchIndexGrayReleaseController {
             physicalName = "kwiki-chunks-v" + version;
         }
         return new GrayReleaseView(release.id(), release.name(), release.parserVersion(),
-                ParserCatalog.label(release.parserVersion()), version, physicalName,
+                parsers.label(release.parserVersion()), version, physicalName,
                 release.status().name(), release.lastError(), release.createdBy(), release.createdAt(),
                 release.switchedAt(), release.endedAt(), release.kbs(), progress, actions(release, run));
     }

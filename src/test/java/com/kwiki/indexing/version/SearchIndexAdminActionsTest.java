@@ -14,7 +14,7 @@ class SearchIndexAdminActionsTest {
     private SearchIndexAdminQueryService.Actions actions(SearchIndexVersion version, boolean activeRun,
                                                          boolean scoped) {
         return SearchIndexAdminQueryService.actionsFor(version,
-                version.toSnapshot(activeRun), activeRun, scoped, false, true);
+                version.toSnapshot(activeRun), activeRun, scoped, null, true);
     }
 
     @Test
@@ -59,5 +59,13 @@ class SearchIndexAdminActionsTest {
         assertThat(result.allowed()).containsEntry("writeToggle", false)
                 .containsEntry("migrate", false).containsEntry("edit", false);
         assertThat(result.migrateBlockedReason()).isNull();
+    }
+
+    @Test void 插件不可用时迁移和选择均被拒绝且原因可见() {
+        var version = SearchIndexVersion.bootstrapped(2, "kwiki-chunks-v2", config, hash);
+        var actions = SearchIndexAdminQueryService.actionsFor(version, version.toSnapshot(false),
+                false, false, "解析器 third-parser 不可用：测试不可用", false);
+        assertThat(actions.allowed()).containsEntry("migrate", false).containsEntry("select", false);
+        assertThat(actions.migrateBlockedReason()).contains("third-parser").contains("测试不可用");
     }
 }

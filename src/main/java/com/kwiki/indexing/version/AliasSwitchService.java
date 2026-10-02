@@ -1,7 +1,7 @@
 package com.kwiki.indexing.version;
 
 import com.kwiki.indexing.config.IndexingProperties;
-import com.kwiki.indexing.config.MultimodalSwitchReadiness;
+import com.kwiki.indexing.parse.plugin.DocumentParserRegistry;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
 import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
 import org.springframework.stereotype.Service;
@@ -16,13 +16,13 @@ public class AliasSwitchService {
     private final SearchIndexValidationService validations; private final ElasticsearchIndexManager indexes;
     private final SearchIndexSelectionRegistry selection; private final SearchIndexAuditRepository audits;
     private final IndexingProperties properties;
-    private final MultimodalSwitchReadiness multimodalReadiness;
+    private final DocumentParserRegistry parsers;
     public AliasSwitchService(KwikiDistributedLocks locks,SearchIndexVersionRepository versions,
             SearchIndexValidationService validations,ElasticsearchIndexManager indexes,
             SearchIndexSelectionRegistry selection,SearchIndexAuditRepository audits,
-            IndexingProperties properties, MultimodalSwitchReadiness multimodalReadiness){this.locks=locks;this.versions=versions;
+            IndexingProperties properties, DocumentParserRegistry parsers){this.locks=locks;this.versions=versions;
         this.validations=validations;this.indexes=indexes;this.selection=selection;
-        this.audits=audits;this.properties=properties;this.multimodalReadiness=multimodalReadiness;}
+        this.audits=audits;this.properties=properties;this.parsers=parsers;}
 
     /** 灰度版本的知识库范围；未注入（离线测试）时视为全部为全局版本。 */
     private com.kwiki.indexing.gray.IndexVersionKbScope kbScope;
@@ -51,7 +51,11 @@ public class AliasSwitchService {
                 .orElseThrow(()->new IllegalStateException("selected source is missing"));
         SearchIndexVersion target=versions.findByVersionNumber(targetVersion)
                 .orElseThrow(()->new IllegalArgumentException("unknown target version"));
-        multimodalReadiness.requireReadyFor(target.editableConfig().parserVersion());
+        String parserId = target.editableConfig().parserVersion();
+        var parser = parsers.find(parserId).orElseThrow(() -> new IllegalStateException("解析器 " + parserId + " 未注册"));
+        if (!parser.availability().available()) {
+            throw new IllegalStateException("解析器 " + parserId + " 不可用：" + parser.availability().unavailableReason());
+        }
         SearchIndexValidationReport report=validations.currentReadyReport(targetVersion)
                 .orElseThrow(()->new IllegalStateException("target has no current READY validation"));
         SearchIndexAudit audit=audits.saveAndFlush(SearchIndexAudit.pending("SELECT",

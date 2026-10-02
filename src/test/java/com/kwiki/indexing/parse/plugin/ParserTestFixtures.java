@@ -17,6 +17,13 @@ public final class ParserTestFixtures {
         return new DocumentParserRegistry(List.of(new TikaParserV1(DocumentParseService.forTests()),
                 new FakeParser(PdfboxMultimodalParserV2.ID, Set.of("application/pdf"), Set.of(IndexCapability.RESOURCE_IDS), true)));
     }
+    public static DocumentParserRegistry unavailableTwo() {
+        return new DocumentParserRegistry(List.of(new TikaParserV1(DocumentParseService.forTests()),
+                new FakeParser(PdfboxMultimodalParserV2.ID, Set.of("application/pdf"), Set.of(IndexCapability.RESOURCE_IDS), false)));
+    }
+    public static DocumentParserRegistry named(String id) {
+        return new DocumentParserRegistry(List.of(new FakeParser(id, Set.of(), Set.of(), true)));
+    }
     public static class FakeParser implements DocumentParserPlugin {
         private final String id;
         private final Set<String> types;

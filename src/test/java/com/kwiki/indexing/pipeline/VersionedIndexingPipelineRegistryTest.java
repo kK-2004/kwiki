@@ -175,7 +175,7 @@ class VersionedIndexingPipelineRegistryTest {
         assertThat(registry.unsupportedReason(new EditableIndexConfig("kwiki-parse-2",
                 "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "kwiki-schema-1")))
                 .hasValueSatisfying(reason ->
-                        assertThat(reason).contains("parser version is not supported"));
+                        assertThat(reason).contains("解析器 kwiki-parse-2 未注册"));
         assertThat(registry.unsupportedReason(new EditableIndexConfig("kwiki-parse-1",
                 "kwiki-chunk-2", "default", "text-embedding-v4", 1024, "kwiki-schema-1")))
                 .hasValueSatisfying(reason ->
