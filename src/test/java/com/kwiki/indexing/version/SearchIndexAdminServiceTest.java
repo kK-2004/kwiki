@@ -1,6 +1,7 @@
 package com.kwiki.indexing.version;
 
 import com.kwiki.indexing.config.IndexingProperties;
+import com.kwiki.indexing.plugin.IndexPluginValidationException;
 import com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry;
 import com.kwiki.indexing.search.ChunkMappingBuilder;
 import com.kwiki.indexing.search.ElasticsearchCapacityGuard;
@@ -102,8 +103,8 @@ class SearchIndexAdminServiceTest {
     void 未注册字段格式在新建与编辑时均被拒绝() {
         EditableIndexConfig unknown = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default",
                 "text-embedding-v4", 1024, "unknown-schema");
-        assertThatThrownBy(() -> service.createVersion(unknown)).hasMessage("字段格式 unknown-schema 未注册或不可用");
-        assertThatThrownBy(() -> service.editVersion(2, unknown)).hasMessage("字段格式 unknown-schema 未注册或不可用");
+        assertThatThrownBy(() -> service.createVersion(unknown)).isInstanceOf(IndexPluginValidationException.class).hasMessage("字段格式 unknown-schema 未注册或不可用");
+        assertThatThrownBy(() -> service.editVersion(2, unknown)).isInstanceOf(IndexPluginValidationException.class).hasMessage("字段格式 unknown-schema 未注册或不可用");
         assertThat(rows).isEmpty();
         Mockito.verifyNoInteractions(capacity);
     }
@@ -119,9 +120,9 @@ class SearchIndexAdminServiceTest {
                 com.kwiki.testutil.StandardTestProperties.providerOf(repository),
                 new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)));
         var config = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, "offline-schema");
-        assertThatThrownBy(() -> restricted.createVersion(config)).isInstanceOf(IllegalArgumentException.class)
+        assertThatThrownBy(() -> restricted.createVersion(config)).isInstanceOf(IndexPluginValidationException.class)
                 .hasMessage("字段格式 offline-schema 未注册或不可用");
-        assertThatThrownBy(() -> restricted.editVersion(2, config)).hasMessage("字段格式 offline-schema 未注册或不可用");
+        assertThatThrownBy(() -> restricted.editVersion(2, config)).isInstanceOf(IndexPluginValidationException.class).hasMessage("字段格式 offline-schema 未注册或不可用");
         Mockito.verifyNoInteractions(capacity);
     }
 
@@ -137,9 +138,9 @@ class SearchIndexAdminServiceTest {
                 com.kwiki.testutil.StandardTestProperties.providerOf(repository),
                 new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)));
         var config = new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, "text-only");
-        assertThatThrownBy(() -> restricted.createVersion(config)).isInstanceOf(IllegalArgumentException.class)
+        assertThatThrownBy(() -> restricted.createVersion(config)).isInstanceOf(IndexPluginValidationException.class)
                 .hasMessage("字段格式 text-only 不提供解析器 kwiki-parse-2 需要的能力 RESOURCE_IDS");
-        assertThatThrownBy(() -> restricted.editVersion(2, config)).hasMessageContaining("RESOURCE_IDS");
+        assertThatThrownBy(() -> restricted.editVersion(2, config)).isInstanceOf(IndexPluginValidationException.class).hasMessageContaining("RESOURCE_IDS");
         Mockito.verifyNoInteractions(capacity);
     }
 

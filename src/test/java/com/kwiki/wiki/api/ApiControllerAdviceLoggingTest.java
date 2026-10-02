@@ -40,6 +40,15 @@ class ApiControllerAdviceLoggingTest {
     }
 
     @Test
+    void 普通参数异常只返回稳定错误码() {
+        var response = new ApiControllerAdvice().invalidRequest(new IllegalArgumentException("backend-private-detail"));
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(400);
+        assertThat(response.getBody().getMessage()).isEqualTo("invalid_request");
+    }
+
+    @Test
     void unreadableRequestBodyIsLoggedAndKeepsTheSharedEnvelope() {
         Logger logger = (Logger) LoggerFactory.getLogger(ApiControllerAdvice.class);
         ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender = new ListAppender<>();

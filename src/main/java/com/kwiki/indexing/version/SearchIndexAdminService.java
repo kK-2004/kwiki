@@ -2,6 +2,7 @@ package com.kwiki.indexing.version;
 
 import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry;
+import com.kwiki.indexing.plugin.IndexPluginValidationException;
 import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
 import com.kwiki.indexing.gray.ParserCatalog;
 import com.kwiki.indexing.search.ElasticsearchCapacityGuard;
@@ -85,11 +86,10 @@ public class SearchIndexAdminService {
     private void requireSupported(EditableIndexConfig config) {
         var schema = schemas.find(config.indexSchema())
                 .filter(plugin -> plugin.availability().available())
-                .orElseThrow(() -> new IllegalArgumentException("字段格式 " + config.indexSchema() + " 未注册或不可用"));
+                .orElseThrow(() -> IndexPluginValidationException.unavailableSchema(config.indexSchema()));
         for (var capability : ParserCatalog.requiredCapabilities(config.parserVersion())) {
             if (!schema.capabilities().contains(capability)) {
-                throw new IllegalArgumentException("字段格式 " + config.indexSchema() + " 不提供解析器 "
-                        + config.parserVersion() + " 需要的能力 " + capability.name());
+                throw IndexPluginValidationException.missingCapability(config.indexSchema(), config.parserVersion(), capability);
             }
         }
         if (!pipelines.supports(config)) {

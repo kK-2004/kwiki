@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.kk2004.common.exception.BaseBusinessException;
 import com.kk2004.common.exception.CommonErrorCode;
 import com.kk2004.common.response.TransDTO;
+import com.kwiki.indexing.plugin.IndexPluginValidationException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -115,6 +116,14 @@ public class ApiControllerAdvice {
     ResponseEntity<TransDTO<String>> invalidImport(WikiImportValidationException e) {
         log.warn("handled wiki-import validation exception: {}", e.getMessage(), e);
         return ResponseEntity.badRequest().body(TransDTO.failure(400, e.getMessage()));
+    }
+
+    /** 仅返回插件校验异常固定模板生成的消息；通用参数异常继续脱敏。 */
+    @ExceptionHandler(IndexPluginValidationException.class)
+    ResponseEntity<TransDTO<String>> invalidIndexPlugin(IndexPluginValidationException e) {
+        log.warn("handled index-plugin validation exception: {}", e.getMessage(), e);
+        return ResponseEntity.badRequest()
+                .body(TransDTO.failure(HttpStatus.BAD_REQUEST.value(), e.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
