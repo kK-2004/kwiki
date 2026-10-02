@@ -51,7 +51,8 @@ class SearchIndexAdminServiceTest {
                 new IndexingProperties.Capacity(20, 8, Duration.ofSeconds(5)),
                 new IndexingProperties.Management(true));
         service = new SearchIndexAdminService(core, pipelines, capacity, indexing,
-                com.kwiki.testutil.StandardTestProperties.providerOf(repository));
+                com.kwiki.testutil.StandardTestProperties.providerOf(repository),
+                com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 
         when(repository.findMaxVersionNumber()).thenAnswer(inv ->
                 rows.keySet().stream().max(Integer::compare).orElse(null));
@@ -98,6 +99,51 @@ class SearchIndexAdminServiceTest {
     }
 
     @Test
+    void 未注册字段格式在新建与编辑时均被拒绝() {
+        EditableIndexConfig unknown = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default",
+                "text-embedding-v4", 1024, "unknown-schema");
+        assertThatThrownBy(() -> service.createVersion(unknown)).hasMessage("字段格式 unknown-schema 未注册或不可用");
+        assertThatThrownBy(() -> service.editVersion(2, unknown)).hasMessage("字段格式 unknown-schema 未注册或不可用");
+        assertThat(rows).isEmpty();
+        Mockito.verifyNoInteractions(capacity);
+    }
+
+    @Test
+    void 不可用字段格式在新建与编辑时均被拒绝() {
+        var schema = Mockito.mock(com.kwiki.indexing.schema.ChunkIndexSchema.class);
+        when(schema.id()).thenReturn("offline-schema");
+        when(schema.availability()).thenReturn(com.kwiki.indexing.plugin.PluginAvailability.unavailable("缺少插件配置"));
+        var restricted = new SearchIndexAdminService(Mockito.mock(SearchIndexVersionService.class),
+                pipelines, capacity, new IndexingProperties(null, null, null, null, null,
+                new IndexingProperties.Management(true)),
+                com.kwiki.testutil.StandardTestProperties.providerOf(repository),
+                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)));
+        var config = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "model", 1024, "offline-schema");
+        assertThatThrownBy(() -> restricted.createVersion(config)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("字段格式 offline-schema 未注册或不可用");
+        assertThatThrownBy(() -> restricted.editVersion(2, config)).hasMessage("字段格式 offline-schema 未注册或不可用");
+        Mockito.verifyNoInteractions(capacity);
+    }
+
+    @Test
+    void 多模态解析器不能搭配缺少资源标识的字段格式() {
+        var schema = Mockito.mock(com.kwiki.indexing.schema.ChunkIndexSchema.class);
+        when(schema.id()).thenReturn("text-only");
+        when(schema.availability()).thenReturn(com.kwiki.indexing.plugin.PluginAvailability.ok());
+        when(schema.capabilities()).thenReturn(java.util.Set.of());
+        var restricted = new SearchIndexAdminService(Mockito.mock(SearchIndexVersionService.class),
+                pipelines, capacity, new IndexingProperties(null, null, null, null, null,
+                new IndexingProperties.Management(true)),
+                com.kwiki.testutil.StandardTestProperties.providerOf(repository),
+                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)));
+        var config = new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "model", 1024, "text-only");
+        assertThatThrownBy(() -> restricted.createVersion(config)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("字段格式 text-only 不提供解析器 kwiki-parse-2 需要的能力 RESOURCE_IDS");
+        assertThatThrownBy(() -> restricted.editVersion(2, config)).hasMessageContaining("RESOURCE_IDS");
+        Mockito.verifyNoInteractions(capacity);
+    }
+
+    @Test
     void capacityPreflightFailureIsFailClosed() {
         when(capacity.preflight(any(Integer.class)))
                 .thenReturn(new ElasticsearchCapacityGuard.PreflightResult(false,
@@ -122,7 +168,8 @@ class SearchIndexAdminServiceTest {
                         com.kwiki.testutil.StandardTestProperties.providerOf(repository),
                         new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas())),
                 pipelines, capacity, readOnly,
-                com.kwiki.testutil.StandardTestProperties.providerOf(repository));
+                com.kwiki.testutil.StandardTestProperties.providerOf(repository),
+                com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 
         assertThatThrownBy(() -> disabled.createVersion(config(1024)))
                 .isInstanceOf(IllegalStateException.class)

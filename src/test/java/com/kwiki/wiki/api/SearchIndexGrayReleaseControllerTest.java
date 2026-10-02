@@ -49,6 +49,16 @@ class SearchIndexGrayReleaseControllerTest {
     }
 
     @Test
+    void 新建请求转交字段格式与分块器() {
+        executeDirectly();
+        when(service.create(null, "kwiki-parse-2", "custom-schema", "custom-chunk", List.of(7L), "admin"))
+                .thenReturn(release(GrayReleaseStatus.CREATED));
+        controller.create(admin, "selection", new SearchIndexGrayReleaseController.CreateRequest(
+                null, "kwiki-parse-2", "custom-schema", "custom-chunk", List.of(7L)));
+        org.mockito.Mockito.verify(service).create(null, "kwiki-parse-2", "custom-schema", "custom-chunk", List.of(7L), "admin");
+    }
+
+    @Test
     void 列表视图带显示名_物理名与按状态计算的操作() {
         when(service.list()).thenReturn(List.of(release(GrayReleaseStatus.SYNCED)));
         when(runs.findFirstByVersionNumberOrderByIdDesc(4)).thenReturn(Optional.empty());
@@ -149,9 +159,9 @@ class SearchIndexGrayReleaseControllerTest {
     @Test
     void 下层容量异常映射为中文冲突() {
         executeDirectly();
-        when(service.create(any(), eq("kwiki-parse-2"), eq(List.of(7L)), eq("admin")))
+        when(service.create(any(), eq("kwiki-parse-2"), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(), eq(List.of(7L)), eq("admin")))
                 .thenThrow(new IllegalStateException("index capacity exceeded"));
-        var request = new SearchIndexGrayReleaseController.CreateRequest(null, "kwiki-parse-2", List.of(7L));
+        var request = new SearchIndexGrayReleaseController.CreateRequest(null, "kwiki-parse-2", null, null, List.of(7L));
         assertThatThrownBy(() -> controller.create(admin, "k3", request))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("索引容量不足，请先清理不再使用的索引版本");
@@ -160,10 +170,10 @@ class SearchIndexGrayReleaseControllerTest {
     @Test
     void 下层配置不受支持异常映射为可操作的中文冲突() {
         executeDirectly();
-        when(service.create(any(), eq("kwiki-parse-2"), eq(List.of(7L)), eq("admin")))
+        when(service.create(any(), eq("kwiki-parse-2"), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(), eq(List.of(7L)), eq("admin")))
                 .thenThrow(new IllegalArgumentException(
                         "unsupported index configuration: configuration does not match any supported manifest"));
-        var request = new SearchIndexGrayReleaseController.CreateRequest(null, "kwiki-parse-2", List.of(7L));
+        var request = new SearchIndexGrayReleaseController.CreateRequest(null, "kwiki-parse-2", null, null, List.of(7L));
         assertThatThrownBy(() -> controller.create(admin, "k4", request))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("kwiki.indexing.manifests")

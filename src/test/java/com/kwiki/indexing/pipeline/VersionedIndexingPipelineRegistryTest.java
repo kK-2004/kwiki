@@ -239,6 +239,8 @@ class VersionedIndexingPipelineRegistryTest {
         assertThat(registry.supportsCapability(config, com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING)).isFalse();
         assertThat(registry.resolve(new EditableIndexConfig("kwiki-parse-2", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "text-schema"))).isEmpty();
         assertThat(registry.resolve(new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "offline-schema"))).isEmpty();
+        assertThat(registry.unsupportedReason(new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "offline-schema")))
+                .contains("字段格式 offline-schema 不可用：测试不可用");
     }
 
     private static com.kwiki.indexing.schema.ChunkIndexSchema schema(String id,

@@ -130,7 +130,8 @@ public class VersionedIndexingPipelineRegistry {
     public Optional<String> unsupportedReason(EditableIndexConfig config) {
         var schema = schemaRegistry.find(config.indexSchema());
         if (schema.isEmpty()) return Optional.of("字段格式 " + config.indexSchema() + " 未注册");
-        if (!schema.get().availability().available()) return Optional.of("字段格式 " + config.indexSchema() + " 不可用");
+        if (!schema.get().availability().available()) return Optional.of("字段格式 " + config.indexSchema() + " 不可用："
+                + schema.get().availability().unavailableReason());
         if (com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL.equals(config.parserVersion())
                 && !schema.get().capabilities().contains(IndexCapability.RESOURCE_IDS)) {
             return Optional.of("字段格式 " + config.indexSchema() + " 不支持资源标识");

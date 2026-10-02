@@ -2,7 +2,8 @@ package com.kwiki.indexing.version;
 
 import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry;
-import com.kwiki.indexing.search.ChunkMappingBuilder;
+import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
+import com.kwiki.indexing.gray.ParserCatalog;
 import com.kwiki.indexing.search.ElasticsearchCapacityGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +27,7 @@ public class SearchIndexAdminService {
     public static final String MUTATIONS_DISABLED_MESSAGE =
             "index management mutations are disabled by configuration";
 
+    private final ChunkIndexSchemaRegistry schemas;
     private final SearchIndexVersionService versions;
     private final VersionedIndexingPipelineRegistry pipelines;
     private final ElasticsearchCapacityGuard capacity;
@@ -36,7 +38,9 @@ public class SearchIndexAdminService {
                                    VersionedIndexingPipelineRegistry pipelines,
                                    ElasticsearchCapacityGuard capacity,
                                    IndexingProperties indexingProperties,
-                                   ObjectProvider<SearchIndexVersionRepository> registry) {
+                                   ObjectProvider<SearchIndexVersionRepository> registry,
+                                   ChunkIndexSchemaRegistry schemas) {
+        this.schemas = schemas;
         this.versions = versions;
         this.pipelines = pipelines;
         this.capacity = capacity;
@@ -79,6 +83,15 @@ public class SearchIndexAdminService {
     }
 
     private void requireSupported(EditableIndexConfig config) {
+        var schema = schemas.find(config.indexSchema())
+                .filter(plugin -> plugin.availability().available())
+                .orElseThrow(() -> new IllegalArgumentException("字段格式 " + config.indexSchema() + " 未注册或不可用"));
+        for (var capability : ParserCatalog.requiredCapabilities(config.parserVersion())) {
+            if (!schema.capabilities().contains(capability)) {
+                throw new IllegalArgumentException("字段格式 " + config.indexSchema() + " 不提供解析器 "
+                        + config.parserVersion() + " 需要的能力 " + capability.name());
+            }
+        }
         if (!pipelines.supports(config)) {
             throw new IllegalArgumentException("unsupported index configuration: "
                     + pipelines.unsupportedReason(config).orElse("unknown"));

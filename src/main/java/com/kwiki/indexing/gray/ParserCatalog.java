@@ -2,6 +2,7 @@ package com.kwiki.indexing.gray;
 
 import com.kwiki.indexing.config.MultimodalSwitchReadiness;
 import com.kwiki.indexing.job.IndexingWorker;
+import com.kwiki.indexing.plugin.IndexCapability;
 import com.kwiki.wiki.api.ConflictException;
 import org.springframework.stereotype.Component;
 
@@ -80,7 +81,17 @@ public class ParserCatalog {
                 + " 维）兼容的索引结构清单，请在 kwiki.indexing.manifests 中登记";
     }
 
-    public record ParserOption(String id, String label, boolean available, String unavailableReason) { }
+    public record ParserOption(String id, String label, boolean available, String unavailableReason,
+                               List<String> requiredCapabilities) { }
+
+    public static List<IndexCapability> requiredCapabilities(String parserVersion) {
+        return IndexingWorker.PARSER_VERSION_MULTIMODAL.equals(parserVersion)
+                ? List.of(IndexCapability.RESOURCE_IDS) : List.of();
+    }
+
+    private static List<String> capabilityNames(String parserVersion) {
+        return requiredCapabilities(parserVersion).stream().map(Enum::name).toList();
+    }
 
     public static String label(String parserVersion) {
         return LABELS.getOrDefault(parserVersion, parserVersion);
@@ -93,9 +104,10 @@ public class ParserCatalog {
                 : "缺少配置：" + String.join("、", readiness.missingConfiguration());
         return List.of(
                 new ParserOption(IndexingWorker.PARSER_VERSION, label(IndexingWorker.PARSER_VERSION),
-                        tikaProblem == null, tikaProblem),
+                        tikaProblem == null, tikaProblem, capabilityNames(IndexingWorker.PARSER_VERSION)),
                 new ParserOption(IndexingWorker.PARSER_VERSION_MULTIMODAL,
-                        label(IndexingWorker.PARSER_VERSION_MULTIMODAL), multimodalProblem == null, multimodalProblem));
+                        label(IndexingWorker.PARSER_VERSION_MULTIMODAL), multimodalProblem == null, multimodalProblem,
+                        capabilityNames(IndexingWorker.PARSER_VERSION_MULTIMODAL)));
     }
 
     public void requireAvailable(String parserVersion) {

@@ -68,7 +68,7 @@ public class SearchIndexGrayReleaseController {
         this.versions = versions;
     }
 
-    public record CreateRequest(String name, @NotBlank String parserVersion, @NotEmpty List<Long> kbIds) { }
+    public record CreateRequest(String name, @NotBlank String parserVersion, String indexSchema, String chunkerVersion, @NotEmpty List<Long> kbIds) { }
 
     /**
      * @param scanned          迁移扫描到并已排队的历史资源数
@@ -101,7 +101,7 @@ public class SearchIndexGrayReleaseController {
                                                 @Valid @RequestBody CreateRequest request) {
         return TransDTO.success(commands.execute(key, "GRAY_CREATE", null, user.username(), () ->
                 summary(translated(() -> service.create(request.name(), request.parserVersion(),
-                        request.kbIds(), user.username())))));
+                        request.indexSchema(), request.chunkerVersion(), request.kbIds(), user.username())))));
     }
 
     @PostMapping("/gray-releases/{id}/sync")

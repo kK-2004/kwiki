@@ -24,7 +24,7 @@ class SearchIndexAdminQueryServiceScopeTest {
             mock(SearchIndexRebuildRunRepository.class), mock(SearchIndexRebuildRangeRepository.class),
             mock(SearchIndexValidationReportRepository.class), mock(SearchIndexAuditRepository.class),
             retention, mock(ElasticsearchIndexManager.class), mock(IndexingJobTargetStore.class),
-            new SimpleMeterRegistry(), mock(MultimodalSwitchReadiness.class));
+            new SimpleMeterRegistry(), mock(MultimodalSwitchReadiness.class), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 
     private SearchIndexAdminQueryService.VersionView only(int number, boolean scoped) {
         when(versions.findByDeletedAtIsNullOrderByVersionNumberAsc())
@@ -35,6 +35,24 @@ class SearchIndexAdminQueryServiceScopeTest {
         when(scope.isScoped(number)).thenReturn(scoped);
         service.setKbScope(scope);
         return service.versions().get(0);
+    }
+
+    @Test
+    void 版本视图展示字段格式名称与能力() {
+        var view = only(4, false);
+        assertThat(view.indexSchemaLabel()).isEqualTo("图文 + 实体关联 v1");
+        assertThat(view.schemaCapabilities()).containsExactly("RESOURCE_IDS", "ENTITY_LINKING");
+    }
+
+    @Test
+    void 未注册字段格式退回标识与空能力() {
+        only(4, false);
+        var unknown = new EditableIndexConfig("parser-1", "chunker-1", "default", "embedding-1", 1024, "gone-schema");
+        when(versions.findByDeletedAtIsNullOrderByVersionNumberAsc())
+                .thenReturn(List.of(new SearchIndexVersion(4, "kwiki-chunks-v4", unknown, "mapping")));
+        var view = service.versions().get(0);
+        assertThat(view.indexSchemaLabel()).isEqualTo("gone-schema");
+        assertThat(view.schemaCapabilities()).isEmpty();
     }
 
     @Test

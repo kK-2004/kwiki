@@ -1,6 +1,7 @@
 package com.kwiki.indexing.gray;
 
 import com.kwiki.indexing.config.IndexingProperties;
+import com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry;
 import com.kwiki.indexing.version.*;
 import com.kwiki.wiki.api.ConflictException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,16 +29,9 @@ public class GrayReleaseService {
     private final SearchIndexValidationService validations;
     private final SearchIndexRebuildRunRepository runs;
     private final ParserCatalog parsers;
+    private final VersionedIndexingPipelineRegistry pipelines;
     /** 管理写操作开关；为 null（离线测试）时不检查。 */
     private final IndexingProperties properties;
-
-    public GrayReleaseService(GrayReleaseStore store, SearchIndexAdminService admin,
-                              SearchIndexVersionRepository versions, IndexVersionKbScope scope,
-                              IndexVersionWriteService writes, IndexMigrationService migrations,
-                              SearchIndexValidationService validations,
-                              SearchIndexRebuildRunRepository runs, ParserCatalog parsers) {
-        this(store, admin, versions, scope, writes, migrations, validations, runs, parsers, null);
-    }
 
     @Autowired
     public GrayReleaseService(GrayReleaseStore store, SearchIndexAdminService admin,
@@ -45,7 +39,9 @@ public class GrayReleaseService {
                               IndexVersionWriteService writes, IndexMigrationService migrations,
                               SearchIndexValidationService validations,
                               SearchIndexRebuildRunRepository runs, ParserCatalog parsers,
-                              IndexingProperties properties) {
+                              IndexingProperties properties,
+                              VersionedIndexingPipelineRegistry pipelines) {
+        this.pipelines = pipelines;
         this.properties = properties;
         this.store = store;
         this.admin = admin;
@@ -67,7 +63,8 @@ public class GrayReleaseService {
     }
 
     @Transactional
-    public GrayRelease create(String name, String parserVersion, List<Long> kbIds, String operator) {
+    public GrayRelease create(String name, String parserVersion, String indexSchema,
+                              String chunkerVersion, List<Long> kbIds, String operator) {
         requireMutationsEnabled();
         List<Long> distinct = kbIds == null ? List.of() : kbIds.stream().distinct().toList();
         if (distinct.isEmpty()) {
@@ -84,9 +81,14 @@ public class GrayReleaseService {
         EditableIndexConfig base = versions.findBySelectedTrue()
                 .orElseThrow(() -> new ConflictException("尚无已发布的全局索引版本，无法创建灰度"))
                 .editableConfig();
-        EditableIndexConfig config = parsers.configFor(parserVersion, base).orElseThrow(() -> new ConflictException(
-                "当前部署没有为 " + ParserCatalog.label(parserVersion) + " 登记与全局版本（模型 " + base.embeddingModel()
-                        + "，" + base.embeddingDimensions() + " 维）兼容的索引结构清单，请在 kwiki.indexing.manifests 中登记"));
+        EditableIndexConfig config = new EditableIndexConfig(parserVersion,
+                chunkerVersion == null ? base.chunkerVersion() : chunkerVersion,
+                base.embeddingProvider(), base.embeddingModel(), base.embeddingDimensions(),
+                indexSchema == null ? base.indexSchema() : indexSchema);
+        if (!pipelines.supports(config)) {
+            throw new ConflictException("当前部署不支持所选索引组合："
+                    + pipelines.unsupportedReason(config).orElse("未知原因"));
+        }
         SearchIndexVersion version = admin.createVersion(config);
         scope.register(version.getVersionNumber(), distinct);
         long id = store.insert("pending", parserVersion, version.getVersionNumber(), operator);

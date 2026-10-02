@@ -3,6 +3,8 @@ package com.kwiki.indexing.version;
 import com.kwiki.indexing.job.IndexingJobTargetStore;
 import com.kwiki.indexing.config.MultimodalSwitchReadiness;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
+import com.kwiki.indexing.schema.ChunkIndexSchema;
+import com.kwiki.indexing.schema.ChunkIndexSchemaRegistry;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -26,13 +28,16 @@ public class SearchIndexAdminQueryService {
     private final IndexingJobTargetStore targetStore;
     private final MeterRegistry metrics;
     private final MultimodalSwitchReadiness multimodalReadiness;
+    private final ChunkIndexSchemaRegistry schemas;
 
     public SearchIndexAdminQueryService(SearchIndexVersionRepository versions,
             SearchIndexRebuildRunRepository runs, SearchIndexRebuildRangeRepository ranges,
             SearchIndexValidationReportRepository validations, SearchIndexAuditRepository audits,
             IndexVersionRetentionAdvisor retention, ElasticsearchIndexManager indexes,
             IndexingJobTargetStore targetStore, MeterRegistry metrics,
-            MultimodalSwitchReadiness multimodalReadiness) {
+            MultimodalSwitchReadiness multimodalReadiness,
+            ChunkIndexSchemaRegistry schemas) {
+        this.schemas = schemas;
         this.versions=versions; this.runs=runs; this.ranges=ranges;
         this.validations=validations; this.audits=audits; this.retention=retention;
         this.indexes=indexes; this.targetStore=targetStore; this.metrics=metrics;
@@ -139,7 +144,11 @@ public class SearchIndexAdminQueryService {
                 version.isSelected(),version.isPipelineSupported(),version.getHealthSummary(),
                 version.getNeedsAttentionReason(),version.getLastValidationAt(),
                 version.getValidationSummary(),cleanupCandidate,actions.allowed(),scoped,
-                version.getWriteEnabledEventId(),actions.migrateBlockedReason());
+                version.getWriteEnabledEventId(),actions.migrateBlockedReason(),
+                schemas.find(config.indexSchema()).map(ChunkIndexSchema::label)
+                        .orElse(config.indexSchema()),
+                schemas.find(config.indexSchema()).map(schema -> schema.capabilities().stream()
+                        .sorted().map(Enum::name).toList()).orElse(List.of()));
     }
 
     private List<RangeView> ranges(Long runId) { return runId==null?List.of():ranges
@@ -180,7 +189,8 @@ public class SearchIndexAdminQueryService {
             boolean selected,boolean pipelineSupported,String healthSummary,String attentionReason,
             Instant lastValidationAt,String validationSummary,boolean cleanupCandidate,
             Map<String,Boolean> allowedActions,boolean kbScoped,
-            Long writeEnabledEventId,String migrateBlockedReason){}
+            Long writeEnabledEventId,String migrateBlockedReason,
+            String indexSchemaLabel,List<String> schemaCapabilities){}
     public record RangeView(String resourceType,long minId,long maxId,long lastSeenId,
             long tailLastSeenId,Long tailMaxId,long scanned,long succeeded,long skipped,long failed){}
     public record RunView(Long runId,int versionNumber,long buildGeneration,String kind,String state,
