@@ -117,7 +117,7 @@ class VersionedMultiWriteTest {
                 new IndexingProperties.Management(false));
         VersionedIndexingPipelineRegistry registry = new VersionedIndexingPipelineRegistry(
                 indexing, external,
-                StandardTestProperties.providerOf(DocumentParseService.forTests()),
+                com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
                 StandardTestProperties.providerOf(embeddings),
                 StandardTestProperties.nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 

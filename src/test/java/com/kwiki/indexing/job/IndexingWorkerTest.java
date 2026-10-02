@@ -100,7 +100,7 @@ class IndexingWorkerTest {
         targets = new IndexingJobTargetStore(provider(jdbc));
         VersionedIndexingPipelineRegistry registry = new VersionedIndexingPipelineRegistry(
                 emptyManifests(), properties(),
-                StandardTestProperties.providerOf(DocumentParseService.forTests()),
+                com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
                 StandardTestProperties.providerOf(embeddings),
                 StandardTestProperties.nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         SearchIndexVersion v2 = SearchIndexVersion.bootstrapped(

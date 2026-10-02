@@ -19,7 +19,7 @@ class SearchIndexValidationSyncTest {
             mock(SearchIndexRebuildRangeRepository.class),
             mock(SearchIndexValidationReportRepository.class),
             mock(ElasticsearchIndexManager.class), mock(ChunkMappingBuilder.class),
-            new ObjectMapper(), jdbc);
+            new ObjectMapper(), jdbc, com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth());
     private final SearchIndexRebuildRun run = mock(SearchIndexRebuildRun.class);
     private final SearchIndexVersion version = mock(SearchIndexVersion.class);
 

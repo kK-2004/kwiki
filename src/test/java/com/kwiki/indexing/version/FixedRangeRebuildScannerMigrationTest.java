@@ -22,7 +22,7 @@ class FixedRangeRebuildScannerMigrationTest {
     private final RebuildTargetEnqueuer enqueuer = mock(RebuildTargetEnqueuer.class);
     private final IndexingProperties properties = IndexVersionWriteServiceTest.properties(true);
     private final FixedRangeRebuildScanner scanner = new FixedRangeRebuildScanner(runs, ranges,
-            versions, jdbc, enqueuer, mock(PlatformTransactionManager.class), properties);
+            versions, jdbc, enqueuer, mock(PlatformTransactionManager.class), properties, com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth());
 
     @SuppressWarnings("unchecked")
     private String capturePageSql(Long cutoffEventId, List<Object> argsOut) {
@@ -36,7 +36,7 @@ class FixedRangeRebuildScannerMigrationTest {
             return List.of();
         });
 
-        scanner.processBatch(7L, 1L, 2, "kwiki-chunks-v2", false, cutoffEventId);
+        scanner.processBatch(7L, 1L, 2, "kwiki-chunks-v2", List.of("image/png"), cutoffEventId);
 
         Object[] raw = calls.get(0);
         argsOut.addAll(java.util.Arrays.asList((Object[]) raw[2]));

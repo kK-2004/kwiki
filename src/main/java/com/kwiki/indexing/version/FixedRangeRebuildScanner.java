@@ -1,5 +1,6 @@
 package com.kwiki.indexing.version;
 
+import com.kwiki.indexing.parse.plugin.DocumentParserRegistry;
 import com.kwiki.indexing.config.IndexingProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,7 @@ public class FixedRangeRebuildScanner {
     private final SearchIndexRebuildRangeRepository ranges;
     private final SearchIndexVersionRepository versions;
     private final JdbcTemplate jdbc;
+    private final DocumentParserRegistry parserRegistry;
     private final RebuildTargetEnqueuer enqueuer;
     private final TransactionTemplate transactions;
     private final int batchSize;
@@ -25,7 +27,9 @@ public class FixedRangeRebuildScanner {
                                     SearchIndexVersionRepository versions,
                                     JdbcTemplate jdbc, RebuildTargetEnqueuer enqueuer,
                                     PlatformTransactionManager transactionManager,
-                                    IndexingProperties properties) {
+                                    IndexingProperties properties,
+                                    DocumentParserRegistry parserRegistry) {
+        this.parserRegistry = parserRegistry;
         this.runs = runs;
         this.ranges = ranges;
         this.versions = versions;
@@ -38,9 +42,8 @@ public class FixedRangeRebuildScanner {
     public void scan(SearchIndexRebuildRun run) {
         SearchIndexVersion version = versions.findByVersionNumber(run.getVersionNumber())
                 .orElseThrow(() -> new IllegalStateException("rebuild version disappeared"));
-        // 多模态解析代把 PDF 附件也纳入重建基线；parse-1 保持仅图片。
-        boolean multimodalParser = com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL
-                .equals(version.editableConfig().parserVersion());
+        List<String> attachmentTypes = ParserAttachmentTypes.forParser(
+                parserRegistry.require(version.editableConfig().parserVersion()));
         // 迁移 run：只补入写入会话起点 E 之后没有再变更的资源，其余由双写负责
         Long cutoffEventId = run.kind() == RebuildRunKind.MIGRATION
                 ? run.getBuildStartEventId() : null;
@@ -50,7 +53,7 @@ public class FixedRangeRebuildScanner {
                 long rangeId = range.id();
                 transactions.executeWithoutResult(ignored -> processBatch(
                         run.getId(), rangeId, version.getVersionNumber(),
-                        version.getPhysicalName(), multimodalParser, cutoffEventId));
+                        version.getPhysicalName(), attachmentTypes, cutoffEventId));
                 range = ranges.findById(rangeId).orElseThrow();
             }
         }
@@ -74,12 +77,12 @@ public class FixedRangeRebuildScanner {
     }
 
     void processBatch(long runId, long rangeId, int version, String physicalName,
-                      boolean multimodalParser, Long cutoffEventId) {
+                      List<String> attachmentTypes, Long cutoffEventId) {
         SearchIndexRebuildRange range = ranges.findByIdForUpdate(rangeId).orElseThrow();
         SearchIndexRebuildRun run = runs.findById(runId).orElseThrow();
         List<ResourceRow> rows = switch (range.getResourceType()) {
             case "PAGE" -> pageRows(range, version, cutoffEventId);
-            case "ATTACHMENT" -> attachmentRows(range, multimodalParser, version, cutoffEventId);
+            case "ATTACHMENT" -> attachmentRows(range, attachmentTypes, version, cutoffEventId);
             default -> throw new IllegalStateException(
                     "unsupported rebuild resource type: " + range.getResourceType());
         };
@@ -183,22 +186,26 @@ public class FixedRangeRebuildScanner {
     }
 
     private List<ResourceRow> attachmentRows(SearchIndexRebuildRange range,
-                                             boolean multimodalParser, int version,
+                                             List<String> attachmentTypes, int version,
                                              Long cutoffEventId) {
-        // 多模态解析代把普通 PDF 附件纳入基线，导入来源由页面索引承载。
-        String types = multimodalParser
-                ? "('image/png','image/jpeg','image/gif','image/webp','application/pdf')"
-                : "('image/png','image/jpeg','image/gif','image/webp')";
+        List<Object> parameters = new java.util.ArrayList<>();
+        parameters.add(range.getLastSeenId());
+        parameters.add(range.getMaxId());
+        parameters.addAll(attachmentTypes);
+        if (cutoffEventId != null) parameters.add(cutoffEventId);
+        parameters.add(version);
+        parameters.add(version);
+        parameters.add(batchSize);
         return jdbc.query("""
                 SELECT a.id FROM attachment a JOIN knowledge_base k ON k.id=a.kb_id
                 WHERE a.id>? AND a.id<=? AND a.status='STORED' AND k.status='ACTIVE'
                   AND a.purpose='GENERAL'
                   AND LOWER(a.content_type) IN %s
-                """.formatted(types) + cutoffClause("ATTACHMENT", "a.id", cutoffEventId)
+                """.formatted(ParserAttachmentTypes.placeholders(attachmentTypes)) + cutoffClause("ATTACHMENT", "a.id", cutoffEventId)
                 + com.kwiki.indexing.gray.IndexVersionKbScope.sqlFilter("a.kb_id") + """
                  ORDER BY a.id ASC LIMIT ?
                 """, (rs, n) -> new ResourceRow(rs.getLong(1), null, 0),
-                args(range, cutoffEventId, version));
+                parameters.toArray());
     }
 
     private record ResourceRow(long id, Long revisionId, long lifecycleVersion) { }

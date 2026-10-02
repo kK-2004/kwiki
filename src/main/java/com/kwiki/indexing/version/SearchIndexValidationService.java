@@ -1,5 +1,6 @@
 package com.kwiki.indexing.version;
 
+import com.kwiki.indexing.parse.plugin.DocumentParserRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kwiki.indexing.search.ChunkMappingBuilder;
 import com.kwiki.indexing.search.ElasticsearchIndexManager;
@@ -30,12 +31,14 @@ public class SearchIndexValidationService {
     private final ChunkMappingBuilder mappings;
     private final ObjectMapper json;
     private final JdbcTemplate jdbc;
+    private final DocumentParserRegistry parserRegistry;
 
     public SearchIndexValidationService(SearchIndexVersionRepository versions,
             SearchIndexRebuildRunRepository runs, SearchIndexRebuildRangeRepository ranges,
             SearchIndexValidationReportRepository reports,
             ElasticsearchIndexManager indexes, ChunkMappingBuilder mappings, ObjectMapper json,
-            JdbcTemplate jdbc) {
+            JdbcTemplate jdbc, DocumentParserRegistry parserRegistry) {
+        this.parserRegistry=parserRegistry;
         this.versions=versions; this.runs=runs; this.ranges=ranges; this.reports=reports;
         this.indexes=indexes; this.mappings=mappings; this.json=json; this.jdbc=jdbc;
     }
@@ -131,17 +134,18 @@ public class SearchIndexValidationService {
                 """+com.kwiki.indexing.gray.IndexVersionKbScope.sqlFilter("p.kb_id"),
                 (rs,row)->new ResourceIdentity("PAGE",rs.getLong(1),rs.getLong(2),rs.getLong(3)),
                 number,number));
-        String attachmentTypes = com.kwiki.indexing.job.IndexingWorker.PARSER_VERSION_MULTIMODAL
-                .equals(version.editableConfig().parserVersion())
-                ? "('image/png','image/jpeg','image/gif','image/webp','application/pdf')"
-                : "('image/png','image/jpeg','image/gif','image/webp')";
+        List<String> attachmentTypes = ParserAttachmentTypes.forParser(
+                parserRegistry.require(version.editableConfig().parserVersion()));
+        List<Object> parameters = new ArrayList<>(attachmentTypes);
+        parameters.add(number);
+        parameters.add(number);
         result.addAll(jdbc.query("""
                 SELECT a.id FROM attachment a JOIN knowledge_base k ON k.id=a.kb_id
                 WHERE a.status='STORED' AND k.status='ACTIVE' AND a.purpose='GENERAL'
                   AND LOWER(a.content_type) IN %s
-                """.formatted(attachmentTypes)+com.kwiki.indexing.gray.IndexVersionKbScope.sqlFilter("a.kb_id"),
+                """.formatted(ParserAttachmentTypes.placeholders(attachmentTypes))+com.kwiki.indexing.gray.IndexVersionKbScope.sqlFilter("a.kb_id"),
                 (rs,row)->new ResourceIdentity("ATTACHMENT",rs.getLong(1),null,0),
-                number,number));
+                parameters.toArray()));
         return result;
     }
 

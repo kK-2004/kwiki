@@ -33,7 +33,7 @@ class SearchIndexValidationServiceTest {
         var indexes=mock(ElasticsearchIndexManager.class);
         var mappings=new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         var jdbc=mock(JdbcTemplate.class);
-        var config=new EditableIndexConfig("parser","chunker","default","model",1024, "kwiki-schema-1");
+        var config=new EditableIndexConfig(com.kwiki.indexing.parse.plugin.TikaParserV1.ID,"chunker","default","model",1024, "kwiki-schema-1");
         String hash=mappings.mappingHash(1024, "kwiki-schema-1");
         SearchIndexVersion version=SearchIndexVersion.bootstrapped(2,"kwiki-chunks-v2",config,hash);
         BuildManifestSnapshot manifest=version.buildManifestSnapshot();
@@ -71,7 +71,7 @@ class SearchIndexValidationServiceTest {
                 org.mockito.ArgumentMatchers.<Object>any(), org.mockito.ArgumentMatchers.<Object>any())).thenReturn(List.of());
 
         SearchIndexValidationService service=new SearchIndexValidationService(
-                versions,runs,ranges,reports,indexes,mappings,new ObjectMapper(),jdbc);
+                versions,runs,ranges,reports,indexes,mappings,new ObjectMapper(),jdbc,com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth());
         SearchIndexValidationReport report=service.validate(2);
 
         assertThat(report.getStatus()).isEqualTo("PASS");
@@ -106,7 +106,7 @@ class SearchIndexValidationServiceTest {
         var indexes=mock(ElasticsearchIndexManager.class);
         var mappings=new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         var jdbc=mock(JdbcTemplate.class);
-        var config=new EditableIndexConfig("parser","chunker","default","model",1024, "kwiki-schema-1");
+        var config=new EditableIndexConfig(com.kwiki.indexing.parse.plugin.TikaParserV1.ID,"chunker","default","model",1024, "kwiki-schema-1");
         SearchIndexVersion version=SearchIndexVersion.bootstrapped(
                 2,"kwiki-chunks-v2",config,mappings.mappingHash(1024, "kwiki-schema-1"));
         when(versions.findByVersionNumberForUpdate(2)).thenReturn(Optional.of(version));
@@ -123,7 +123,7 @@ class SearchIndexValidationServiceTest {
                 .thenReturn(java.util.List.of());
 
         SearchIndexValidationReport report=new SearchIndexValidationService(
-                versions,runs,ranges,reports,indexes,mappings,new ObjectMapper(),jdbc).validate(2);
+                versions,runs,ranges,reports,indexes,mappings,new ObjectMapper(),jdbc,com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth()).validate(2);
 
         assertThat(report.getStatus()).isEqualTo("FAIL");
         assertThat(report.isVectorDimensionValid()).isFalse();
@@ -139,7 +139,7 @@ class SearchIndexValidationServiceTest {
         var indexes=mock(ElasticsearchIndexManager.class);
         var jdbc=mock(JdbcTemplate.class);
         var mappings=new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
-        var config=new EditableIndexConfig("parser","chunker","default","model",1024, "kwiki-schema-1");
+        var config=new EditableIndexConfig(com.kwiki.indexing.parse.plugin.TikaParserV1.ID,"chunker","default","model",1024, "kwiki-schema-1");
         SearchIndexVersion version=SearchIndexVersion.bootstrapped(
                 2,"kwiki-chunks-v2",config,mappings.mappingHash(1024, "kwiki-schema-1"));
         when(versions.findByVersionNumberForUpdate(2)).thenReturn(Optional.of(version));
@@ -161,7 +161,7 @@ class SearchIndexValidationServiceTest {
         when(reports.save(any())).thenAnswer(invocation->invocation.getArgument(0));
 
         SearchIndexValidationReport report=new SearchIndexValidationService(
-                versions,runs,ranges,reports,indexes,mappings,new ObjectMapper(),jdbc).validate(2);
+                versions,runs,ranges,reports,indexes,mappings,new ObjectMapper(),jdbc,com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth()).validate(2);
 
         assertThat(report.isIntegrityValid()).isFalse();
         assertThat(report.getStaleDocuments()).isEqualTo(1);
@@ -177,7 +177,7 @@ class SearchIndexValidationServiceTest {
                 "PARENT".equals(level)?"parent":"child");
         document.put("parentChunkKey",parentKey); document.put("resourceType","PAGE");
         document.put("resourceId",7L); document.put("revisionId",103L);
-        document.put("lifecycleVersion",2L); document.put("parserVersion","parser");
+        document.put("lifecycleVersion",2L); document.put("parserVersion",com.kwiki.indexing.parse.plugin.TikaParserV1.ID);
         document.put("chunkerVersion","chunker"); document.put("embeddingModel","model");
         document.put("indexVersion",2);
         if("CHILD".equals(level)) document.put("vector",

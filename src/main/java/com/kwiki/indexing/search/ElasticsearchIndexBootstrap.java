@@ -1,5 +1,7 @@
 package com.kwiki.indexing.search;
 
+import com.kwiki.indexing.parse.plugin.PdfboxMultimodalParserV2;
+import com.kwiki.indexing.parse.plugin.TikaParserV1;
 import com.kwiki.indexing.config.IndexingDefaultsProperties;
 
 import com.kwiki.indexing.config.IndexingProperties;
@@ -130,7 +132,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
     /** 当前部署实际生效的结构配置（隐式默认代，见任务 1.4 注记）。 */
     private EditableIndexConfig deployedConfig() {
         return new EditableIndexConfig(
-                IndexingWorker.PARSER_VERSION,
+                TikaParserV1.ID,
                 IndexingWorker.CHUNKER_VERSION,
                 IndexingProperties.DEFAULT_EMBEDDING_PROFILE,
                 properties.qwenEmbedding().model(),
@@ -158,11 +160,11 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
                     base.parserVersion(), multimodalReadiness.missingConfiguration());
             return base;
         }
-        return parsers.configFor(IndexingWorker.PARSER_VERSION_MULTIMODAL, base)
+        return parsers.configFor(PdfboxMultimodalParserV2.ID, base)
                 .filter(config -> config.indexSchema().equals(defaults.indexSchema()))
                 .orElseGet(() -> {
                     log.warn("first deployment uses {}: no {} manifest compatible with model {} ({} dims)",
-                            base.parserVersion(), IndexingWorker.PARSER_VERSION_MULTIMODAL,
+                            base.parserVersion(), PdfboxMultimodalParserV2.ID,
                             base.embeddingModel(), base.embeddingDimensions());
                     return base;
                 });

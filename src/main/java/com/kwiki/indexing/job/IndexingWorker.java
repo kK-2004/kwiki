@@ -1,5 +1,7 @@
 package com.kwiki.indexing.job;
 
+import com.kwiki.indexing.parse.plugin.AttachmentParseRequest;
+import com.kwiki.indexing.parse.plugin.PageParseRequest;
 import com.kwiki.infrastructure.observability.SecretRedaction;
 import com.kwiki.indexing.chunk.ChildChunk;
 import com.kwiki.indexing.chunk.ParentChunk;
@@ -31,8 +33,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -57,10 +57,7 @@ public class IndexingWorker {
 
     private static final Logger log = LoggerFactory.getLogger(IndexingWorker.class);
 
-    public static final String PARSER_VERSION = "kwiki-parse-1";
     public static final String CHUNKER_VERSION = "kwiki-chunk-1";
-    /** 多模态解析代：PDF 内嵌图片 + 发布后 Markdown 图片进入受保护块。 */
-    public static final String PARSER_VERSION_MULTIMODAL = "kwiki-parse-2";
 
     private final IndexingJobTargetClaimer targetClaimer;
     private final IndexingJobTargetStore targets;
@@ -73,35 +70,11 @@ public class IndexingWorker {
     private final WikiPageRevisionRepository revisions;
     private final AttachmentRepository attachments;
     private final AttachmentStorage storage;
-    private final org.springframework.beans.factory.ObjectProvider<
-            com.kwiki.indexing.multimodal.MultimodalIndexingService> multimodal;
-    private final org.springframework.beans.factory.ObjectProvider<
-            com.kwiki.wiki.persistence.SourceDocumentRepository> sourceDocuments;
     private final int maxAttempts;
     private final long baseBackoffSeconds;
     private final long maxBackoffSeconds;
     private final MeterRegistry metrics;
     private volatile boolean cancelled;
-
-    public IndexingWorker(IndexingJobTargetClaimer targetClaimer,
-                          IndexingJobTargetStore targets,
-                          VersionedIndexingPipelineRegistry pipelines,
-                          ObjectProvider<SearchIndexVersionRepository> versionRegistry,
-                          ChunkIndexPort index,
-                          org.springframework.beans.factory.ObjectProvider<com.kwiki.indexing.search.ChunkIndexRepository> chunkIndexRepository,
-                          WikiPageRepository pages,
-                          com.kwiki.wiki.persistence.KnowledgeBaseRepository knowledgeBases,
-                          WikiPageRevisionRepository revisions,
-                          AttachmentRepository attachments,
-                          AttachmentStorage storage,
-                          MeterRegistry metrics,
-                          @Value("${kwiki.indexing.max-attempts:8}") int maxAttempts,
-                          @Value("${kwiki.indexing.base-backoff-seconds:30}") long baseBackoffSeconds,
-                          @Value("${kwiki.indexing.max-backoff-seconds:3600}") long maxBackoffSeconds) {
-        this(targetClaimer, targets, pipelines, versionRegistry, index, chunkIndexRepository,
-                pages, knowledgeBases, revisions, attachments, storage, null, null, metrics,
-                maxAttempts, baseBackoffSeconds, maxBackoffSeconds);
-    }
 
     @org.springframework.beans.factory.annotation.Autowired
     public IndexingWorker(IndexingJobTargetClaimer targetClaimer,
@@ -115,10 +88,6 @@ public class IndexingWorker {
                           WikiPageRevisionRepository revisions,
                           AttachmentRepository attachments,
                           AttachmentStorage storage,
-                          org.springframework.beans.factory.ObjectProvider<
-                                  com.kwiki.indexing.multimodal.MultimodalIndexingService> multimodal,
-                          org.springframework.beans.factory.ObjectProvider<
-                                  com.kwiki.wiki.persistence.SourceDocumentRepository> sourceDocuments,
                           MeterRegistry metrics,
                           @Value("${kwiki.indexing.max-attempts:8}") int maxAttempts,
                           @Value("${kwiki.indexing.base-backoff-seconds:30}") long baseBackoffSeconds,
@@ -134,8 +103,6 @@ public class IndexingWorker {
         this.revisions = revisions;
         this.attachments = attachments;
         this.storage = storage;
-        this.multimodal = multimodal;
-        this.sourceDocuments = sourceDocuments;
         this.maxAttempts = maxAttempts;
         this.baseBackoffSeconds = baseBackoffSeconds;
         this.maxBackoffSeconds = maxBackoffSeconds;
@@ -363,8 +330,8 @@ public class IndexingWorker {
     }
 
     /**
-     * 附件 upsert 仅限已校验的图片；多模态解析代额外接受 PDF
-     * （内嵌图片走受保护块）。其他附件仅供展示：任何历史遗留的
+     * 附件 upsert 接受已校验图片与解析器声明的类型。
+     * 其他附件仅供展示：任何历史遗留的
      * 分块都会被清除，任务不做任何 upsert 即完成。
      */
     private void executeAttachmentUpsert(String physicalIndex, int indexVersion,
@@ -383,11 +350,10 @@ public class IndexingWorker {
             index.deleteResourceChunks(physicalIndex, "ATTACHMENT", attachmentId);
             return;
         }
-        boolean multimodalPdf = PARSER_VERSION_MULTIMODAL.equals(pipeline.parserVersion())
-                && multimodal != null && multimodal.getIfAvailable() != null
-                && isPdf(attachment.getContentType());
+        String contentType = attachment.getContentType() == null ? ""
+                : attachment.getContentType().toLowerCase(Locale.ROOT);
         if (!AttachmentIndexEligibility.isIndexableImage(attachment.getContentType())
-                && !multimodalPdf) {
+                && !pipeline.parser().indexableAttachmentTypes().contains(contentType)) {
             index.deleteResourceChunks(physicalIndex, "ATTACHMENT", attachmentId);
             return;
         }
@@ -467,58 +433,8 @@ public class IndexingWorker {
         return pipeline -> {
             WikiPageRevision revision = revisions.findById(revisionId)
                     .orElseThrow(() -> new IllegalStateException("revision missing for indexing job"));
-            com.kwiki.indexing.multimodal.MultimodalIndexingService multimodalService =
-                    requireMultimodalFor(pipeline);
-            if (multimodalService != null) {
-                StructuredDocument importedPdf = importedPdfDocument(
-                        page, revision, pipeline, multimodalService);
-                if (importedPdf != null) {
-                    return importedPdf;
-                }
-                // 多模态解析代：发布修订的图片语法在索引投影中成为受保护块；
-                // 数据库中的修订 Markdown 与页面渲染保持原样。
-                return multimodalService.buildPageDocument(
-                        page.getKbId(), page.getId(), revisionId, revision.getMarkdown());
-            }
-            return pipeline.parser().parse(page.getTitle() + ".md", "text/markdown",
-                    new ByteArrayInputStream(
-                            revision.getMarkdown().getBytes(StandardCharsets.UTF_8)));
+            return pipeline.parser().parsePage(new PageParseRequest(page, revision));
         };
-    }
-
-    /** PDF 导入的首个修订按原始顺序索引图片，索引身份仍属于页面权限。 */
-    StructuredDocument importedPdfDocument(WikiPage page, WikiPageRevision revision,
-            ResolvedPipeline pipeline,
-            com.kwiki.indexing.multimodal.MultimodalIndexingService multimodalService) {
-        if (sourceDocuments == null || sourceDocuments.getIfAvailable() == null
-                || revision.getRevisionNo() != 1
-                || revision.getChangeNote() == null
-                || !revision.getChangeNote().startsWith("导入 ")) {
-            return null;
-        }
-        for (com.kwiki.wiki.domain.SourceDocument source
-                : sourceDocuments.getIfAvailable().findByPageId(page.getId())) {
-            if (!com.kwiki.wiki.domain.SourceDocument.REL_DERIVED_FROM
-                    .equals(source.getRelationship())) {
-                continue;
-            }
-            Attachment attachment = attachments.findById(source.getAttachmentId()).orElse(null);
-            if (attachment == null || !attachment.isStored()
-                    || !java.util.Objects.equals(attachment.getKbId(), page.getKbId())
-                    || !isPdf(attachment.getContentType())) {
-                continue;
-            }
-            Long fileId = attachment.getContentCenterFileId();
-            if (fileId == null || fileId <= 0) {
-                throw new AttachmentStorageException(
-                        AttachmentStorageException.Category.PERMANENT,
-                        "import source has no content-center file id for indexing");
-            }
-            return multimodalService.buildPdfDocument(pipeline.parser(), page.getKbId(),
-                    attachment.getId(), attachment.getFileName(),
-                    attachment.getContentType(), storage.readContent(fileId));
-        }
-        return null;
     }
 
     private DocumentSupplier attachmentDocument(Attachment attachment,
@@ -531,44 +447,15 @@ public class IndexingWorker {
                         AttachmentStorageException.Category.PERMANENT,
                         "attachment has no content-center file id for indexing");
             }
-            // 同一事件的多个目标只读一次内容：字节缓存按 job 共享。
-            byte[] bytes = intermediates.attachmentBytes.computeIfAbsent(attachment.getId(),
-                    key -> storage.readContent(fileId));
+            // 同一事件的多个目标共享惰性字节缓存，插件不读取时不访问存储。
+            java.util.function.Supplier<byte[]> content = () -> intermediates.attachmentBytes.computeIfAbsent(
+                    attachment.getId(), key -> storage.readContent(fileId));
             if (AttachmentIndexEligibility.isIndexableImage(attachment.getContentType())) {
-                // 图片索引基于元数据：不做 OCR、不做转写、不编造内容。
-                return imageDescriptorDocument(attachment, bytes);
+                return imageDescriptorDocument(attachment, content.get());
             }
-            com.kwiki.indexing.multimodal.MultimodalIndexingService multimodalService =
-                    requireMultimodalFor(pipeline);
-            if (multimodalService != null && isPdf(attachment.getContentType())) {
-                // 多模态解析代：PDF 内嵌图片按位置进入受保护块
-                return multimodalService.buildPdfDocument(
-                        pipeline.parser(), attachment.getKbId(), attachment.getId(),
-                        attachment.getFileName(), attachment.getContentType(), bytes);
-            }
-            return pipeline.parser().parse(attachment.getFileName(),
-                    attachment.getContentType(), new ByteArrayInputStream(bytes));
+            return pipeline.parser().parseAttachment(
+                    new AttachmentParseRequest(attachment, content));
         };
-    }
-
-    /** 多模态代要求服务存在（fail closed）；旧代返回 null 走原路径。 */
-    private com.kwiki.indexing.multimodal.MultimodalIndexingService requireMultimodalFor(
-            ResolvedPipeline pipeline) {
-        if (!PARSER_VERSION_MULTIMODAL.equals(pipeline.parserVersion())) {
-            return null;
-        }
-        com.kwiki.indexing.multimodal.MultimodalIndexingService service =
-                multimodal == null ? null : multimodal.getIfAvailable();
-        if (service == null) {
-            throw new IllegalStateException(
-                    "multimodal parser version requested but multimodal indexing is disabled");
-        }
-        return service;
-    }
-
-    private static boolean isPdf(String contentType) {
-        return contentType != null
-                && "application/pdf".equalsIgnoreCase(contentType.trim());
     }
 
     /**

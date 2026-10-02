@@ -1,7 +1,6 @@
 package com.kwiki.indexing.pipeline;
 
 import com.kwiki.indexing.config.IndexingProperties;
-import com.kwiki.indexing.config.MultimodalIndexingProperties;
 import com.kwiki.indexing.parse.DocumentParseService;
 import com.kwiki.indexing.version.EditableIndexConfig;
 import com.kwiki.infrastructure.config.ExternalServicesProperties;
@@ -33,7 +32,7 @@ class VersionedIndexingPipelineRegistryTest {
     private VersionedIndexingPipelineRegistry registry(IndexingProperties indexing,
                                                        ExternalServicesProperties external) {
         return new VersionedIndexingPipelineRegistry(indexing, external,
-                provider(DocumentParseService.forTests()),
+                com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
                 provider(defaultEmbeddings),
                 nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
     }
@@ -108,11 +107,9 @@ class VersionedIndexingPipelineRegistryTest {
                 base.contentCenter(), base.elasticsearch(), base.answerLlm(), base.qwenEmbedding(),
                 new ExternalServicesProperties.VisionModel("https://vision.example/v1", "secret",
                         "qwen3.7-flash", Duration.ofSeconds(5), Duration.ofSeconds(60), 2, 4));
-        MultimodalIndexingProperties multimodal = mock(MultimodalIndexingProperties.class);
-        org.mockito.Mockito.when(multimodal.enabled()).thenReturn(true);
         VersionedIndexingPipelineRegistry registry = new VersionedIndexingPipelineRegistry(
-                emptyManifests(), configured, provider(DocumentParseService.forTests()),
-                provider(defaultEmbeddings), nullProvider(), nullProvider(), multimodal, com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+                emptyManifests(), configured, com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth(),
+                provider(defaultEmbeddings), nullProvider(), nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 
         // 每个解析器与提供资源能力的注册字段格式生成一个组合。
         assertThat(registry.effectiveManifests())
@@ -227,10 +224,8 @@ class VersionedIndexingPipelineRegistryTest {
         var configured = new ExternalServicesProperties(external.contentCenter(), external.elasticsearch(), external.answerLlm(),
                 external.qwenEmbedding(), new ExternalServicesProperties.VisionModel("https://vision.example/v1", "test", "vision",
                 Duration.ofSeconds(5), Duration.ofSeconds(60), 2, 4));
-        var multimodal = mock(MultimodalIndexingProperties.class);
-        org.mockito.Mockito.when(multimodal.enabled()).thenReturn(true);
-        var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), configured, provider(DocumentParseService.forTests()),
-                provider(defaultEmbeddings), nullProvider(), nullProvider(), multimodal,
+        var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), configured, com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth(),
+                provider(defaultEmbeddings), nullProvider(), nullProvider(),
                 new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(text, unavailable, resource)));
         assertThat(registry.effectiveManifests()).extracting(IndexingProperties.Manifest::id).containsExactly(
                 "implicit-kwiki-parse-1-resource-schema", "implicit-kwiki-parse-2-resource-schema", "implicit-kwiki-parse-1-text-schema");
@@ -241,6 +236,25 @@ class VersionedIndexingPipelineRegistryTest {
         assertThat(registry.resolve(new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "offline-schema"))).isEmpty();
         assertThat(registry.unsupportedReason(new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "text-embedding-v4", 1024, "offline-schema")))
                 .contains("字段格式 offline-schema 不可用：测试不可用");
+    }
+
+    @Test
+    void 第三方解析器参与默认清单_能力和可用性决定是否可执行() {
+        var third = new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser("third-parser", java.util.Set.of("text/plain"),
+                java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.RESOURCE_IDS), true);
+        var offline = new com.kwiki.indexing.parse.plugin.ParserTestFixtures.FakeParser("offline-parser", java.util.Set.of(), java.util.Set.of(), false);
+        var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), external("model", 1024),
+                new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(third, offline)), provider(defaultEmbeddings), nullProvider(),
+                new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema("text-schema", java.util.Set.of(), true),
+                        schema("resource-schema", java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.RESOURCE_IDS), true))));
+        assertThat(registry.effectiveManifests()).extracting(IndexingProperties.Manifest::id).containsExactly("implicit-third-parser-resource-schema");
+        var supported = new EditableIndexConfig("third-parser", "kwiki-chunk-1", "default", "model", 1024, "resource-schema");
+        assertThat(registry.resolve(supported)).hasValueSatisfying(pipeline -> assertThat(pipeline.parser()).isSameAs(third));
+        assertThat(registry.supportDiagnostics()).containsEntry("implicit-third-parser-resource-schema", "supported");
+        assertThat(registry.resolve(new EditableIndexConfig("third-parser", "kwiki-chunk-1", "default", "model", 1024, "text-schema"))).isEmpty();
+        assertThat(registry.unsupportedReason(new EditableIndexConfig("third-parser", "kwiki-chunk-1", "default", "model", 1024, "text-schema")))
+                .hasValueSatisfying(reason -> assertThat(reason).contains("能力"));
+        assertThat(registry.resolve(new EditableIndexConfig("offline-parser", "kwiki-chunk-1", "default", "model", 1024, "resource-schema"))).isEmpty();
     }
 
     private static com.kwiki.indexing.schema.ChunkIndexSchema schema(String id,

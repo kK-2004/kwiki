@@ -1,43 +1,36 @@
 package com.kwiki.wiki.api;
 
-import com.kwiki.indexing.config.MultimodalSwitchReadiness;
+import com.kwiki.indexing.parse.plugin.TikaParserV1;
+import com.kwiki.indexing.parse.plugin.ImportParseRequest;
+import com.kwiki.indexing.parse.plugin.DocumentParserRegistry;
 import com.kwiki.indexing.gray.GrayReadRoutes;
-import com.kwiki.indexing.job.IndexingWorker;
-import com.kwiki.indexing.multimodal.PdfMultimodalParser;
-import com.kwiki.indexing.parse.DocumentParseService;
 import com.kwiki.indexing.parse.StructuredDocument;
-import com.kwiki.indexing.parse.StructuredTextAssembler;
 import com.kwiki.indexing.version.SearchIndexVersionRepository;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
-import java.io.ByteArrayInputStream;
 import java.util.Optional;
 
 /** 按知识库所在已切换灰度或全局选中的解析代选择导入文本解析策略；图片语义由导入页的索引任务处理。 */
 @Component
 public class WikiImportDocumentParser {
-    private final DocumentParseService parser;
+    private final DocumentParserRegistry parserRegistry;
     private final ObjectProvider<SearchIndexVersionRepository> versions;
-    private final MultimodalSwitchReadiness readiness;
     private final GrayReadRoutes routes;
 
-    public WikiImportDocumentParser(DocumentParseService parser,
-                                    ObjectProvider<SearchIndexVersionRepository> versions,
-                                    MultimodalSwitchReadiness readiness) {
-        this(parser, versions, readiness, null);
+    public WikiImportDocumentParser(DocumentParserRegistry parserRegistry,
+                                    ObjectProvider<SearchIndexVersionRepository> versions) {
+        this(parserRegistry, versions, null);
     }
 
     @Autowired
-    public WikiImportDocumentParser(DocumentParseService parser,
+    public WikiImportDocumentParser(DocumentParserRegistry parserRegistry,
                                     ObjectProvider<SearchIndexVersionRepository> versions,
-                                    MultimodalSwitchReadiness readiness,
                                     @Nullable GrayReadRoutes routes) {
-        this.parser = parser;
+        this.parserRegistry = parserRegistry;
         this.versions = versions;
-        this.readiness = readiness;
         this.routes = routes;
     }
 
@@ -52,23 +45,9 @@ public class WikiImportDocumentParser {
     }
 
     private StructuredDocument parseWith(Long kbId, String fileName, String contentType, byte[] content) {
-        if (!"application/pdf".equalsIgnoreCase(contentType)) {
-            return parser.parse(fileName, contentType, new ByteArrayInputStream(content));
-        }
-        String selectedParser = parserVersionFor(kbId);
-        if (!IndexingWorker.PARSER_VERSION_MULTIMODAL.equals(selectedParser)) {
-            return parser.parse(fileName, contentType, new ByteArrayInputStream(content));
-        }
-        readiness.requireReadyFor(selectedParser);
-        PdfMultimodalParser.PdfExtraction extraction = parser.parsePdfMultimodal(
-                fileName, contentType, content);
-        StructuredTextAssembler assembler = new StructuredTextAssembler();
-        for (PdfMultimodalParser.ContentItem item : extraction.items()) {
-            if (item instanceof PdfMultimodalParser.TextItem text) {
-                assembler.append(0, text.text());
-            }
-        }
-        return assembler.build();
+        return parserRegistry.require(parserVersionFor(kbId)).parseImport(
+                new ImportParseRequest(kbId == null ? 0 : kbId,
+                        fileName, contentType, content));
     }
 
     /** 知识库属于已切换灰度 → 灰度解析器；否则 → 全局已发布版本的解析器。 */
@@ -80,8 +59,8 @@ public class WikiImportDocumentParser {
             }
         }
         SearchIndexVersionRepository repository = versions.getIfAvailable();
-        return repository == null ? IndexingWorker.PARSER_VERSION
+        return repository == null ? TikaParserV1.ID
                 : repository.findBySelectedTrue().map(version -> version.editableConfig().parserVersion())
-                        .orElse(IndexingWorker.PARSER_VERSION);
+                        .orElse(TikaParserV1.ID);
     }
 }

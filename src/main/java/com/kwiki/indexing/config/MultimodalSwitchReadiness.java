@@ -1,7 +1,7 @@
 package com.kwiki.indexing.config;
 
+import com.kwiki.indexing.parse.plugin.PdfboxMultimodalParserV2;
 import com.kwiki.infrastructure.config.ExternalServicesProperties;
-import com.kwiki.indexing.job.IndexingWorker;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -20,7 +20,7 @@ public class MultimodalSwitchReadiness {
     }
 
     public boolean isMultimodal(String parserVersion) {
-        return IndexingWorker.PARSER_VERSION_MULTIMODAL.equals(parserVersion);
+        return PdfboxMultimodalParserV2.ID.equals(parserVersion);
     }
 
     public List<String> missingConfiguration() {

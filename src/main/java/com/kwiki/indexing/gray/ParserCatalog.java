@@ -1,7 +1,8 @@
 package com.kwiki.indexing.gray;
 
+import com.kwiki.indexing.parse.plugin.PdfboxMultimodalParserV2;
+import com.kwiki.indexing.parse.plugin.TikaParserV1;
 import com.kwiki.indexing.config.MultimodalSwitchReadiness;
-import com.kwiki.indexing.job.IndexingWorker;
 import com.kwiki.indexing.plugin.IndexCapability;
 import com.kwiki.wiki.api.ConflictException;
 import org.springframework.stereotype.Component;
@@ -14,8 +15,8 @@ import java.util.Map;
 public class ParserCatalog {
 
     private static final Map<String, String> LABELS = Map.of(
-            IndexingWorker.PARSER_VERSION, "tika-v1",
-            IndexingWorker.PARSER_VERSION_MULTIMODAL, "pdfbox-v2");
+            TikaParserV1.ID, "tika-v1",
+            PdfboxMultimodalParserV2.ID, "pdfbox-v2");
 
     private final MultimodalSwitchReadiness readiness;
     private final com.kwiki.indexing.config.IndexingDefaultsProperties defaults;
@@ -85,7 +86,7 @@ public class ParserCatalog {
                                List<String> requiredCapabilities) { }
 
     public static List<IndexCapability> requiredCapabilities(String parserVersion) {
-        return IndexingWorker.PARSER_VERSION_MULTIMODAL.equals(parserVersion)
+        return PdfboxMultimodalParserV2.ID.equals(parserVersion)
                 ? List.of(IndexCapability.RESOURCE_IDS) : List.of();
     }
 
@@ -98,16 +99,16 @@ public class ParserCatalog {
     }
 
     public List<ParserOption> options() {
-        String tikaProblem = manifestProblem(IndexingWorker.PARSER_VERSION);
+        String tikaProblem = manifestProblem(TikaParserV1.ID);
         String multimodalProblem = readiness.ready()
-                ? manifestProblem(IndexingWorker.PARSER_VERSION_MULTIMODAL)
+                ? manifestProblem(PdfboxMultimodalParserV2.ID)
                 : "缺少配置：" + String.join("、", readiness.missingConfiguration());
         return List.of(
-                new ParserOption(IndexingWorker.PARSER_VERSION, label(IndexingWorker.PARSER_VERSION),
-                        tikaProblem == null, tikaProblem, capabilityNames(IndexingWorker.PARSER_VERSION)),
-                new ParserOption(IndexingWorker.PARSER_VERSION_MULTIMODAL,
-                        label(IndexingWorker.PARSER_VERSION_MULTIMODAL), multimodalProblem == null, multimodalProblem,
-                        capabilityNames(IndexingWorker.PARSER_VERSION_MULTIMODAL)));
+                new ParserOption(TikaParserV1.ID, label(TikaParserV1.ID),
+                        tikaProblem == null, tikaProblem, capabilityNames(TikaParserV1.ID)),
+                new ParserOption(PdfboxMultimodalParserV2.ID,
+                        label(PdfboxMultimodalParserV2.ID), multimodalProblem == null, multimodalProblem,
+                        capabilityNames(PdfboxMultimodalParserV2.ID)));
     }
 
     public void requireAvailable(String parserVersion) {
