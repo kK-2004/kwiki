@@ -54,6 +54,27 @@ const RUN_STATES: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
+/** 图构建批次/子任务状态与阶段的中文映射；CLEANING 仅作为阶段出现。 */
+const GRAPH_STATES: Record<string, string> = {
+  QUEUED: "排队中",
+  EXTRACTING: "抽取中",
+  PROJECTING: "投影中",
+  CLUSTERING: "聚类中",
+  SUMMARIZING: "摘要中",
+  INDEXING: "写索引中",
+  VALIDATING: "校验中",
+  READY: "就绪",
+  PUBLISHED: "已发布",
+  PARTIAL_FAILED: "部分失败",
+  FAILED: "失败",
+  CANCELLED: "已取消",
+  STALE: "已过期",
+  WAITING_FOR_CHUNKS: "等待分块",
+  UNSUPPORTED: "不受支持",
+  NEEDS_ATTENTION: "需要处理",
+  CLEANING: "清理中",
+};
+
 const pick = (table: Record<string, string>, value?: string | null) => (value ? table[value] ?? value : "—");
 
 export const auditActionLabel = (value?: string | null) => pick(AUDIT_ACTIONS, value);
@@ -61,6 +82,7 @@ export const auditOutcomeLabel = (value?: string | null) => pick(OUTCOMES, value
 export const auditResultLabel = (value?: string | null) => pick(RESULTS, value);
 export const runKindLabel = (value?: string | null) => pick(RUN_KINDS, value);
 export const runStateLabel = (value?: string | null) => pick(RUN_STATES, value);
+export const graphStateLabel = (value?: string | null) => pick(GRAPH_STATES, value);
 
 /** 校验摘要中的检查项：布尔项为 false、计数项大于 0 即为未通过。 */
 const CHECKS: Record<string, string> = {

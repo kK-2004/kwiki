@@ -3,10 +3,11 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   api, ApiError,
-  type GraphBatch, type GraphPublication, type GraphRun, type GraphSchedule,
+  type GraphBatch, type GraphPlugins, type GraphPublication, type GraphRun, type GraphSchedule,
   type GraphServiceStatus, type GraphSnapshotRow, type Version,
 } from "../api";
 import { useAuth } from "../auth";
+import { graphStateLabel } from "../labels";
 
 const auth = useAuth();
 /** 图构建功能由 kwiki.graph.enabled 开关控制；关闭时后端不暴露任何图管理端点。 */
@@ -17,6 +18,7 @@ const publications = ref<GraphPublication[]>([]);
 const snapshots = ref<GraphSnapshotRow[]>([]);
 const audits = ref<Record<string, unknown>[]>([]);
 const service = ref<GraphServiceStatus | null>(null);
+const plugins = ref<GraphPlugins | null>(null);
 const chunkVersions = ref<Version[]>([]);
 const knowledgeBases = ref<{ id: number; name: string }[]>([]);
 const runsByBatch = ref<Record<number, GraphRun[]>>({});
@@ -34,10 +36,38 @@ const form = reactive({
   scopeKind: "KNOWLEDGE_BASE" as "KNOWLEDGE_BASE" | "ALL",
   kbId: null as number | null,
   chunkIndexVersion: 0,
+  extractor: "",
+  communityDetector: "",
+  summarizer: "",
 });
+const pluginDefaultsApplied = ref(false);
 /** 字段格式、物理索引名与实体链接版本由服务端按所选 Chunk 版本推导，这里只做展示与预检 */
 const targetVersion = computed(() => chunkVersions.value.find(v => v.versionNumber === form.chunkIndexVersion));
 const targetSchemaTooOld = computed(() => !targetVersion.value?.schemaCapabilities.includes("ENTITY_LINKING"));
+
+/** 插件下拉项：不可用置灰并在文案中给出原因。 */
+function pluginOptions(kind: "extractors" | "communityDetectors" | "summarizers") {
+  return (plugins.value?.[kind] ?? []).map(p => ({
+    id: p.id,
+    label: p.available ? p.label : `${p.label}（${p.unavailableReason ?? "不可用"}）`,
+    disabled: !p.available,
+  }));
+}
+function pluginBadge(row: { extractor?: string; communityDetector?: string; summarizer?: string }) {
+  if (!row.extractor && !row.communityDetector && !row.summarizer) return "—";
+  return [row.extractor, row.communityDetector, row.summarizer].filter(Boolean).join(" / ");
+}
+function progressText(run: GraphRun) {
+  if (!run.sourcesTotal && !run.communitiesTotal) return "—";
+  const parts: string[] = [];
+  if (run.sourcesTotal) {
+    parts.push(`已抽取 ${run.sourcesExtracted} / ${run.sourcesTotal}（缓存命中 ${run.extractionCacheHits}）`);
+  }
+  if (run.communitiesTotal) {
+    parts.push(`已摘要 ${run.communitiesSummarized} / ${run.communitiesTotal}`);
+  }
+  return parts.join(" · ") || "—";
+}
 
 function dualBadge(batch: GraphBatch) {
   return `CHUNK v${batch.chunkIndexVersion} / COMMUNITY v${batch.communityIndexVersion}`;
@@ -66,14 +96,22 @@ async function probe() {
 async function load(silent = false) {
   if (!silent) loading.value = true;
   try {
-    const [b, s, p, sn, au, cv, kbList] = await Promise.all([
+    const [b, s, p, sn, au, cv, kbList, pl] = await Promise.all([
       api.graphBatches(), api.graphSchedule(), api.graphPublications(),
       api.graphSnapshots(), api.graphAudits(), api.versions(), api.adminKnowledgeBases(),
+      api.graphPlugins(),
     ]);
     batches.value = b; schedule.value = s; publications.value = p;
     snapshots.value = sn; audits.value = au;
     chunkVersions.value = cv.filter(v => v.pipelineSupported);
     knowledgeBases.value = kbList;
+    plugins.value = pl;
+    if (!pluginDefaultsApplied.value && pl) {
+      form.extractor = pl.defaults.extractor;
+      form.communityDetector = pl.defaults.communityDetector;
+      form.summarizer = pl.defaults.summarizer;
+      pluginDefaultsApplied.value = true;
+    }
     if (!form.chunkIndexVersion && aliasedVersion.value) {
       form.chunkIndexVersion = aliasedVersion.value.versionNumber;
     }
@@ -127,6 +165,9 @@ async function submit() {
       scopeKind: form.scopeKind,
       knowledgeBaseIds: form.scopeKind === "KNOWLEDGE_BASE" ? [form.kbId] : [],
       chunkIndexVersion: target.versionNumber,
+      extractor: form.extractor || undefined,
+      communityDetector: form.communityDetector || undefined,
+      summarizer: form.summarizer || undefined,
     });
     ElMessage.success(`已提交批次 ${result.batchId}（${dualBadge({
       chunkIndexVersion: target.versionNumber,
@@ -303,6 +344,25 @@ function showError(error: unknown) {
                 <el-alert v-if="targetSchemaTooOld" type="warning" :closable="false" show-icon class="dialog-alert"
                   title="所选 Chunk 版本的字段格式不支持实体关联，无法用于图构建" />
               </el-form-item>
+              <el-form-item label="抽取插件">
+                <el-select v-model="form.extractor" style="width:100%" placeholder="选择实体关系抽取插件">
+                  <el-option v-for="p in pluginOptions('extractors')" :key="p.id"
+                    :label="p.label" :value="p.id" :disabled="p.disabled"/>
+                </el-select>
+                <div class="hint">决定实体与关系如何从子块中抽取；插件 id 会记入批次、子任务与快照。</div>
+              </el-form-item>
+              <el-form-item label="社区检测插件">
+                <el-select v-model="form.communityDetector" style="width:100%" placeholder="选择社区检测插件">
+                  <el-option v-for="p in pluginOptions('communityDetectors')" :key="p.id"
+                    :label="p.label" :value="p.id" :disabled="p.disabled"/>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="摘要插件">
+                <el-select v-model="form.summarizer" style="width:100%" placeholder="选择社区摘要插件">
+                  <el-option v-for="p in pluginOptions('summarizers')" :key="p.id"
+                    :label="p.label" :value="p.id" :disabled="p.disabled"/>
+                </el-select>
+              </el-form-item>
               <el-form-item>
                 <el-button type="primary" :disabled="!targetVersion || targetSchemaTooOld" @click="submit">提交构建批次</el-button>
               </el-form-item>
@@ -324,10 +384,13 @@ function showError(error: unknown) {
                 <template #default="{ row }">{{ row.scopeKind === "ALL" ? "全部知识库" : `知识库 ${row.scopeKind}` }}</template>
               </el-table-column>
               <el-table-column prop="state" label="状态" width="130">
-                <template #default="{ row }"><el-tag>{{ row.state }}</el-tag></template>
+                <template #default="{ row }"><el-tag>{{ graphStateLabel(row.state) }}</el-tag></template>
               </el-table-column>
               <el-table-column label="自动发布" width="100">
                 <template #default="{ row }">{{ row.autoPublish ? "是" : "否" }}</template>
+              </el-table-column>
+              <el-table-column label="插件组合" min-width="220">
+                <template #default="{ row }">{{ pluginBadge(row) }}</template>
               </el-table-column>
               <el-table-column prop="requestedBy" label="发起人" width="130"/>
               <el-table-column prop="createdAt" label="创建时间" width="180"/>
@@ -341,9 +404,15 @@ function showError(error: unknown) {
               </el-table-column>
               <el-table-column prop="graphVersion" label="graphVersion" width="110"/>
               <el-table-column prop="communityPhysicalIndex" label="社区物理索引" min-width="220"/>
-              <el-table-column label="阶段" width="130">
+              <el-table-column label="阶段" width="150">
                 <!-- 状态与阶段相同时（如排队中）只显示一次 -->
-                <template #default="{ row }"><el-tag>{{ row.state }}</el-tag><span v-if="row.stage && row.stage !== row.state"> {{ row.stage }}</span></template>
+                <template #default="{ row }"><el-tag>{{ graphStateLabel(row.state) }}</el-tag><span v-if="row.stage && row.stage !== row.state"> {{ graphStateLabel(row.stage) }}</span></template>
+              </el-table-column>
+              <el-table-column label="进度" min-width="240">
+                <template #default="{ row }">{{ progressText(row) }}</template>
+              </el-table-column>
+              <el-table-column label="插件组合" min-width="220">
+                <template #default="{ row }">{{ pluginBadge(row) }}</template>
               </el-table-column>
               <el-table-column label="计数" width="220">
                 <template #default="{ row }">实体 {{ row.entityCount }} · 关系 {{ row.relationCount }} · 社区 {{ row.communityCount }}</template>
@@ -394,7 +463,10 @@ function showError(error: unknown) {
               </el-table-column>
               <el-table-column prop="communityPhysicalIndex" label="社区物理索引" min-width="200"/>
               <el-table-column prop="state" label="状态" width="110">
-                <template #default="{ row }"><el-tag>{{ row.state }}</el-tag></template>
+                <template #default="{ row }"><el-tag>{{ graphStateLabel(row.state) }}</el-tag></template>
+              </el-table-column>
+              <el-table-column label="插件组合" min-width="200">
+                <template #default="{ row }">{{ pluginBadge(row) }}</template>
               </el-table-column>
               <el-table-column label="计数" width="200">
                 <template #default="{ row }">实体 {{ row.entityCount }} · 社区 {{ row.communityCount }}</template>
