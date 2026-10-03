@@ -99,6 +99,11 @@ public class IndexingStage implements GraphBuildStage {
                 run.chunkIndexVersion(), run.entityLinkingVersion(), run.contentEpoch(),
                 run.securityEpoch(), run.eventWatermark(), true, artifacts.sources, readiness);
         artifacts.manifest = manifest;
+        artifacts.manifestHash = manifest.manifestHash();
+        if (artifacts.snapshotId > 0) {
+            // 崩溃恢复：已有 BUILDING 快照，复用其清单与快照行，不重复创建
+            return;
+        }
         artifacts.manifestId = repository.persistManifest(manifest);
         artifacts.manifestHash = manifest.manifestHash();
         GraphSnapshotIdentity identity = new GraphSnapshotIdentity(

@@ -639,6 +639,20 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
     }
 
     @Override
+    public Optional<GraphBuildingSnapshot> findBuildingSnapshot(long runId) {
+        return jdbc.query("SELECT id, source_manifest_id, source_manifest_hash FROM graph_snapshot "
+                        + "WHERE run_id = ? AND state = 'BUILDING' ORDER BY id DESC LIMIT 1",
+                rs -> rs.next() ? Optional.of(new GraphBuildingSnapshot(rs.getLong(1),
+                        rs.getLong(2), rs.getString(3))) : Optional.empty(), runId);
+    }
+
+    @Override
+    public boolean isCancelled(long runId) {
+        return jdbc.query("SELECT state FROM graph_build_run WHERE id = ?",
+                rs -> rs.next() && "CANCELLED".equals(rs.getString(1)), runId);
+    }
+
+    @Override
     public boolean updateSnapshotCounts(long snapshotId, long entities, long relations,
                                         long communities) {
         return jdbc.update("UPDATE graph_snapshot SET entity_count = ?, relation_count = ?, "

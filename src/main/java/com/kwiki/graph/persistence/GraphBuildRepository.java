@@ -136,6 +136,12 @@ public interface GraphBuildRepository {
     long createSnapshot(GraphBuildRunRecord run, long manifestId, String manifestHash,
                         GraphSnapshotIdentity identity);
 
+    /** 恢复用：按 run 查找已有 BUILDING 快照，避免崩溃恢复时重复创建。 */
+    Optional<GraphBuildingSnapshot> findBuildingSnapshot(long runId);
+
+    /** 阶段与块间的取消探针：run 当前是否已进入 CANCELLED。 */
+    boolean isCancelled(long runId);
+
     /** 更新 BUILDING 快照的实体 / 关系 / 社区计数。 */
     boolean updateSnapshotCounts(long snapshotId, long entities, long relations, long communities);
 
