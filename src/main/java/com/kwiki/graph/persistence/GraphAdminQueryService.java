@@ -24,7 +24,8 @@ public class GraphAdminQueryService {
     public List<Map<String, Object>> batches() {
         return camel(jdbc.queryForList("SELECT id, scope_kind, chunk_index_version, "
                 + "community_index_version, state, auto_publish, requested_by, "
-                + "schedule_date, failure_summary, created_at "
+                + "schedule_date, failure_summary, created_at, "
+                + "extractor, community_detector, summarizer "
                 + "FROM graph_build_batch ORDER BY id DESC LIMIT 100"));
     }
 
@@ -33,7 +34,10 @@ public class GraphAdminQueryService {
         return camel(jdbc.queryForList("SELECT id, kb_id, chunk_index_version, "
                 + "community_index_version, community_physical_index, graph_version, "
                 + "state, stage, entity_count, relation_count, source_count, "
-                + "community_count, error_code, error_summary, started_at, completed_at "
+                + "community_count, error_code, error_summary, started_at, completed_at, "
+                + "extractor, community_detector, summarizer, "
+                + "sources_total, sources_extracted, extraction_cache_hits, "
+                + "communities_total, communities_summarized "
                 + "FROM graph_build_run WHERE batch_id = ? ORDER BY id", batchId));
     }
 
@@ -57,7 +61,8 @@ public class GraphAdminQueryService {
         return camel(jdbc.queryForList("SELECT id, kb_id, graph_version, chunk_index_version, "
                 + "community_index_version, community_physical_index, state, "
                 + "entity_count, relation_count, community_count, content_epoch, "
-                + "security_epoch, sealed_at, retired_at, created_at "
+                + "security_epoch, sealed_at, retired_at, created_at, "
+                + "extractor, community_detector, summarizer "
                 + "FROM graph_snapshot ORDER BY id DESC LIMIT 100"));
     }
 

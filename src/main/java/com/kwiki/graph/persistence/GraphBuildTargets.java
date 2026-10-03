@@ -61,17 +61,37 @@ public class GraphBuildTargets {
     public GraphBuildBatchRequest request(String idempotencyKey, String scopeKind, List<Long> knowledgeBaseIds,
                                           int chunkIndexVersion, String requestedEntityLinkingVersion,
                                           boolean autoPublish, String requestedBy, LocalDate scheduleDate) {
+        return request(idempotencyKey, scopeKind, knowledgeBaseIds, chunkIndexVersion,
+                requestedEntityLinkingVersion, autoPublish, requestedBy, scheduleDate,
+                null, null, null);
+    }
+
+    /** 带插件选择的批次请求；三项插件可为空，缺省由服务端取默认插件。 */
+    public GraphBuildBatchRequest request(String idempotencyKey, String scopeKind, List<Long> knowledgeBaseIds,
+                                          int chunkIndexVersion, String requestedEntityLinkingVersion,
+                                          boolean autoPublish, String requestedBy, LocalDate scheduleDate,
+                                          String extractor, String communityDetector, String summarizer) {
         SearchIndexVersion target = versions.findByVersionNumber(chunkIndexVersion)
                 .filter(version -> version.getDeletedAt() == null)
                 .orElseThrow(() -> new IllegalArgumentException("Chunk 版本 v" + chunkIndexVersion + " 不存在或已删除"));
         return request(idempotencyKey, scopeKind, knowledgeBaseIds, target, requestedEntityLinkingVersion,
-                autoPublish, requestedBy, scheduleDate);
+                autoPublish, requestedBy, scheduleDate, extractor, communityDetector, summarizer);
     }
 
     /** 以给定版本为目标生成批次请求；校验规则同上。 */
     public GraphBuildBatchRequest request(String idempotencyKey, String scopeKind, List<Long> knowledgeBaseIds,
                                           SearchIndexVersion target, String requestedEntityLinkingVersion,
                                           boolean autoPublish, String requestedBy, LocalDate scheduleDate) {
+        return request(idempotencyKey, scopeKind, knowledgeBaseIds, target,
+                requestedEntityLinkingVersion, autoPublish, requestedBy, scheduleDate,
+                null, null, null);
+    }
+
+    /** 以给定版本为目标生成批次请求并携带插件选择；校验规则同上。 */
+    public GraphBuildBatchRequest request(String idempotencyKey, String scopeKind, List<Long> knowledgeBaseIds,
+                                          SearchIndexVersion target, String requestedEntityLinkingVersion,
+                                          boolean autoPublish, String requestedBy, LocalDate scheduleDate,
+                                          String extractor, String communityDetector, String summarizer) {
         EditableIndexConfig config = target.editableConfig();
         if (!pipelines.supportsCapability(config, IndexCapability.ENTITY_LINKING)) {
             String label = schemas.find(config.indexSchema()).map(ChunkIndexSchema::label)
@@ -100,6 +120,7 @@ public class GraphBuildTargets {
         }
         return new GraphBuildBatchRequest(idempotencyKey, scopeKind, scope, target.getVersionNumber(),
                 target.getPhysicalName(), config.indexSchema(), target.getConfigRevision(),
-                entityLinking, autoPublish, requestedBy, scheduleDate);
+                entityLinking, autoPublish, requestedBy, scheduleDate,
+                extractor, communityDetector, summarizer);
     }
 }

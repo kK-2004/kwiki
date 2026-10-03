@@ -3,7 +3,10 @@ package com.kwiki.graph.persistence;
 import java.time.LocalDate;
 import java.util.List;
 
-/** 管理端或调度器提交图构建批次的请求；知识库集合在此刻冻结。 */
+/**
+ * 管理端或调度器提交图构建批次的请求；知识库集合在此刻冻结。
+ * extractor / communityDetector / summarizer 可选，缺省由服务端取默认插件。
+ */
 public record GraphBuildBatchRequest(
         String idempotencyKey,
         String scopeKind,
@@ -15,7 +18,10 @@ public record GraphBuildBatchRequest(
         String entityLinkingVersion,
         boolean autoPublish,
         String requestedBy,
-        LocalDate scheduleDate) {
+        LocalDate scheduleDate,
+        String extractor,
+        String communityDetector,
+        String summarizer) {
 
     public GraphBuildBatchRequest {
         if (idempotencyKey == null || idempotencyKey.isBlank()

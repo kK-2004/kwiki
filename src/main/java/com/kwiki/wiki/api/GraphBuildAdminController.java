@@ -82,7 +82,8 @@ public class GraphBuildAdminController {
         try {
             batch = targets.request(idempotencyKey, request.scopeKind(), request.knowledgeBaseIds(),
                     request.chunkIndexVersion(), request.entityLinkingVersion(),
-                    graphProperties.autoPublish(), user.username(), request.scheduleDate());
+                    graphProperties.autoPublish(), user.username(), request.scheduleDate(),
+                    request.extractor(), request.communityDetector(), request.summarizer());
         } catch (IllegalArgumentException invalid) {
             throw new ConflictException(invalid.getMessage());
         }
@@ -230,7 +231,10 @@ public class GraphBuildAdminController {
             String chunkPhysicalIndex,
             Long configRevision,
             String entityLinkingVersion,
-            LocalDate scheduleDate) {
+            LocalDate scheduleDate,
+            String extractor,
+            String communityDetector,
+            String summarizer) {
     }
 
     public record PublishRequest(@NotNull @Min(1) Long kbId,

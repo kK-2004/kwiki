@@ -61,7 +61,8 @@ class GraphBuildAdminControllerSubmitTest {
 
         // 旧客户端仍会带上 chunkIndexSchema=1、entity "entity-linking-v1" 等字段：结构版本与物理名以服务端为准
         var response = controller.submit(admin, "k1", new GraphBuildAdminController.SubmitRequest(
-                "ALL", List.of(), 3, "bogus-index", 99L, "entity-linking-v1", null));
+                "ALL", List.of(), 3, "bogus-index", 99L, "entity-linking-v1", null,
+                null, null, null));
 
         assertThat(response.getData()).containsEntry("chunkIndexSchema", "kwiki-schema-1");
         ArgumentCaptor<GraphBuildBatchRequest> captor = ArgumentCaptor.forClass(GraphBuildBatchRequest.class);
@@ -78,7 +79,8 @@ class GraphBuildAdminControllerSubmitTest {
     void 参数不合法时返回中文冲突且不提交() {
         version(3, "kwiki-schema-1");
         assertThatThrownBy(() -> controller.submit(admin, "k2", new GraphBuildAdminController.SubmitRequest(
-                "KNOWLEDGE_BASE", List.of(7L), 3, null, null, "v1", null)))
+                "KNOWLEDGE_BASE", List.of(7L), 3, null, null, "v1", null,
+                null, null, null)))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("entity-linking-v1");
         verify(batches, never()).submit(any());

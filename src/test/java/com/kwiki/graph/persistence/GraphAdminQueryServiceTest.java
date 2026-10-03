@@ -60,6 +60,33 @@ class GraphAdminQueryServiceTest {
     }
 
     @Test
+    void 子任务列表带出插件组合与进度列() {
+        JdbcOperations jdbc = mock(JdbcOperations.class);
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", 12L);
+        row.put("extractor", "kwiki-extractor-1");
+        row.put("community_detector", "arcadedb-leiden-1");
+        row.put("summarizer", "kwiki-summarizer-1");
+        row.put("sources_total", 100L);
+        row.put("sources_extracted", 40L);
+        row.put("extraction_cache_hits", 15L);
+        row.put("communities_total", 8L);
+        row.put("communities_summarized", 3L);
+        when(jdbc.queryForList(contains("FROM graph_build_run"), eq(9L))).thenReturn(List.of(row));
+
+        Map<String, Object> run = new GraphAdminQueryService(jdbc).runsOfBatch(9L).get(0);
+
+        assertThat(run).containsEntry("extractor", "kwiki-extractor-1")
+                .containsEntry("communityDetector", "arcadedb-leiden-1")
+                .containsEntry("summarizer", "kwiki-summarizer-1")
+                .containsEntry("sourcesTotal", 100L)
+                .containsEntry("sourcesExtracted", 40L)
+                .containsEntry("extractionCacheHits", 15L)
+                .containsEntry("communitiesTotal", 8L)
+                .containsEntry("communitiesSummarized", 3L);
+    }
+
+    @Test
     void 时间列按UTC转为Instant_由展示时区统一格式化() {
         java.time.LocalDateTime utcWall = java.time.LocalDateTime.of(2026, 10, 2, 15, 37);
         assertThat(GraphAdminQueryService.timestamp(utcWall))
