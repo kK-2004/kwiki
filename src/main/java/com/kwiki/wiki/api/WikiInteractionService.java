@@ -244,7 +244,11 @@ public class WikiInteractionService {
             return 1L;
         }
     }
-    private boolean exists(String sql, Object... args) { Integer value = jdbc.queryForObject(sql, Integer.class, args); return value != null; }
+    /** 有任意一行即存在；无行返回 false（queryForObject 在无行时会抛 EmptyResultDataAccessException）。 */
+    boolean exists(String sql, Object... args) {
+        Boolean present = jdbc.query(sql, java.sql.ResultSet::next, args);
+        return Boolean.TRUE.equals(present);
+    }
     private static long number(Object value) { return value instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(value)); }
     private static Long nullableNumber(Object value) { return value == null ? null : number(value); }
     private static Long nullableLong(ResultSet rs, int index) throws java.sql.SQLException { long value = rs.getLong(index); return rs.wasNull() ? null : value; }

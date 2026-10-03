@@ -139,10 +139,25 @@ async function submit() {
   }
 }
 
+/** 可重试：失败、已取消、已过期；可取消：排队或执行中（与服务端 requeueRun / cancelRun 条件一致）。 */
+const RETRYABLE = ["FAILED", "CANCELLED", "STALE"];
+const CANCELLABLE = ["QUEUED", "EXTRACTING", "PROJECTING", "CLUSTERING", "SUMMARIZING", "INDEXING",
+  "VALIDATING", "WAITING_FOR_CHUNKS", "UNSUPPORTED", "NEEDS_ATTENTION"];
+const canRetry = (run: GraphRun) => RETRYABLE.includes(run.state);
+const canCancel = (run: GraphRun) => CANCELLABLE.includes(run.state);
+
 async function runAction(run: GraphRun, action: "retry" | "cancel") {
   try {
-    await api.graphCommand(`/runs/${run.id}/${action}`);
-    ElMessage.success("请求已提交");
+    const result = await api.graphCommand<{ requeued?: boolean; cancelled?: boolean; busy?: boolean }>(`/runs/${run.id}/${action}`);
+    if (result?.busy) {
+      ElMessage.warning("另一个图构建批次正在占用构建名额，请稍后再试");
+    } else if (action === "retry" && result?.requeued === false) {
+      ElMessage.warning("该子任务当前状态不可重试（仅失败、已取消、已过期的子任务可重试）");
+    } else if (action === "cancel" && result?.cancelled === false) {
+      ElMessage.warning("该子任务已结束，无需取消");
+    } else {
+      ElMessage.success(action === "retry" ? "已重新排队" : "已取消");
+    }
     await load();
   } catch (error) {
     showError(error);
@@ -327,15 +342,16 @@ function showError(error: unknown) {
               <el-table-column prop="graphVersion" label="graphVersion" width="110"/>
               <el-table-column prop="communityPhysicalIndex" label="社区物理索引" min-width="220"/>
               <el-table-column label="阶段" width="130">
-                <template #default="{ row }"><el-tag>{{ row.state }}</el-tag> {{ row.stage }}</template>
+                <!-- 状态与阶段相同时（如排队中）只显示一次 -->
+                <template #default="{ row }"><el-tag>{{ row.state }}</el-tag><span v-if="row.stage && row.stage !== row.state"> {{ row.stage }}</span></template>
               </el-table-column>
               <el-table-column label="计数" width="220">
                 <template #default="{ row }">实体 {{ row.entityCount }} · 关系 {{ row.relationCount }} · 社区 {{ row.communityCount }}</template>
               </el-table-column>
               <el-table-column label="操作" width="170">
                 <template #default="{ row }">
-                  <el-button size="small" @click="runAction(row, 'retry')">重试</el-button>
-                  <el-button size="small" type="danger" @click="runAction(row, 'cancel')">取消</el-button>
+                  <el-button v-if="canRetry(row)" size="small" @click="runAction(row, 'retry')">重试</el-button>
+                  <el-button v-if="canCancel(row)" size="small" type="danger" @click="runAction(row, 'cancel')">取消</el-button>
                 </template>
               </el-table-column>
             </el-table>

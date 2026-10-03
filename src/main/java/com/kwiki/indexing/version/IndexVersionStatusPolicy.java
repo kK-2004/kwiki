@@ -13,8 +13,16 @@ public final class IndexVersionStatusPolicy {
 
     /** 管理端主展示状态；多个内部状态绝不拼成含混标签。 */
     public static IndexDisplayStatus displayStatus(IndexVersionSnapshot snapshot) {
+        return displayStatus(snapshot, false);
+    }
+
+    /** unsupported：版本配置引用了未注册插件（由流水线注册表实时判断）。 */
+    public static IndexDisplayStatus displayStatus(IndexVersionSnapshot snapshot, boolean unsupported) {
         if (snapshot.needsAttentionReason() != null) {
             return IndexDisplayStatus.NEEDS_ATTENTION;
+        }
+        if (unsupported) {
+            return IndexDisplayStatus.UNSUPPORTED;
         }
         if (snapshot.activeRun()) {
             return IndexDisplayStatus.MIGRATING;

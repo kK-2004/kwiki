@@ -31,6 +31,17 @@ class IndexVersionStatusPolicyTest {
     }
 
     @Test
+    void 引用未注册插件的版本显示不受支持_元数据异常仍优先() {
+        IndexVersionSnapshot built = snapshot(1, 1L, IndexBuildState.BUILT, IndexCatchupStatus.CURRENT,
+                false, false, true, false, null, false);
+        assertThat(IndexVersionStatusPolicy.displayStatus(built, true)).isEqualTo(IndexDisplayStatus.UNSUPPORTED);
+        assertThat(IndexVersionStatusPolicy.displayStatus(built, false)).isEqualTo(IndexDisplayStatus.MIGRATED);
+        IndexVersionSnapshot attention = snapshot(1, 1L, IndexBuildState.BUILT, IndexCatchupStatus.CURRENT,
+                false, false, true, false, "alias mismatch", false);
+        assertThat(IndexVersionStatusPolicy.displayStatus(attention, true)).isEqualTo(IndexDisplayStatus.NEEDS_ATTENTION);
+    }
+
+    @Test
     void displayStatusFollowsTheDocumentedPriority() {
         assertThat(IndexVersionStatusPolicy.displayStatus(snapshot(3, null,
                 IndexBuildState.NEW, IndexCatchupStatus.BEHIND, false, false, true,

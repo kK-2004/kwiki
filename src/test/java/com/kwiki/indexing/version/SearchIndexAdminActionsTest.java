@@ -18,6 +18,31 @@ class SearchIndexAdminActionsTest {
     }
 
     @Test
+    void 引用未注册插件的版本_只能关闭写入与清理() {
+        SearchIndexVersion v4 = new SearchIndexVersion(4, "kwiki-chunks-v4", config, hash);
+        v4.startWriteSession(42L);
+        var writing = SearchIndexAdminQueryService.actionsFor(v4, v4.toSnapshot(false), false, false,
+                null, "字段格式 legacy-schema-2 未注册", true);
+        assertThat(writing.allowed()).containsEntry("writeToggle", true).containsEntry("edit", false)
+                .containsEntry("migrate", false).containsEntry("validate", false)
+                .containsEntry("select", false).containsEntry("delete", false);
+        assertThat(writing.migrateBlockedReason()).isNull();
+
+        v4.endWriteSession();
+        var offline = SearchIndexAdminQueryService.actionsFor(v4, v4.toSnapshot(false), false, false,
+                null, "字段格式 legacy-schema-2 未注册", true);
+        assertThat(offline.allowed()).containsEntry("writeToggle", false).containsEntry("delete", true);
+    }
+
+    @Test
+    void 灰度版本在全局页不给出迁移提示() {
+        SearchIndexVersion v2 = new SearchIndexVersion(2, "kwiki-chunks-v2", config, hash);
+        var result = SearchIndexAdminQueryService.actionsFor(v2, v2.toSnapshot(false), false, true,
+                "解析器 kwiki-parse-2 不可用：缺少配置", true);
+        assertThat(result.migrateBlockedReason()).isNull();
+    }
+
+    @Test
     void 待迁移且写入关闭_只能开启写入_迁移按钮提示先开启写入() {
         SearchIndexVersion v2 = new SearchIndexVersion(2, "kwiki-chunks-v2", config, hash);
         var result = actions(v2, false, false);

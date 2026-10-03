@@ -79,6 +79,26 @@ class IndexVersionRetentionAdvisorTest {
                 .isEqualTo(true);
     }
 
+    @Test
+    void 引用未注册插件的版本不占保留名额_写入关闭即可清理() {
+        SearchIndexVersionRepository repository = mock(SearchIndexVersionRepository.class);
+        SearchIndexVersion selected = SearchIndexVersion.bootstrapped(5, "kwiki-chunks-v5", CONFIG, "mapping");
+        SearchIndexVersion legacy = builtVersion(4);
+        when(repository.findByDeletedAtIsNullOrderByVersionNumberAsc()).thenReturn(List.of(legacy, selected));
+        com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines =
+                mock(com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry.class);
+        when(pipelines.unregisteredPluginReason(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(java.util.Optional.of("字段格式 legacy-schema-2 未注册"));
+        IndexVersionRetentionAdvisor advisor = new IndexVersionRetentionAdvisor(repository);
+        advisor.setPipelines(pipelines);
+
+        var legacyItem = advisor.recommend().versions().stream()
+                .filter(item -> item.versionNumber() == 4).findFirst().orElseThrow();
+
+        assertThat(legacyItem.retained()).isFalse();
+        assertThat(legacyItem.cleanupCandidate()).isTrue();
+    }
+
     private static SearchIndexVersion builtVersion(int versionNumber) {
         SearchIndexVersion version = new SearchIndexVersion(
                 versionNumber, "kwiki-chunks-v" + versionNumber, CONFIG, "mapping");

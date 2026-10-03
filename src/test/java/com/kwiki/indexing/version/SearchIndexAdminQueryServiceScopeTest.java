@@ -45,13 +45,15 @@ class SearchIndexAdminQueryServiceScopeTest {
     }
 
     @Test
-    void 未注册字段格式退回标识与空能力() {
+    void 未注册字段格式显示未注册名称与空能力() {
         only(4, false);
         var unknown = new EditableIndexConfig("parser-1", "chunker-1", "default", "embedding-1", 1024, "gone-schema");
         when(versions.findByDeletedAtIsNullOrderByVersionNumberAsc())
                 .thenReturn(List.of(new SearchIndexVersion(4, "kwiki-chunks-v4", unknown, "mapping")));
         var view = service.versions().get(0);
-        assertThat(view.indexSchemaLabel()).isEqualTo("gone-schema");
+        // 名称不再退回为 id，避免界面出现「gone-schema（gone-schema）」
+        assertThat(view.indexSchemaLabel()).isEqualTo("未注册的字段格式");
+        assertThat(view.configuration().indexSchema()).isEqualTo("gone-schema");
         assertThat(view.schemaCapabilities()).isEmpty();
     }
 

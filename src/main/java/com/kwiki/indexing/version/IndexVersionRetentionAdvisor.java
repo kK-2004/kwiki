@@ -28,6 +28,19 @@ public class IndexVersionRetentionAdvisor {
         this.kbScope = kbScope;
     }
 
+    /** 流水线注册表：引用未注册插件的版本不能切回，不占保留名额；未注入（离线测试）时不区分。 */
+    private com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPipelines(com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines) {
+        this.pipelines = pipelines;
+    }
+
+    private boolean unsupported(SearchIndexVersion version) {
+        return pipelines != null
+                && pipelines.unregisteredPluginReason(version.editableConfig()).isPresent();
+    }
+
     private boolean scoped(SearchIndexVersion version) {
         return kbScope != null && kbScope.isScoped(version.getVersionNumber());
     }
@@ -40,8 +53,10 @@ public class IndexVersionRetentionAdvisor {
         active.stream().filter(SearchIndexVersion::isSelected)
                 .forEach(version -> retained.add(version.getVersionNumber()));
         // 灰度版本不占保留名额：结束灰度关闭写入后即可成为清理候选
+        // 只有能真正切回的版本才计入回滚保留名额
         active.stream()
                 .filter(version -> !scoped(version))
+                .filter(version -> !unsupported(version))
                 .sorted(Comparator.comparingInt(SearchIndexVersion::getVersionNumber).reversed())
                 .map(SearchIndexVersion::getVersionNumber)
                 .filter(version -> !retained.contains(version))

@@ -128,6 +128,14 @@ public class SearchIndexAdminQueryService {
         }).toList();
     }
 
+    /** 流水线注册表：判断版本是否引用了未注册插件；未注入（离线测试）时视为全部已注册。 */
+    private com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPipelines(com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines) {
+        this.pipelines = pipelines;
+    }
+
     private VersionView view(SearchIndexVersion version, boolean cleanupCandidate) {
         boolean activeRun = runs.existsByVersionNumberAndStateIn(version.getVersionNumber(),
                 List.of(RebuildRunState.RUNNING.name(), RebuildRunState.PAUSED.name()));
@@ -139,21 +147,25 @@ public class SearchIndexAdminQueryService {
                 : "解析器 " + parserId + " 不可用：" + parser.get().availability().unavailableReason();
         // 灰度版本只服务范围内知识库，生命周期由灰度发布管理
         boolean scoped = kbScope != null && kbScope.isScoped(version.getVersionNumber());
-        Actions actions = actionsFor(version, snapshot, activeRun, scoped,
-                parserProblem, cleanupCandidate);
         EditableIndexConfig config=version.editableConfig();
+        // 引用未注册插件的版本永久不可用：状态、校验结论与操作都按「不受支持」展示
+        String unsupportedReason = pipelines == null ? null
+                : pipelines.unregisteredPluginReason(config).orElse(null);
+        Actions actions = actionsFor(version, snapshot, activeRun, scoped,
+                parserProblem, unsupportedReason, cleanupCandidate);
         return new VersionView(version.getVersionNumber(),version.getPhysicalName(),config,
                 version.getConfigRevision(),version.getBuiltConfigRevision(),snapshot.dirty(),
-                IndexVersionStatusPolicy.displayStatus(snapshot).name(),version.getBuildState(),
+                IndexVersionStatusPolicy.displayStatus(snapshot, unsupportedReason != null).name(),version.getBuildState(),
                 version.getCatchupStatus(),version.isWriteEnabled(),version.isAdminDisabled(),
                 version.isSelected(),version.isPipelineSupported(),version.getHealthSummary(),
                 version.getNeedsAttentionReason(),version.getLastValidationAt(),
                 version.getValidationSummary(),cleanupCandidate,actions.allowed(),scoped,
                 version.getWriteEnabledEventId(),actions.migrateBlockedReason(),
                 schemas.find(config.indexSchema()).map(ChunkIndexSchema::label)
-                        .orElse(config.indexSchema()),
+                        .orElse("未注册的字段格式"),
                 schemas.find(config.indexSchema()).map(schema -> schema.capabilities().stream()
-                        .sorted().map(Enum::name).toList()).orElse(List.of()));
+                        .sorted().map(Enum::name).toList()).orElse(List.of()),
+                unsupportedReason);
     }
 
     private List<RangeView> ranges(Long runId) { return runId==null?List.of():ranges
@@ -166,10 +178,27 @@ public class SearchIndexAdminQueryService {
     static Actions actionsFor(SearchIndexVersion version, IndexVersionSnapshot snapshot,
                               boolean activeRun, boolean scoped, String parserProblem,
                               boolean cleanupCandidate) {
+        return actionsFor(version, snapshot, activeRun, scoped, parserProblem, null, cleanupCandidate);
+    }
+
+    /** unsupportedReason 非空：版本引用未注册插件，只允许关闭写入与清理。 */
+    static Actions actionsFor(SearchIndexVersion version, IndexVersionSnapshot snapshot,
+                              boolean activeRun, boolean scoped, String parserProblem,
+                              String unsupportedReason, boolean cleanupCandidate) {
         boolean writeEnabled = version.isWriteEnabled();
+        boolean idle = !activeRun;
+        if (unsupportedReason != null) {
+            Map<String,Boolean> allowed = new LinkedHashMap<>();
+            allowed.put("edit", false);
+            allowed.put("writeToggle", !scoped && idle && writeEnabled && !version.isSelected());
+            allowed.put("migrate", false);
+            allowed.put("validate", false);
+            allowed.put("select", false);
+            allowed.put("delete", cleanupCandidate && idle && !writeEnabled);
+            return new Actions(Map.copyOf(allowed), null);
+        }
         boolean migrated = !snapshot.dirty() && snapshot.buildState() == IndexBuildState.BUILT
                 && snapshot.catchupStatus() == IndexCatchupStatus.CURRENT;
-        boolean idle = !activeRun;
         Map<String,Boolean> allowed = new LinkedHashMap<>();
         allowed.put("edit", !scoped && snapshot.editable());
         allowed.put("writeToggle", !scoped && idle && (writeEnabled
@@ -180,7 +209,10 @@ public class SearchIndexAdminQueryService {
         allowed.put("select", !scoped && idle && !version.isSelected() && writeEnabled
                 && migrated && parserProblem == null);
         allowed.put("delete", cleanupCandidate && idle && !writeEnabled);
-        String blocked = parserProblem != null ? parserProblem : !scoped && idle && !writeEnabled && !migrated ? "请先开启写入" : null;
+        // 灰度版本的生命周期由灰度页管理，全局页不给出迁移提示
+        String blocked = scoped || !idle ? null
+                : parserProblem != null ? parserProblem
+                : !writeEnabled && !migrated ? "请先开启写入" : null;
         return new Actions(Map.copyOf(allowed), blocked);
     }
 
@@ -195,7 +227,7 @@ public class SearchIndexAdminQueryService {
             Instant lastValidationAt,String validationSummary,boolean cleanupCandidate,
             Map<String,Boolean> allowedActions,boolean kbScoped,
             Long writeEnabledEventId,String migrateBlockedReason,
-            String indexSchemaLabel,List<String> schemaCapabilities){}
+            String indexSchemaLabel,List<String> schemaCapabilities,String unsupportedReason){}
     public record RangeView(String resourceType,long minId,long maxId,long lastSeenId,
             long tailLastSeenId,Long tailMaxId,long scanned,long succeeded,long skipped,long failed){}
     public record RunView(Long runId,int versionNumber,long buildGeneration,String kind,String state,

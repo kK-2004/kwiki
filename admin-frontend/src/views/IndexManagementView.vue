@@ -336,12 +336,19 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
               </el-table-column>
               <el-table-column label="最近校验" min-width="190">
                 <template #default="{ row }">
+                  <!-- 引用未注册插件的版本：历史校验结论已不成立，改为显示不受支持的原因 -->
+                  <template v-if="row.unsupportedReason">
+                    <span class="validation-fail">不受支持：{{ row.unsupportedReason }}</span>
+                    <div class="muted">只能关闭写入后清理</div>
+                  </template>
+                  <template v-else>
                   <el-tooltip :content="row.validationSummary" :disabled="!row.validationSummary" placement="top">
                     <span :class="{ 'validation-pass': validationText(row.validationSummary).passed === true, 'validation-fail': validationText(row.validationSummary).passed === false }">
                       {{ validationText(row.validationSummary).text }}
                     </span>
                   </el-tooltip>
                   <div v-if="row.lastValidationAt" class="muted">{{ row.lastValidationAt.replace("T", " ").slice(0, 19) }}</div>
+                  </template>
                 </template>
               </el-table-column>
               <el-table-column label="可执行操作" min-width="410">

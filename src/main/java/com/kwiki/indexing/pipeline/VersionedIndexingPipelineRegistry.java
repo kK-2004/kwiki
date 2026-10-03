@@ -94,6 +94,23 @@ public class VersionedIndexingPipelineRegistry {
                 .capabilities().contains(capability);
     }
 
+    /**
+     * 版本配置引用了未注册插件时返回原因：这类版本永久无法写入或切回，只能清理。
+     * 插件已注册但暂时不可用（如缺少配置）不在此列——补齐配置即可恢复。
+     */
+    public Optional<String> unregisteredPluginReason(EditableIndexConfig config) {
+        if (schemaRegistry.find(config.indexSchema()).isEmpty()) {
+            return Optional.of("字段格式 " + config.indexSchema() + " 未注册");
+        }
+        if (parserRegistry.find(config.parserVersion()).isEmpty()) {
+            return Optional.of("解析器 " + config.parserVersion() + " 未注册");
+        }
+        if (chunkerRegistry.find(config.chunkerVersion()).isEmpty()) {
+            return Optional.of("分块器 " + config.chunkerVersion() + " 未注册");
+        }
+        return Optional.empty();
+    }
+
     /** 无法解析的脱敏原因（供管理端与日志使用）。 */
     public Optional<String> unsupportedReason(EditableIndexConfig config) {
         var schema = schemaRegistry.find(config.indexSchema());
