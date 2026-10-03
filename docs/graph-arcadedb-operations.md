@@ -64,6 +64,10 @@
 | 算法远端状态未知 | `NEEDS_ATTENTION` 保留槽位与临时库；确认结束后清理，可幂等重试 |
 | 清理部分失败 | 快照保持 DELETING，剩余资源记录在 `graph_resource_reference`，重试只删剩余项 |
 | 图/ArcadeDB 故障 | 在线自动降级为原有 Chunk 检索；权限撤销按出站守卫中止输出，不当作普通故障降级 |
+| 执行实例崩溃 | 租约过期后其他实例接管（隔离令牌 +1），从当前阶段继续；抽取命中缓存，不重复调用模型 |
+| 模型超时 / 429 / 5xx | 阶段内指数退避重试（`kwiki.graph.build.max-attempts`），耗尽或永久错误置 FAILED，后台可重试 |
+| 来源 epoch 变化 | 执行器按阶段核对 `graph_source_epoch`，不一致置 STALE，重新提交新批次 |
+| 管理端取消 | 运行中的子任务在块间/阶段间检测到 CANCELLED 即退出，不再写任何权威状态 |
 
 回滚：后台对配对 `(kbId, chunkIndexVersion)` 切回完整且 Chunk 流水线兼容的历史快照；快照 epoch 过期时社区摘要保持禁用，仅逐条验证仍有效的图事实。
 
@@ -120,3 +124,48 @@ KWIKI_GRAPH_CONTRACT_ES=http://localhost:9200 \
 - 外部加权 Leiden worker（Python igraph/leidenalg）与 `weightPolicyVersion` 权重规则；
 - 跨知识库实体合并、层级/重叠社区、按用户拆分的社区图；
 - 基于全部社区报告的 global map-reduce 问答。
+
+## 10. 图构建执行器与环节插件
+
+提交的图构建批次由内置执行器真正执行：在分布式锁（`kwiki:lock:graph-build-executor`）保护下按「抽取 → 投影 → 聚类 → 摘要 → 写索引 → 校验封存」推进子任务，每阶段开始前写断点（携带租约与隔离令牌）。
+
+### 10.1 执行器配置（`kwiki.graph.build.*`）
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `poll-interval` | `10s` | 领取轮询间隔（`@Scheduled` fixedDelay） |
+| `max-concurrent-runs` | `2` | 全局并发上限；多实例共享，领取前统计全库「活动且租约未过期」的子任务数 |
+| `lease-duration` | `2m` | 子任务租约；执行线程每 1/3 周期续租，续租失败立即退出不再写状态 |
+| `max-attempts` | `5` | 可重试错误的阶段内重试上限（指数退避 `retry-base-delay`×2^n，上限 30s） |
+| `retry-base-delay` | `1s` | 重试基础退避 |
+| `max-chunks-per-run` | `20000` | 单个子任务的来源块上限，超出直接永久失败（`CAPACITY_EXCEEDED_SOURCES`） |
+| `max-summaries-per-run` | `5000` | 单个子任务的社区摘要上限 |
+
+### 10.2 模型配置与继承规则（`kwiki.graph.models.*`）
+
+抽取与摘要模型独立于在线问答模型，客户端在应用内构造，**不注册**为 `ChatModel`/`StreamingChatModel` Bean。
+
+- `kwiki.graph.models.extraction.*` 与 `kwiki.graph.models.summary.*` 各支持：`base-url`、`api-key`、`model`、`request-timeout`、`max-concurrency`、`qps`、`max-retries`。
+- **继承规则**：连接项（base-url / api-key / model / request-timeout）未配置时沿用问答模型 `KWIKI_ANSWER_LLM_*` 的对应值；因此只配问答模型即可开跑，单独配置任一项则覆盖该项。
+- **缺省并发/频率**：抽取 4 并发 / 5 QPS，摘要 2 并发 / 2 QPS，重试 2。限流器（并发信号量 + 令牌桶）按模型全局单例，所有子任务共享。
+
+### 10.3 插件与默认值（`kwiki.graph.defaults.*`）
+
+三个环节可替换，插件 id 记入批次、子任务、快照，便于追溯产出来源：
+
+| 环节 | 首个实现 | id |
+| --- | --- | --- |
+| 实体关系抽取 | 大模型抽取 v1 | `kwiki-extractor-1` |
+| 社区检测 | ArcadeDB Leiden v1 | `arcadedb-leiden-1` |
+| 社区摘要 | 大模型摘要 v1 | `kwiki-summarizer-1` |
+
+- 默认值：`kwiki.graph.defaults.extractor` / `community-detector` / `summarizer`，启动时校验已注册，未注册拒绝启动。
+- `GET /api/v1/admin/knowledge-graphs/plugins`（ROLE_ADMIN）返回三类插件 `{id,label,available,unavailableReason}` 与默认值；提交批次请求体可用可选字段 `extractor` / `communityDetector` / `summarizer` 覆盖，未注册或不可用返回 400 并附中文原因。
+- 新插件实现 `GraphExtractorPlugin` / `CommunityDetectorPlugin` / `CommunitySummarizerPlugin`（复用 `IndexPlugin` 契约），注册为 Spring Bean 即被收录。
+
+### 10.4 调用量上限与故障恢复
+
+- 结构上限沿用 `kwiki.graph.capacity.*`（投影写入前用容量守卫校验，超限永久失败且不裁剪数据）；来源块与社区摘要另有 `kwiki.graph.build.max-chunks-per-run` / `max-summaries-per-run` 上限。
+- 抽取结果按（来源块、抽取器 id、提示词版本、实体链接版本）唯一身份持久化在 `graph_extraction_result`：命中 READY 缓存直接复用，重做抽取阶段、崩溃接管、后台重试均不重复调用模型。
+- 崩溃恢复：租约过期后其他实例接管（`fencing_token` +1，旧持有者全部失效）；恢复点在 SUMMARIZING 及之前一律从 EXTRACTING 重做（全部命中缓存），INDEXING / VALIDATING 复用已创建的 BUILDING 快照与来源清单，不重复创建。
+- 全部子任务进入终态后批次自动收尾：全 READY/PUBLISHED → READY；部分失败 → PARTIAL_FAILED；全失败 → FAILED。
