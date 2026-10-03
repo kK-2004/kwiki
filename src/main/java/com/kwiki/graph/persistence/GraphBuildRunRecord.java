@@ -21,5 +21,8 @@ public record GraphBuildRunRecord(
         long fencingToken,
         String leaseOwner,
         Instant leaseExpiresAt,
-        long eventWatermark) {
+        long eventWatermark,
+        String extractor,
+        String communityDetector,
+        String summarizer) {
 }

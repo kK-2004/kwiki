@@ -136,10 +136,12 @@ class GraphEndToEndDrillContractTest {
 
             batchId = repository.createBatch(new GraphBuildBatchCommand(
                     "drill-" + kbId, "KNOWLEDGE_BASE", "[" + kbId + "]", 3,
-                    "kwiki-chunks-v3", communityVersion, false, "drill", null));
+                    "kwiki-chunks-v3", communityVersion, false, "drill", null,
+                    "kwiki-extractor-1", "arcadedb-leiden-1", "kwiki-summarizer-1"));
             long runId = repository.createRun(new GraphBuildRunCommand(
                     batchId, kbId, 3, "kwiki-chunks-v3", communityVersion,
-                    communityIndex, 42, "kwiki-schema-1", "entity-linking-v1", contentEpoch, securityEpoch));
+                    communityIndex, 42, "kwiki-schema-1", "entity-linking-v1", contentEpoch, securityEpoch,
+                    "kwiki-extractor-1", "arcadedb-leiden-1", "kwiki-summarizer-1"));
             jdbc.update("INSERT INTO graph_source_manifest (run_id, kb_id, manifest_hash, "
                     + "content_epoch, security_epoch, event_watermark, entry_count, state) "
                     + "VALUES (?, ?, 'drill', ?, ?, 0, 0, 'COMPLETE')",

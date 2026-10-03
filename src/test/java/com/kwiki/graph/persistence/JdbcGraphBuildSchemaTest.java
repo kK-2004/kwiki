@@ -27,7 +27,8 @@ class JdbcGraphBuildSchemaTest {
             return 1;
         });
         long id = new JdbcGraphBuildRepository(jdbc).createRun(new GraphBuildRunCommand(11, 7, 3, "kwiki-chunks-v3",
-                5, "kwiki-communities-v5-kb7", 42, "schema-arbitrary", "entity-linking-v1", 0, 0));
+                5, "kwiki-communities-v5-kb7", 42, "schema-arbitrary", "entity-linking-v1", 0, 0,
+                "kwiki-extractor-1", "arcadedb-leiden-1", "kwiki-summarizer-1"));
         assertThat(id).isEqualTo(21);
         verify(statement).setString(8, "schema-arbitrary");
         verify(connection).prepareStatement(argThat(sql -> sql.contains("chunk_index_schema") && !sql.contains("mapping_schema_version")), eq(Statement.RETURN_GENERATED_KEYS));

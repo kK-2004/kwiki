@@ -6,9 +6,9 @@ import java.util.List;
  * ArcadeDB schema 的固定定义。所有 DDL 只在适配器内维护，业务端口不接触
  * SQL/Cypher；重复执行使用 IF NOT EXISTS 或幂等 UPSERT。
  */
-final class ArcadeDbSchemaDefinition {
+public final class ArcadeDbSchemaDefinition {
 
-    static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 1;
     static final String SCHEMA_VERSION_NAME = "kwiki-graph";
 
     private ArcadeDbSchemaDefinition() {

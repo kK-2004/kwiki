@@ -108,6 +108,37 @@ public interface GraphBuildRepository {
     /** 管理端取消：活动状态 run 进入 CANCELLED。 */
     boolean cancelRun(long runId);
 
+    // ---- 执行器扩展：领取、并发、进度、失败、收尾、快照落库 ----
+
+    /** 可领取子任务：QUEUED，或活动状态且租约已过期（崩溃接管）；按 batch_id, id 排序。 */
+    List<GraphBuildRunRecord> findClaimableRuns(java.time.Instant now, int limit);
+
+    /** 全库活动状态且租约未过期的子任务数，用于跨实例共享的全局并发上限。 */
+    int countLiveRuns(java.time.Instant now);
+
+    /** 子任务进度更新；只允许当前租约持有者携带隔离令牌执行。 */
+    boolean updateProgress(long runId, String owner, long fencingToken,
+                           com.kwiki.graph.build.RunProgress progress);
+
+    /** 失败终态：带隔离令牌保护，同时写 completed_at。 */
+    boolean failRun(long runId, String owner, long fencingToken, String errorCode, String errorSummary);
+
+    /** 来源 epoch 过期：带隔离令牌置 STALE。 */
+    boolean markStale(long runId, String owner, long fencingToken);
+
+    /** 子任务均进入终态时收尾批次；仍有活动子任务时不做任何修改。 */
+    void settleBatch(long batchId);
+
+    /** 写入来源清单（state=COMPLETE）与全部清单项，返回清单 id。 */
+    long persistManifest(GraphSourceManifest manifest);
+
+    /** 创建 BUILDING 快照，写入全部 NOT NULL 列与插件组合，返回快照 id。 */
+    long createSnapshot(GraphBuildRunRecord run, long manifestId, String manifestHash,
+                        GraphSnapshotIdentity identity);
+
+    /** 更新 BUILDING 快照的实体 / 关系 / 社区计数。 */
+    boolean updateSnapshotCounts(long snapshotId, long entities, long relations, long communities);
+
     /** 写入图管理审计记录。 */
     void audit(String action, String idempotencyKey, String operator,
                Long batchId, Long runId, String resultState, String summary);

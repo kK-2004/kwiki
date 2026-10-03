@@ -12,7 +12,10 @@ public record GraphBuildBatchCommand(
         long communityIndexVersion,
         boolean autoPublish,
         String requestedBy,
-        LocalDate scheduleDate) {
+        LocalDate scheduleDate,
+        String extractor,
+        String communityDetector,
+        String summarizer) {
 
     public GraphBuildBatchCommand {
         require(idempotencyKey, "idempotencyKey");
@@ -25,6 +28,9 @@ public record GraphBuildBatchCommand(
         }
         require(chunkPhysicalIndex, "chunkPhysicalIndex");
         require(requestedBy, "requestedBy");
+        require(extractor, "extractor");
+        require(communityDetector, "communityDetector");
+        require(summarizer, "summarizer");
     }
 
     private static void require(String value, String field) {

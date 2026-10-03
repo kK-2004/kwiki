@@ -1,5 +1,7 @@
 package com.kwiki.graph.persistence;
 
+import java.time.LocalDate;
+
 /** 创建按知识库隔离的图构建子任务时冻结的版本与身份。 */
 public record GraphBuildRunCommand(
         long batchId,
@@ -12,7 +14,10 @@ public record GraphBuildRunCommand(
         String chunkIndexSchema,
         String entityLinkingVersion,
         long contentEpoch,
-        long securityEpoch) {
+        long securityEpoch,
+        String extractor,
+        String communityDetector,
+        String summarizer) {
 
     public GraphBuildRunCommand {
         if (batchId <= 0 || kbId <= 0 || chunkIndexVersion < 1
@@ -23,6 +28,9 @@ public record GraphBuildRunCommand(
         require(chunkPhysicalIndex, "chunkPhysicalIndex");
         require(communityPhysicalIndex, "communityPhysicalIndex");
         require(entityLinkingVersion, "entityLinkingVersion");
+        require(extractor, "extractor");
+        require(communityDetector, "communityDetector");
+        require(summarizer, "summarizer");
     }
 
     private static void require(String value, String field) {

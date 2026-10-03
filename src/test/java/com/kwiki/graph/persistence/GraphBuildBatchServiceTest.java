@@ -18,7 +18,10 @@ class GraphBuildBatchServiceTest {
     private final GraphBuildRepository repository = mock(GraphBuildRepository.class);
     private final SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
     private final VersionedIndexingPipelineRegistry pipelines = mock(VersionedIndexingPipelineRegistry.class);
-    private final GraphBuildBatchService service = new GraphBuildBatchService(repository, null, pipelines, versions, SchemaTestFixtures.schemas());
+    private final GraphBuildBatchService service = new GraphBuildBatchService(repository, null,
+            pipelines, versions, SchemaTestFixtures.schemas(),
+            new com.kwiki.graph.config.GraphPluginDefaults("kwiki-extractor-1",
+                    "arcadedb-leiden-1", "kwiki-summarizer-1"));
     private final EditableIndexConfig config = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default", "qwen", 1024, "kwiki-schema-1");
     private GraphBuildBatchRequest request(String schema) {
         return new GraphBuildBatchRequest("batch", "KNOWLEDGE_BASE", List.of(7L), 3, "kwiki-chunks-v3", schema, 1,

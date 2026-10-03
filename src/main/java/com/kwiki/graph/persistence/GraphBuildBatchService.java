@@ -25,6 +25,7 @@ public class GraphBuildBatchService {
 
     private final GraphBuildRepository repository;
     private final GraphSourceEpochService epochs;
+    private final com.kwiki.graph.config.GraphPluginDefaults pluginDefaults;
 
     private final VersionedIndexingPipelineRegistry pipelines;
     private final SearchIndexVersionRepository versions;
@@ -34,12 +35,14 @@ public class GraphBuildBatchService {
     public GraphBuildBatchService(GraphBuildRepository repository, GraphSourceEpochService epochs,
                                   VersionedIndexingPipelineRegistry pipelines,
                                   SearchIndexVersionRepository versions,
-                                  ChunkIndexSchemaRegistry schemas) {
+                                  ChunkIndexSchemaRegistry schemas,
+                                  com.kwiki.graph.config.GraphPluginDefaults pluginDefaults) {
         this.repository = repository;
         this.epochs = epochs;
         this.pipelines = pipelines;
         this.versions = versions;
         this.schemas = schemas;
+        this.pluginDefaults = pluginDefaults;
     }
 
     @Transactional
@@ -69,7 +72,9 @@ public class GraphBuildBatchService {
         GraphBuildBatchCommand batch = new GraphBuildBatchCommand(
                 request.idempotencyKey(), request.scopeKind(), request.knowledgeBaseIdsJson(),
                 request.chunkIndexVersion(), request.chunkPhysicalIndex(), communityVersion,
-                request.autoPublish(), request.requestedBy(), request.scheduleDate());
+                request.autoPublish(), request.requestedBy(), request.scheduleDate(),
+                pluginDefaults.extractor(), pluginDefaults.communityDetector(),
+                pluginDefaults.summarizer());
         long batchId = repository.createBatch(batch);
         repository.bindCommunityVersionToBatch(communityVersion, batchId);
 
@@ -82,7 +87,8 @@ public class GraphBuildBatchService {
                     batchId, kbId, request.chunkIndexVersion(), request.chunkPhysicalIndex(),
                     communityVersion, communityIndex, graphVersion,
                     request.chunkIndexSchema(), request.entityLinkingVersion(),
-                    currentEpochs[0], currentEpochs[1])));
+                    currentEpochs[0], currentEpochs[1],
+                    batch.extractor(), batch.communityDetector(), batch.summarizer())));
         }
         return new GraphBuildSubmission(batchId, communityVersion, runIds, false);
     }

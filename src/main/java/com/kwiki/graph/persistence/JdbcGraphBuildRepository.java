@@ -1,5 +1,6 @@
 package com.kwiki.graph.persistence;
 
+import com.kwiki.graph.GraphSourceChunk;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -73,8 +74,9 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
             PreparedStatement statement = connection.prepareStatement(
                     "INSERT INTO graph_build_batch "
                             + "(idempotency_key, scope_kind, requested_kb_ids_json, chunk_index_version, "
-                            + "chunk_physical_index, community_index_version, auto_publish, requested_by, schedule_date) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS);
+                            + "chunk_physical_index, community_index_version, auto_publish, requested_by, "
+                            + "schedule_date, extractor, community_detector, summarizer) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS);
             statement.setString(1, command.idempotencyKey());
             statement.setString(2, command.scopeKind());
             statement.setString(3, command.requestedKnowledgeBaseIdsJson());
@@ -85,6 +87,9 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
             statement.setString(8, command.requestedBy());
             if (command.scheduleDate() == null) statement.setNull(9, java.sql.Types.DATE);
             else statement.setObject(9, command.scheduleDate());
+            statement.setString(10, command.extractor());
+            statement.setString(11, command.communityDetector());
+            statement.setString(12, command.summarizer());
             return statement;
         }, keys);
         Number key = keys.getKey();
@@ -101,8 +106,9 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
                     "INSERT INTO graph_build_run "
                             + "(batch_id, kb_id, chunk_index_version, chunk_physical_index, "
                             + "community_index_version, community_physical_index, graph_version, "
-                            + "chunk_index_schema, entity_linking_version, content_epoch, security_epoch) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            + "chunk_index_schema, entity_linking_version, content_epoch, security_epoch, "
+                            + "extractor, community_detector, summarizer) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, command.batchId());
             statement.setLong(2, command.kbId());
@@ -115,6 +121,9 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
             statement.setString(9, command.entityLinkingVersion());
             statement.setLong(10, command.contentEpoch());
             statement.setLong(11, command.securityEpoch());
+            statement.setString(12, command.extractor());
+            statement.setString(13, command.communityDetector());
+            statement.setString(14, command.summarizer());
             return statement;
         }, keys);
         Number key = keys.getKey();
@@ -140,23 +149,14 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
                 + "community_index_version, community_physical_index, graph_version, "
                 + "chunk_index_schema, entity_linking_version, content_epoch, security_epoch, "
                 + "state, stage, "
-                + "fencing_token, lease_owner, lease_expires_at, event_watermark "
+                + "fencing_token, lease_owner, lease_expires_at, event_watermark, "
+                + "extractor, community_detector, summarizer "
                 + "FROM graph_build_run WHERE kb_id = ? AND state IN (" + placeholders + ") "
                 + "ORDER BY id DESC LIMIT 1 FOR UPDATE";
         Object[] args = new Object[1 + ACTIVE_STATES.size()];
         args[0] = kbId;
         for (int i = 0; i < ACTIVE_STATES.size(); i++) args[i + 1] = ACTIVE_STATES.get(i);
-        return jdbc.query(sql, rs -> rs.next() ? Optional.of(new GraphBuildRunRecord(
-                rs.getLong("id"), rs.getLong("batch_id"), rs.getLong("kb_id"),
-                rs.getInt("chunk_index_version"), rs.getString("chunk_physical_index"),
-                rs.getLong("community_index_version"), rs.getString("community_physical_index"),
-                rs.getLong("graph_version"), rs.getString("chunk_index_schema"),
-                rs.getString("entity_linking_version"), rs.getLong("content_epoch"),
-                rs.getLong("security_epoch"), GraphBuildState.valueOf(rs.getString("state")),
-                GraphBuildStage.valueOf(rs.getString("stage")), rs.getLong("fencing_token"),
-                rs.getString("lease_owner"), rs.getTimestamp("lease_expires_at") == null ? null
-                        : rs.getTimestamp("lease_expires_at").toInstant(),
-                rs.getLong("event_watermark"))) : Optional.empty(), args);
+        return jdbc.query(sql, rs -> rs.next() ? Optional.of(mapRun(rs)) : Optional.empty(), args);
     }
 
     @Override
@@ -470,6 +470,196 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
                         + "ORDER BY id DESC LIMIT 1",
                 rs -> rs.next() ? Optional.ofNullable(rs.getString(1)) : Optional.empty(),
                 idempotencyKey);
+    }
+
+    // ---- 执行器扩展实现 ----
+
+    /** 子任务终态集合：批次收尾只在全部子任务进入终态后进行。 */
+    private static final String TERMINAL_STATES =
+            "'READY','PUBLISHED','FAILED','CANCELLED','STALE'";
+
+    @Override
+    public List<GraphBuildRunRecord> findClaimableRuns(Instant now, int limit) {
+        String sql = "SELECT id, batch_id, kb_id, chunk_index_version, chunk_physical_index, "
+                + "community_index_version, community_physical_index, graph_version, "
+                + "chunk_index_schema, entity_linking_version, content_epoch, security_epoch, "
+                + "state, stage, fencing_token, lease_owner, lease_expires_at, event_watermark, "
+                + "extractor, community_detector, summarizer "
+                + "FROM graph_build_run WHERE state = 'QUEUED' "
+                + "OR (state IN (" + activeStateSql() + ") AND lease_expires_at < ?) "
+                + "ORDER BY batch_id, id LIMIT ?";
+        return jdbc.query(sql, (rs, row) -> mapRun(rs), Timestamp.from(now), limit);
+    }
+
+    @Override
+    public int countLiveRuns(Instant now) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM graph_build_run WHERE state IN (" + activeStateSql() + ") "
+                        + "AND lease_expires_at >= ?",
+                Long.class, Timestamp.from(now));
+        return count == null ? 0 : count.intValue();
+    }
+
+    @Override
+    public boolean updateProgress(long runId, String owner, long fencingToken,
+                                  com.kwiki.graph.build.RunProgress progress) {
+        if (progress == null) {
+            progress = com.kwiki.graph.build.RunProgress.EMPTY;
+        }
+        return jdbc.update("UPDATE graph_build_run SET sources_total = ?, sources_extracted = ?, "
+                        + "extraction_cache_hits = ?, communities_total = ?, communities_summarized = ? "
+                        + "WHERE id = ? AND lease_owner = ? AND fencing_token = ?",
+                progress.sourcesTotal(), progress.sourcesExtracted(), progress.extractionCacheHits(),
+                progress.communitiesTotal(), progress.communitiesSummarized(),
+                runId, owner, fencingToken) == 1;
+    }
+
+    @Override
+    public boolean failRun(long runId, String owner, long fencingToken,
+                           String errorCode, String errorSummary) {
+        return jdbc.update("UPDATE graph_build_run SET state = 'FAILED', error_code = ?, "
+                        + "error_summary = ?, completed_at = CURRENT_TIMESTAMP(6) "
+                        + "WHERE id = ? AND lease_owner = ? AND fencing_token = ?",
+                errorCode, errorSummary, runId, owner, fencingToken) == 1;
+    }
+
+    @Override
+    public boolean markStale(long runId, String owner, long fencingToken) {
+        return jdbc.update("UPDATE graph_build_run SET state = 'STALE', "
+                        + "completed_at = CURRENT_TIMESTAMP(6) "
+                        + "WHERE id = ? AND lease_owner = ? AND fencing_token = ?",
+                runId, owner, fencingToken) == 1;
+    }
+
+    @Override
+    @Transactional
+    public void settleBatch(long batchId) {
+        Long unfinished = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM graph_build_run WHERE batch_id = ? AND state NOT IN ("
+                        + TERMINAL_STATES + ")", Long.class, batchId);
+        if (unfinished == null || unfinished > 0) {
+            return;
+        }
+        Long failing = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM graph_build_run WHERE batch_id = ? AND state IN "
+                        + "('FAILED','CANCELLED','STALE')", Long.class, batchId);
+        Long succeeded = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM graph_build_run WHERE batch_id = ? AND state IN "
+                        + "('READY','PUBLISHED')", Long.class, batchId);
+        boolean anyFailed = failing != null && failing > 0;
+        boolean anySucceeded = succeeded != null && succeeded > 0;
+        String target = !anyFailed ? "READY" : anySucceeded ? "PARTIAL_FAILED" : "FAILED";
+        jdbc.update("UPDATE graph_build_batch SET state = ? WHERE id = ?", target, batchId);
+    }
+
+    @Override
+    @Transactional
+    public long persistManifest(GraphSourceManifest manifest) {
+        KeyHolder keys = new GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO graph_source_manifest "
+                            + "(run_id, kb_id, manifest_hash, content_epoch, security_epoch, "
+                            + "event_watermark, entry_count, state, completed_at) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, 'COMPLETE', CURRENT_TIMESTAMP(6))",
+                    Statement.RETURN_GENERATED_KEYS);
+            statement.setLong(1, manifest.runId());
+            statement.setLong(2, manifest.kbId());
+            statement.setString(3, manifest.manifestHash());
+            statement.setLong(4, manifest.contentEpoch());
+            statement.setLong(5, manifest.securityEpoch());
+            statement.setLong(6, manifest.eventWatermark());
+            statement.setLong(7, manifest.entries().size());
+            return statement;
+        }, keys);
+        Number key = keys.getKey();
+        if (key == null) throw new IllegalStateException("来源清单插入未返回主键");
+        long manifestId = key.longValue();
+        for (GraphSourceManifestEntry entry : manifest.entries()) {
+            GraphSourceChunk source = entry.sourceChunk();
+            jdbc.update("INSERT INTO graph_source_manifest_entry "
+                            + "(manifest_id, source_chunk_id, resource_type, resource_id, revision_id, "
+                            + "lifecycle_version, chunk_key, content_hash, parser_version, chunker_version, "
+                            + "chunk_index_version, entity_linking_version, chunk_state) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    manifestId, source.sourceChunkId(), source.resourceType(), source.resourceId(),
+                    source.revisionId(), source.lifecycleVersion(), source.chunkKey(),
+                    source.contentHash(), source.parserVersion(), source.chunkerVersion(),
+                    source.indexVersion(), entry.entityLinkingVersion(), entry.readiness().name());
+        }
+        return manifestId;
+    }
+
+    @Override
+    @Transactional
+    public long createSnapshot(GraphBuildRunRecord run, long manifestId, String manifestHash,
+                               GraphSnapshotIdentity identity) {
+        KeyHolder keys = new GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO graph_snapshot "
+                            + "(run_id, kb_id, graph_version, chunk_index_version, chunk_physical_index, "
+                            + "community_index_version, community_physical_index, source_manifest_id, "
+                            + "source_manifest_hash, entity_linking_version, chunk_index_schema, "
+                            + "graph_schema_version, algorithm_mode, engine_version, summary_model, "
+                            + "summary_prompt_version, embedding_model, embedding_dimensions, "
+                            + "content_epoch, security_epoch, state, "
+                            + "extractor, community_detector, summarizer) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'BUILDING', ?, ?, ?)",
+                    Statement.RETURN_GENERATED_KEYS);
+            statement.setLong(1, run.id());
+            statement.setLong(2, run.kbId());
+            statement.setLong(3, run.graphVersion());
+            statement.setInt(4, run.chunkIndexVersion());
+            statement.setString(5, run.chunkPhysicalIndex());
+            statement.setLong(6, run.communityIndexVersion());
+            statement.setString(7, run.communityPhysicalIndex());
+            statement.setLong(8, manifestId);
+            statement.setString(9, manifestHash);
+            statement.setString(10, run.entityLinkingVersion());
+            statement.setString(11, run.chunkIndexSchema());
+            statement.setInt(12, identity.graphSchemaVersion());
+            statement.setString(13, identity.algorithmMode());
+            statement.setString(14, identity.engineVersion());
+            statement.setString(15, identity.summaryModel());
+            statement.setString(16, identity.summaryPromptVersion());
+            statement.setString(17, identity.embeddingModel());
+            if (identity.embeddingDimensions() == null) statement.setNull(18, java.sql.Types.INTEGER);
+            else statement.setInt(18, identity.embeddingDimensions());
+            statement.setLong(19, run.contentEpoch());
+            statement.setLong(20, run.securityEpoch());
+            statement.setString(21, identity.extractor());
+            statement.setString(22, identity.communityDetector());
+            statement.setString(23, identity.summarizer());
+            return statement;
+        }, keys);
+        Number key = keys.getKey();
+        if (key == null) throw new IllegalStateException("图快照插入未返回主键");
+        return key.longValue();
+    }
+
+    @Override
+    public boolean updateSnapshotCounts(long snapshotId, long entities, long relations,
+                                        long communities) {
+        return jdbc.update("UPDATE graph_snapshot SET entity_count = ?, relation_count = ?, "
+                        + "community_count = ? WHERE id = ? AND state = 'BUILDING'",
+                entities, relations, communities, snapshotId) == 1;
+    }
+
+    private static GraphBuildRunRecord mapRun(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new GraphBuildRunRecord(
+                rs.getLong("id"), rs.getLong("batch_id"), rs.getLong("kb_id"),
+                rs.getInt("chunk_index_version"), rs.getString("chunk_physical_index"),
+                rs.getLong("community_index_version"), rs.getString("community_physical_index"),
+                rs.getLong("graph_version"), rs.getString("chunk_index_schema"),
+                rs.getString("entity_linking_version"), rs.getLong("content_epoch"),
+                rs.getLong("security_epoch"), GraphBuildState.valueOf(rs.getString("state")),
+                GraphBuildStage.valueOf(rs.getString("stage")), rs.getLong("fencing_token"),
+                rs.getString("lease_owner"), rs.getTimestamp("lease_expires_at") == null ? null
+                        : rs.getTimestamp("lease_expires_at").toInstant(),
+                rs.getLong("event_watermark"),
+                rs.getString("extractor"), rs.getString("community_detector"),
+                rs.getString("summarizer"));
     }
 
     private static String activeStateSql() {
