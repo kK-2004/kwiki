@@ -4,6 +4,8 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
+import com.kwiki.graph.GraphSourceChild;
+import com.kwiki.graph.GraphSourceChunk;
 import com.kwiki.graph.build.GraphBuildFailure;
 import com.kwiki.rag.retrieval.ChunkHit;
 import org.junit.jupiter.api.Test;
@@ -41,10 +43,29 @@ class EsGraphSourceChunkListingTest {
     }
 
     private static Map<String, Object> child(String key, long kbId) {
-        return Map.of("chunkKey", key, "chunkLevel", "CHILD", "kbId", kbId,
-                "resourceType", "PAGE", "resourceId", 1L, "revisionId", 3L,
-                "headingPath", "h", "charStart", 0, "charEnd", 5,
-                "content", "content-" + key);
+        String content = "content-" + key;
+        // 与索引写入一致：按完整元组计算稳定来源身份
+        String sourceChunkId = new GraphSourceChunk(kbId, "PAGE", 1L, 3L, 2L, 5,
+                "parser-1", "chunker-1", key, sha256(content)).sourceChunkId();
+        return Map.ofEntries(
+                Map.entry("chunkKey", key), Map.entry("chunkLevel", "CHILD"),
+                Map.entry("kbId", kbId), Map.entry("resourceType", "PAGE"),
+                Map.entry("resourceId", 1L), Map.entry("revisionId", 3L),
+                Map.entry("lifecycleVersion", 2L), Map.entry("parserVersion", "parser-1"),
+                Map.entry("chunkerVersion", "chunker-1"), Map.entry("headingPath", "h"),
+                Map.entry("charStart", 0), Map.entry("charEnd", 5),
+                Map.entry("content", content),
+                Map.entry("sourceChunkId", sourceChunkId));
+    }
+
+    private static String sha256(String value) {
+        try {
+            return java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256")
+                            .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception failure) {
+            throw new IllegalStateException(failure);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -79,21 +100,24 @@ class EsGraphSourceChunkListingTest {
         doReturn(response(503, page1)).doReturn(response(503, page2))
                 .when(client).search(any(SearchRequest.class), eq(Map.class));
 
-        List<ChunkHit> children = listing().listChildren("kwiki-chunks-v5", 7L, 1000);
+        List<GraphSourceChild> children = listing().listChildren("kwiki-chunks-v5", 7L, 1000);
 
         assertThat(children).hasSize(503);
-        assertThat(children).isSortedAccordingTo(Comparator.comparing(ChunkHit::chunkKey));
-        assertThat(children.get(0).chunkKey()).isEqualTo("kb7:page:1:chunk:000");
-        assertThat(children.get(0).entityLinkingStatus()).isNotNull();
+        assertThat(children).isSortedAccordingTo(Comparator.comparing(child -> child.hit().chunkKey()));
+        assertThat(children.get(0).hit().chunkKey()).isEqualTo("kb7:page:1:chunk:000");
+        assertThat(children.get(0).hit().entityLinkingStatus()).isNotNull();
+        // 还原的稳定身份与 CHILD 文档写入的 sourceChunkId 一致（同一元组计算）
+        GraphSourceChild first = children.get(0);
+        assertThat(first.toSourceChunk(5).sourceChunkId()).isEqualTo(first.hit().sourceChunkId());
 
         ArgumentCaptor<SearchRequest> captor = ArgumentCaptor.forClass(SearchRequest.class);
         verify(client, times(2)).search(captor.capture(), eq(Map.class));
-        SearchRequest first = captor.getAllValues().get(0);
-        SearchRequest second = captor.getAllValues().get(1);
-        assertThat(first.index()).containsExactly("kwiki-chunks-v5");
-        assertThat(first.searchAfter()).isEmpty();
-        assertThat(second.searchAfter()).hasSize(1);
-        assertThat(second.searchAfter().get(0).stringValue())
+        SearchRequest firstRequest = captor.getAllValues().get(0);
+        SearchRequest secondRequest = captor.getAllValues().get(1);
+        assertThat(firstRequest.index()).containsExactly("kwiki-chunks-v5");
+        assertThat(firstRequest.searchAfter()).isEmpty();
+        assertThat(secondRequest.searchAfter()).hasSize(1);
+        assertThat(secondRequest.searchAfter().get(0).stringValue())
                 .isEqualTo(page1.get(499).get("chunkKey"));
     }
 
@@ -119,7 +143,7 @@ class EsGraphSourceChunkListingTest {
         }
         doReturn(response(500, page1)).when(client).search(any(SearchRequest.class), eq(Map.class));
 
-        List<ChunkHit> children = listing().listChildren("kwiki-chunks-v5", 7L, 500);
+        List<GraphSourceChild> children = listing().listChildren("kwiki-chunks-v5", 7L, 500);
 
         assertThat(children).hasSize(5);
     }

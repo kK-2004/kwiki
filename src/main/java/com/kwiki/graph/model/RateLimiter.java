@@ -15,6 +15,7 @@ import java.util.function.Supplier;
 public final class RateLimiter {
 
     private final Semaphore permits;
+    private final int maxConcurrency;
     private final long intervalNanos;
     private final LongSupplier nanoTime;
     private final LongConsumer sleeperNanos;
@@ -29,6 +30,7 @@ public final class RateLimiter {
             throw new IllegalArgumentException("模型并发上限无效");
         }
         this.permits = new Semaphore(maxConcurrency);
+        this.maxConcurrency = maxConcurrency;
         this.intervalNanos = qps > 0 ? (long) (1_000_000_000L / qps) : 0;
         this.nanoTime = nanoTime;
         this.sleeperNanos = sleeperNanos;
@@ -84,5 +86,10 @@ public final class RateLimiter {
     /** 测试与诊断用：当前配置的调用间隔。 */
     public Duration interval() {
         return Duration.ofNanos(intervalNanos);
+    }
+
+    /** 该限流器的并发许可数（即端点配置的 maxConcurrency）。 */
+    public int permits() {
+        return maxConcurrency;
     }
 }

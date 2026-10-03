@@ -5,10 +5,9 @@ import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
+import com.kwiki.graph.GraphSourceChild;
 import com.kwiki.graph.GraphSourceChunkListingPort;
 import com.kwiki.graph.build.GraphBuildFailure;
-import com.kwiki.rag.retrieval.ChunkHit;
-import com.kwiki.rag.retrieval.EntityLinkingStatus;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -20,6 +19,7 @@ import java.util.Map;
 /**
  * 按知识库列出 CHUNK 物理索引中全部 CHILD 文档，作为图构建的来源清单输入。
  * chunkKey 升序 + search_after 分页；来源总数超过上限时永久失败，不做裁剪。
+ * 每条结果同时携带还原稳定 sourceChunkId 所需的文档字段。
  */
 @Component
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
@@ -34,11 +34,11 @@ public class EsGraphSourceChunkListing implements GraphSourceChunkListingPort {
     }
 
     @Override
-    public List<ChunkHit> listChildren(String chunkPhysicalIndex, long kbId, int maxResults) {
+    public List<GraphSourceChild> listChildren(String chunkPhysicalIndex, long kbId, int maxResults) {
         if (client == null) {
             throw GraphBuildFailure.retryable("ELASTICSEARCH_UNAVAILABLE", "Elasticsearch 未配置");
         }
-        List<ChunkHit> children = new ArrayList<>();
+        List<GraphSourceChild> children = new ArrayList<>();
         List<co.elastic.clients.elasticsearch._types.FieldValue> searchAfter = null;
         try {
             while (true) {
@@ -46,7 +46,7 @@ public class EsGraphSourceChunkListing implements GraphSourceChunkListingPort {
                         request(chunkPhysicalIndex, kbId, searchAfter).build(), Map.class);
                 checkCapacity(response, maxResults);
                 List<Hit<Map>> page = response.hits().hits();
-                page.forEach(hit -> children.add(toChunkHit(hit.source())));
+                page.forEach(hit -> children.add(toChild(hit.source())));
                 if (page.size() < PAGE_SIZE) {
                     break;
                 }
@@ -58,7 +58,7 @@ public class EsGraphSourceChunkListing implements GraphSourceChunkListingPort {
             throw GraphBuildFailure.retryable("ELASTICSEARCH_UNAVAILABLE",
                     "列举来源块失败：" + failure.getMessage());
         }
-        children.sort(java.util.Comparator.comparing(ChunkHit::chunkKey));
+        children.sort(java.util.Comparator.comparing(child -> child.hit().chunkKey()));
         return List.copyOf(children);
     }
 
@@ -85,24 +85,28 @@ public class EsGraphSourceChunkListing implements GraphSourceChunkListingPort {
         }
     }
 
-    /** _source 映射与 {@link EsChunkLookup} 保持一致。 */
-    private static ChunkHit toChunkHit(Map<?, ?> source) {
-        return new ChunkHit(
-                String.valueOf(source.get("chunkKey")),
-                String.valueOf(source.get("parentChunkKey")),
-                longValue(source.get("kbId")),
-                String.valueOf(source.get("resourceType")),
-                longValue(source.get("resourceId")),
-                source.get("revisionId") == null ? null : longValue(source.get("revisionId")),
-                String.valueOf(source.get("headingPath")),
-                (int) longValue(source.get("charStart")),
-                (int) longValue(source.get("charEnd")),
-                String.valueOf(source.get("content")),
-                contentIds(source),
-                optionalText(source.get("sourceChunkId")),
-                entityIds(source),
-                optionalText(source.get("entityLinkingVersion")),
-                entityStatus(source));
+    /** _source 检索块字段映射与 {@link EsChunkLookup} 保持一致。 */
+    private static GraphSourceChild toChild(Map<?, ?> source) {
+        return new GraphSourceChild(
+                new com.kwiki.rag.retrieval.ChunkHit(
+                        String.valueOf(source.get("chunkKey")),
+                        String.valueOf(source.get("parentChunkKey")),
+                        longValue(source.get("kbId")),
+                        String.valueOf(source.get("resourceType")),
+                        longValue(source.get("resourceId")),
+                        source.get("revisionId") == null ? null : longValue(source.get("revisionId")),
+                        String.valueOf(source.get("headingPath")),
+                        (int) longValue(source.get("charStart")),
+                        (int) longValue(source.get("charEnd")),
+                        String.valueOf(source.get("content")),
+                        contentIds(source),
+                        optionalText(source.get("sourceChunkId")),
+                        entityIds(source),
+                        optionalText(source.get("entityLinkingVersion")),
+                        entityStatus(source)),
+                longValue(source.get("lifecycleVersion")),
+                optionalText(source.get("parserVersion")),
+                optionalText(source.get("chunkerVersion")));
     }
 
     private static List<Long> contentIds(Map<?, ?> source) {
@@ -123,16 +127,16 @@ public class EsGraphSourceChunkListing implements GraphSourceChunkListingPort {
         return List.of();
     }
 
-    private static EntityLinkingStatus entityStatus(Map<?, ?> source) {
+    private static com.kwiki.rag.retrieval.EntityLinkingStatus entityStatus(Map<?, ?> source) {
         Object value = source.get("entityLinkingStatus");
         if (value == null) {
-            return EntityLinkingStatus.MISSING;
+            return com.kwiki.rag.retrieval.EntityLinkingStatus.MISSING;
         }
         try {
-            return EntityLinkingStatus.valueOf(String.valueOf(value).toUpperCase(
-                    java.util.Locale.ROOT));
+            return com.kwiki.rag.retrieval.EntityLinkingStatus.valueOf(
+                    String.valueOf(value).toUpperCase(java.util.Locale.ROOT));
         } catch (IllegalArgumentException ignored) {
-            return EntityLinkingStatus.FAILED;
+            return com.kwiki.rag.retrieval.EntityLinkingStatus.FAILED;
         }
     }
 
