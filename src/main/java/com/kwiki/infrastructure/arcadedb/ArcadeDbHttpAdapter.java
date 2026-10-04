@@ -40,22 +40,48 @@ public final class ArcadeDbHttpAdapter {
                 .build();
     }
 
+    private static final java.util.Set<String> LANGUAGES = java.util.Set.of("sql", "sqlscript", "cypher");
+
     /** 执行参数化 SQL 查询；statement 由受信任的基础设施服务提供。 */
     public ArcadeDbResponse query(String database, String statement, Map<String, Object> parameters) {
-        return execute("/api/v1/query/" + pathSegment(database) + "/sql", "POST",
-                commandBody(statement, parameters), ArcadeDbTimeoutKind.QUERY);
+        return query(database, "sql", statement, parameters);
+    }
+
+    /** 以指定查询语言（sql / sqlscript / cypher）执行只读查询。 */
+    public ArcadeDbResponse query(String database, String language, String statement,
+                                  Map<String, Object> parameters) {
+        return execute("/api/v1/query/" + pathSegment(database), "POST",
+                commandBody(language, statement, parameters), ArcadeDbTimeoutKind.QUERY);
     }
 
     /** 执行参数化写命令；建库和算法等高风险操作只由构建协调路径调用。 */
     public ArcadeDbResponse command(String database, String statement, Map<String, Object> parameters,
                                     ArcadeDbTimeoutKind timeoutKind) {
-        return execute("/api/v1/command/" + pathSegment(database) + "/sql", "POST",
-                commandBody(statement, parameters), timeoutKind);
+        return command(database, "sql", statement, parameters, timeoutKind);
     }
 
-    /** 探测服务端健康状态。 */
+    /** 以指定查询语言执行写命令；语言放在请求体中，路径只含库名。 */
+    public ArcadeDbResponse command(String database, String language, String statement,
+                                    Map<String, Object> parameters, ArcadeDbTimeoutKind timeoutKind) {
+        return execute("/api/v1/command/" + pathSegment(database), "POST",
+                commandBody(language, statement, parameters), timeoutKind);
+    }
+
+    /** 库是否存在：GET /api/v1/exists/{database} 返回 {"result": true|false}。 */
+    public boolean databaseExists(String database) {
+        ArcadeDbResponse response = execute("/api/v1/exists/" + pathSegment(database), "GET", null,
+                ArcadeDbTimeoutKind.QUERY);
+        try {
+            return objectMapper.readTree(response.body()).path("result").asBoolean(false);
+        } catch (JsonProcessingException e) {
+            throw new ArcadeDbClientException(ArcadeDbFailureCategory.REMOTE,
+                    "ArcadeDB exists 响应无法解析", response.statusCode(), e);
+        }
+    }
+
+    /** 探测服务端健康状态；basic 模式只返回版本、服务名等最小信息。 */
     public ArcadeDbResponse health() {
-        return execute("/api/v1/server", "GET", null, ArcadeDbTimeoutKind.QUERY);
+        return execute("/api/v1/server?mode=basic", "GET", null, ArcadeDbTimeoutKind.QUERY);
     }
 
     /** 查询远端长任务状态，未知状态由调用方保留槽位处理。 */
@@ -184,11 +210,17 @@ public final class ArcadeDbHttpAdapter {
         };
     }
 
-    private static Map<String, Object> commandBody(String statement, Map<String, Object> parameters) {
+    private static Map<String, Object> commandBody(String language, String statement,
+                                                   Map<String, Object> parameters) {
         if (statement == null || statement.isBlank()) {
             throw new IllegalArgumentException("ArcadeDB statement 不能为空");
         }
-        return Map.of("language", "sql", "command", statement,
+        if (!LANGUAGES.contains(language)) {
+            throw new IllegalArgumentException("不支持的 ArcadeDB 查询语言: " + language);
+        }
+        // 服务端默认只返回 20000 行且静默截断；语句自身都带业务上限（LIMIT 或单 run 投影规模），
+        // 这里取消服务端截断，避免大图的 Leiden 结果丢行
+        return Map.of("language", language, "command", statement, "limit", -1,
                 "params", parameters == null ? Map.of()
                         : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(parameters)));
     }

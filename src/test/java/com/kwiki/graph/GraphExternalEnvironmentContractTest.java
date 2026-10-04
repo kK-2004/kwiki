@@ -8,7 +8,7 @@ import com.kwiki.infrastructure.arcadedb.ArcadeDbHttpAdapter;
 import com.kwiki.infrastructure.arcadedb.ArcadeDbNativeCommunityDetection;
 import com.kwiki.infrastructure.arcadedb.ArcadeDbSchemaInitializationResult;
 import com.kwiki.infrastructure.arcadedb.ArcadeDbSchemaInitializer;
-import com.kwiki.infrastructure.arcadedb.ArcadeDbTemporaryDatabaseService;
+import com.kwiki.infrastructure.arcadedb.ArcadeDbScratchProjectionSpace;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -28,6 +28,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * KWIKI_GRAPH_CONTRACT_ARCADEDB_TOKEN=... \
  * ./mvnw test -Dtest=GraphExternalEnvironmentContractTest
  * </pre>
+ * 业务库默认 kwiki_contract（KWIKI_GRAPH_CONTRACT_ARCADEDB_DATABASE），计算库默认 kwiki_leiden
+ * （KWIKI_GRAPH_CONTRACT_ARCADEDB_SCRATCH）；两者都需管理员预建并授权给 token。
  * 14.3 的 EXPLAIN 与高扇出预算检查通过 explainEntityLookup 入口执行；
  * 上线限额依据（内存/磁盘/耗时/成本）由运维在该环境执行 14.6 文档的
  * 容量演练时人工记录。
@@ -48,9 +50,11 @@ class GraphExternalEnvironmentContractTest {
                 URI.create(env("KWIKI_GRAPH_CONTRACT_ARCADEDB")),
                 envOrDefault("KWIKI_GRAPH_CONTRACT_ARCADEDB_DATABASE", "kwiki_contract"),
                 env("KWIKI_GRAPH_CONTRACT_ARCADEDB_TOKEN"),
-                Duration.ofSeconds(3), Duration.ofMillis(1500), Duration.ofSeconds(30),
+                // 契约测试可能走公网，单次往返 1~3s，查询超时放宽到 10s
+                Duration.ofSeconds(5), Duration.ofSeconds(10), Duration.ofSeconds(30),
                 Duration.ofMinutes(15), 4,
-                new ArcadeDbProperties.Tls(false, true), "kwiki_leiden_", null);
+                new ArcadeDbProperties.Tls(false, true),
+                envOrDefault("KWIKI_GRAPH_CONTRACT_ARCADEDB_SCRATCH", "kwiki_leiden"), null);
     }
 
     private static String envOrDefault(String name, String fallback) {
@@ -73,8 +77,7 @@ class GraphExternalEnvironmentContractTest {
         assertThat(report.reachable()).as("服务可达").isTrue();
         assertThat(report.serverVersion()).as("记录实际服务版本").isNotBlank();
         assertThat(report.leidenSupported()).as("Leiden 输入/输出契约").isTrue();
-        assertThat(report.schemaSupported()).as("图 schema 能力").isTrue();
-        assertThat(report.databaseCreationAllowed()).as("建库权限（临时投影库需要）").isTrue();
+        assertThat(report.schemaSupported()).as("业务库与计算库已由管理员创建且 token 可访问").isTrue();
         assertThat(report.buildEnabled()).as("构建能力").isTrue();
     }
 
@@ -92,47 +95,65 @@ class GraphExternalEnvironmentContractTest {
     }
 
     @Test
-    void nativeLeidenEmptyGraphIsLegalAndTemporaryDatabaseCleanupIsIdempotent() {
+    void nativeLeidenSplitsTwoTrianglesAndDropsRunTypes() {
         ArcadeDbProperties properties = properties();
         ArcadeDbHttpAdapter client = new ArcadeDbHttpAdapter(properties, new ObjectMapper());
-        ArcadeDbTemporaryDatabaseService temporaries =
-                new ArcadeDbTemporaryDatabaseService(client, properties);
-        ArcadeDbTemporaryDatabaseService.Lease lease = temporaries.create(9_001, "contract");
-        try {
-            // 临时库内执行原生 Leiden：空图得到合法空结果，不编造成员。
-            ArcadeDbProperties temporary = withDatabase(properties, lease.database());
-            new ArcadeDbSchemaInitializer(client, temporary).initialize();
-            CommunityDetectionResult result =
-                    new ArcadeDbNativeCommunityDetection(client, temporary,
-                            new ObjectMapper()).detect(new CommunityDetectionInput(
-                            9001, 1, GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                            10, 1.0, UnweightedGraphProjection.hash(9001, 1,
-                                    java.util.List.of(), java.util.List.of()),
-                            "contract-9001", 1));
-            assertThat(result.memberships()).isEmpty();
-        } finally {
-            temporaries.cleanup(lease, true);
-            // 只清理本 run 拥有的数据库；重复清理幂等。
-            temporaries.cleanup(lease, true);
-        }
+        ArcadeDbScratchProjectionSpace scratch = new ArcadeDbScratchProjectionSpace(client, properties);
+        // 两个互不相连的三角形加一个孤点。注意：实测 26.9.1 的 algo.leiden 在两三角形间
+        // 有桥边、resolution=1.0 时会合并为一个社区，这里只断言引擎确定能分开的情形
+        var entities = java.util.List.of("a1", "a2", "a3", "b1", "b2", "b3", "iso");
+        var edges = java.util.List.of(
+                new UnweightedGraphProjection.Edge("a1", "a2"), new UnweightedGraphProjection.Edge("a1", "a3"),
+                new UnweightedGraphProjection.Edge("a2", "a3"), new UnweightedGraphProjection.Edge("b1", "b2"),
+                new UnweightedGraphProjection.Edge("b1", "b3"), new UnweightedGraphProjection.Edge("b2", "b3"));
+        var projection = new UnweightedGraphProjection(9001, 1, entities, edges,
+                UnweightedGraphProjection.hash(9001, 1, entities, edges));
+
+        CommunityDetectionResult result = new ArcadeDbNativeCommunityDetection(client, scratch,
+                new ObjectMapper()).detect(new CommunityDetectionInput(
+                9001, 1, GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
+                10, 1.0, projection.projectionHash(), "9001", 1, projection));
+
+        var byEntity = new java.util.HashMap<String, String>();
+        result.memberships().forEach(m -> byEntity.put(m.entityId(), m.communityId()));
+        assertThat(byEntity.keySet()).containsExactlyInAnyOrderElementsOf(entities);
+        assertThat(byEntity.get("a1")).isEqualTo(byEntity.get("a2")).isEqualTo(byEntity.get("a3"));
+        assertThat(byEntity.get("b1")).isEqualTo(byEntity.get("b2")).isEqualTo(byEntity.get("b3"));
+        assertThat(byEntity.get("a1")).isNotEqualTo(byEntity.get("b1"));
+        var leftover = client.query(properties.scratchDatabase(),
+                "SELECT name FROM schema:types WHERE name LIKE 'Leiden%_9001'", java.util.Map.of());
+        assertThat(leftover.body()).as("本 run 的临时类型已删除").doesNotContain("Leiden");
     }
 
     @Test
-    void explainExposesEntityUniqueIndexAccessPath() {
+    void writesGraphAndAssignsCommunitiesInBusinessDatabase() {
         ArcadeDbProperties properties = properties();
         ArcadeDbHttpAdapter client = new ArcadeDbHttpAdapter(properties, new ObjectMapper());
-        new ArcadeDbSchemaInitializer(client, properties).initialize();
+        var store = new com.kwiki.infrastructure.arcadedb.ArcadeDbKnowledgeGraphStore(
+                client, properties, new ObjectMapper(), new ArcadeDbSchemaInitializer(client, properties));
+        var entities = java.util.List.of(
+                new GraphEntity("e_contract_1", "契约实体一", GraphEntityType.CONCEPT, java.util.List.of("别名")),
+                new GraphEntity("e_contract_2", "契约实体二", GraphEntityType.CONCEPT, java.util.List.of()));
+        var relations = java.util.List.of(new GraphRelation("r_contract_1", "e_contract_1",
+                GraphPredicate.RELATED_TO, "e_contract_2", 0.9,
+                java.util.List.of(new GraphSourceRef("chunk_contract_1", 0, 10))));
+        var request = new GraphWriteRequest(9001, 1, java.util.List.of(), entities, relations,
+                "9001", 1);
+        // UPSERT 可重入：同一请求写两次不报错、不重复
+        store.write(request);
+        store.write(request);
+        store.assignCommunities(9001, 1, java.util.List.of(
+                new CommunityMembership(9001, 1, "e_contract_1", "c0"),
+                new CommunityMembership(9001, 1, "e_contract_2", "c0")));
 
-        var explained = new com.kwiki.infrastructure.arcadedb.ArcadeDbKnowledgeGraphStore(
-                client, properties, new ObjectMapper())
-                .explainEntityLookup(9001, 1, "e_contract_probe");
+        var rows = client.query(properties.database(),
+                "SELECT entityId, communityId FROM Entity WHERE kbId = :kbId AND graphVersion = :graphVersion",
+                java.util.Map.of("kbId", 9001, "graphVersion", 1));
+        assertThat(rows.body()).contains("e_contract_1", "e_contract_2", "\"c0\"");
+        assertThat(rows.body().split("\"e_contract_1\"", -1)).as("实体未重复写入").hasSize(2);
+
+        var explained = store.explainEntityLookup(9001, 1, "e_contract_probe");
         assertThat(explained).isNotNull();
     }
 
-    private static ArcadeDbProperties withDatabase(ArcadeDbProperties base, String database) {
-        return new ArcadeDbProperties(base.endpoint(), database, base.token(),
-                base.connectTimeout(), base.queryTimeout(), base.batchWriteTimeout(),
-                base.algorithmTimeout(), base.maxConnections(), base.tls(),
-                base.temporaryDatabasePrefix(), base.requiredServerVersion());
-    }
 }

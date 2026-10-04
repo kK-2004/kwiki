@@ -4,4 +4,7 @@ package com.kwiki.graph;
 public interface KnowledgeGraphStore {
 
     GraphWriteResult write(GraphWriteRequest request);
+
+    /** 把社区检测结果回写到对应图版本的实体上。 */
+    void assignCommunities(long kbId, long graphVersion, java.util.List<CommunityMembership> memberships);
 }

@@ -43,6 +43,8 @@ public class LlmGraphExtractorV1 implements GraphExtractorPlugin {
     private final com.fasterxml.jackson.databind.ObjectMapper mapper =
             new com.fasterxml.jackson.databind.ObjectMapper();
 
+    /** 运行时注入入口；另一个包内构造器仅供测试注入模型端点。 */
+    @org.springframework.beans.factory.annotation.Autowired
     public LlmGraphExtractorV1(GraphModelClients clients) {
         this(clients, clients.extraction().orElse(null));
     }

@@ -51,7 +51,9 @@ public class GraphBuildExecutor {
         this.buildProperties = buildProperties;
     }
 
-    @Scheduled(fixedDelayString = "${kwiki.graph.build.poll-interval:10s}")
+    // 启动后先等待 initial-delay 再开始领取，避免在应用尚未完全就绪时就开始执行图构建
+    @Scheduled(initialDelayString = "${kwiki.graph.build.initial-delay:30s}",
+            fixedDelayString = "${kwiki.graph.build.poll-interval:10s}")
     public void poll() {
         if (shuttingDown.get()) {
             return;

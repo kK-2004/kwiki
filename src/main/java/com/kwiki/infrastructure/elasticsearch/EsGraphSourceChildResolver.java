@@ -5,7 +5,6 @@ import com.kwiki.graph.GraphSourceChildResolverPort;
 import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.rag.retrieval.EntityLinkingStatus;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -20,7 +19,6 @@ import java.util.Optional;
  */
 @Component
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
-@ConditionalOnBean(ElasticsearchClient.class)
 public class EsGraphSourceChildResolver implements GraphSourceChildResolverPort {
 
     private final ElasticsearchClient client;

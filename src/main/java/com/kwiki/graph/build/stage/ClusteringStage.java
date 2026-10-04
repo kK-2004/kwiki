@@ -2,6 +2,7 @@ package com.kwiki.graph.build.stage;
 
 import com.kwiki.graph.CommunityDetectionInput;
 import com.kwiki.graph.GraphCapacityGuard;
+import com.kwiki.graph.KnowledgeGraphStore;
 import com.kwiki.graph.build.GraphBuildFailure;
 import com.kwiki.graph.build.RunArtifacts;
 import com.kwiki.graph.build.RunContext;
@@ -28,11 +29,14 @@ public class ClusteringStage implements GraphBuildStage {
     private final GraphProperties graphProperties;
     private final GraphClusteringProperties clustering;
     private final GraphBuildProperties buildProperties;
+    private final KnowledgeGraphStore store;
 
     public ClusteringStage(CommunityDetectorRegistry detectors,
                            GraphProperties graphProperties,
                            GraphClusteringProperties clustering,
-                           GraphBuildProperties buildProperties) {
+                           GraphBuildProperties buildProperties,
+                           KnowledgeGraphStore store) {
+        this.store = store;
         this.detectors = detectors;
         this.graphProperties = graphProperties;
         this.clustering = clustering;
@@ -50,7 +54,7 @@ public class ClusteringStage implements GraphBuildStage {
                 run.kbId(), run.graphVersion(), graphProperties.algorithmMode(),
                 clustering.maxIterations(), clustering.resolution(),
                 artifacts.projection.projectionHash(), String.valueOf(run.id()),
-                ctx.fencingToken())));
+                ctx.fencingToken(), artifacts.projection)));
 
         Set<String> communities = new HashSet<>();
         artifacts.detection.memberships().forEach(member -> communities.add(member.communityId()));
@@ -65,5 +69,10 @@ public class ClusteringStage implements GraphBuildStage {
             throw GraphBuildFailure.permanent(decision.reason(),
                     "社区数超过上限 " + graphProperties.capacity().maxCommunities());
         }
+        // 社区归属回写到图库实体上，检索时按社区做有界扩展
+        retry.run(() -> {
+            store.assignCommunities(run.kbId(), run.graphVersion(), artifacts.detection.memberships());
+            return null;
+        });
     }
 }

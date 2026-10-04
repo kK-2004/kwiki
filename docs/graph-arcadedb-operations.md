@@ -11,9 +11,11 @@
 
 开启前必须由运维独立部署 ArcadeDB 服务（本项目不生成、不启动数据库），并完成：
 
-1. 锁定服务版本（可选，生产环境建议固定到一个已验证的发行版，写入 `KWIKI_ARCADEDB_REQUIRED_SERVER_VERSION`；不填写时跳过版本兼容性检查，启动时打印告警）；
-2. 生成一个访问 token：该 token 需同时具备在线读与建库/临时库权限（创建/删除数据库，临时投影库需要）；不细分读/构建两组凭据；
-3. 通过能力契约验收（见第 7 节）。
+1. 服务版本必须 ≥ **26.3.1**（从该版本起内置 Cypher 过程 `algo.leiden`；能力探测读 `GET /api/v1/server?mode=basic` 的 `version` 判断，低于此版本插件显示“不支持原生 Leiden”）。锁定服务版本（可选，生产环境建议固定到一个已验证的发行版，写入 `KWIKI_ARCADEDB_REQUIRED_SERVER_VERSION`；不填写时跳过版本兼容性检查，启动时打印告警）；
+2. 用 root 在 Studio 中建好两个库：业务图库（`KWIKI_ARCADEDB_DATABASE`，如 `kwiki`）与社区检测计算库（`KWIKI_ARCADEDB_SCRATCH_DATABASE`，默认 `kwiki_leiden`）。建库/删库是服务器命令，**只有 root 能执行**，API token 无论如何授权都不行，所以应用不会自动建库；
+   宿主机挂载目录需属于容器内 arcadedb 用户（`docker exec arcadedb id` 查 uid 后 `chown`），否则建库报 `Cannot create directory`；
+3. 在 Studio 中创建 `at-` 前缀的 API token（长期有效；`POST /api/v1/login` 得到的会话 token 闲置 30 分钟即过期，不适合配置），授予两个库的读写与改 schema 权限；后续退役清理需要删除记录时还需删除权限。应用启动后在业务库中幂等初始化类型、属性与索引；启动时 ArcadeDB 不可达只告警，首次写图时重试；
+4. 通过能力契约验收（见第 7 节）。
 
 ## 2. 环境变量清单
 
@@ -29,12 +31,12 @@
 | `KWIKI_GRAPH_RETIREMENT_GRACE` | `30m` | 退役清理宽限期 |
 | `KWIKI_ARCADEDB_ENDPOINT` | 空 | 独立服务地址，无 localhost 兜底 |
 | `KWIKI_ARCADEDB_DATABASE` | 空 | 业务图数据库名 |
-| `KWIKI_ARCADEDB_TOKEN` | 空 | 访问 token（Bearer），需同时具备在线读与建库/临时库权限 |
+| `KWIKI_ARCADEDB_TOKEN` | 空 | `at-` 前缀 API token（Bearer），需对业务库与计算库都有读写与改 schema 权限 |
 | `KWIKI_ARCADEDB_CONNECT_TIMEOUT` | `3s` | 连接超时 |
 | `KWIKI_ARCADEDB_QUERY_TIMEOUT` | `1500ms` | 在线查询上限 |
 | `KWIKI_ARCADEDB_BATCH_WRITE_TIMEOUT` | `30s` | 批写上限 |
 | `KWIKI_ARCADEDB_ALGORITHM_TIMEOUT` | `15m` | Leiden 单次执行上限 |
-| `KWIKI_ARCADEDB_TEMPORARY_DATABASE_PREFIX` | `kwiki_leiden_` | 临时投影库前缀 |
+| `KWIKI_ARCADEDB_SCRATCH_DATABASE` | `kwiki_leiden` | 社区检测计算库（管理员预建），每个 run 在其中建 `LeidenEntity_{runId}`/`LeidenEdge_{runId}` 类型，跑完删除 |
 | `KWIKI_ARCADEDB_REQUIRED_SERVER_VERSION` | 空 | 锁定的兼容服务版本（前缀匹配，如 `24.6` 匹配 `24.6.x`）；为空时不检查版本，仅打印告警 |
 
 容量限额（`KWIKI_GRAPH_MAX_ENTITIES` 等，见 `GraphProperties.Capacity`）：每库 50,000 实体、250,000 语义关系、1,000,000 来源记录、5,000 社区摘要；20,000 实体 / 100,000 关系起预警。超限明确失败，不会删孤点或截断来源伪装成功。调整限额需在容量演练（第 7 节）后进行并同步到后台展示。
@@ -87,7 +89,13 @@ KWIKI_GRAPH_CONTRACT_ARCADEDB_TOKEN=... \
 ./mvnw test -Dtest=GraphExternalEnvironmentContractTest
 ```
 
-覆盖：能力探测（版本/Leiden/schema/建库权限）、schema 可重入初始化、临时库内空图 Leiden 合法性与清理幂等、实体唯一索引 EXPLAIN 访问路径。
+业务库用 `KWIKI_GRAPH_CONTRACT_ARCADEDB_DATABASE` 指定（默认 `kwiki_contract`），计算库用 `KWIKI_GRAPH_CONTRACT_ARCADEDB_SCRATCH`（默认 `kwiki_leiden`），两者都需预建。测试会在业务库写入 kbId=9001 的数据，跑完需用有删除权限的账号执行 `DELETE FROM Entity WHERE kbId = 9001` 与 `DELETE FROM RelationEvidence WHERE kbId = 9001` 清理。
+
+覆盖：能力探测（版本 ≥ 26.3.1、两个库存在且可访问）、schema 可重入初始化、计算库内对两个互不相连的三角形执行 `algo.leiden` 并校验分成两个社区、跑完本 run 类型已删除、图写入 UPSERT 可重入与社区回写、实体唯一索引 EXPLAIN 访问路径。
+
+社区检测流程：在计算库中建本 run 的 `LeidenEntity_{runId}`/`LeidenEdge_{runId}`（同名残留先删）与 `entityId` 唯一索引 → Cypher `UNWIND` 分批灌入本次投影的实体与无向边 → `CALL algo.leiden('LeidenEdge_{runId}', maxIterations, resolution) YIELD nodeId, community` → 只保留 RID 属于本 run 顶点类型的结果（实测该过程返回库内所有顶点，含并行 run 的顶点）并映射回 `entityId` → `DROP TYPE … UNSAFE` 删除本 run 类型；结果回写到业务库 `Entity.communityId`。
+
+已知引擎行为（26.9.1 实测）：两个三角形之间仅有一条桥边时，resolution=1.0 会合并为一个社区，提高 `kwiki.graph.clustering.resolution`（如 1.5）才会拆开；小图上社区粒度偏粗属引擎特性。
 
 端到端与跨存储演练骨架（`GraphEndToEndDrillContractTest`）同样按环境变量显式启用，未配置时明确 skipped：
 
@@ -133,6 +141,7 @@ KWIKI_GRAPH_CONTRACT_ES=http://localhost:9200 \
 
 | 配置 | 默认 | 说明 |
 | --- | --- | --- |
+| `initial-delay` | `30s` | 应用启动后首次领取前的等待时间（`@Scheduled` initialDelay） |
 | `poll-interval` | `10s` | 领取轮询间隔（`@Scheduled` fixedDelay） |
 | `max-concurrent-runs` | `2` | 全局并发上限；多实例共享，领取前统计全库「活动且租约未过期」的子任务数 |
 | `lease-duration` | `2m` | 子任务租约；执行线程每 1/3 周期续租，续租失败立即退出不再写状态 |

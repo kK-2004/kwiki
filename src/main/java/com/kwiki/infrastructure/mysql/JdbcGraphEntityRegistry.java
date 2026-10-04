@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kwiki.graph.GraphEntity;
 import com.kwiki.graph.GraphEntityRegistryPort;
 import com.kwiki.graph.GraphEntityType;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,7 +18,8 @@ import java.util.Optional;
 
 /** 以 MySQL 唯一约束承载知识库内实体注册，歧义上下文不强行合并。 */
 @Repository
-@ConditionalOnBean(JdbcTemplate.class)
+// JdbcTemplate 恒由自动配置提供；组件扫描阶段 @ConditionalOnBean 看不到它，改按图功能开关注册
+@ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
 public class JdbcGraphEntityRegistry implements GraphEntityRegistryPort {
 
     private final JdbcTemplate jdbc;

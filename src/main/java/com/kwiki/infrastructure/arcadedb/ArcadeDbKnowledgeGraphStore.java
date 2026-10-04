@@ -34,26 +34,60 @@ public final class ArcadeDbKnowledgeGraphStore implements KnowledgeGraphStore {
             + "runId = :runId, fencingToken = :fencingToken "
             + "UPSERT WHERE kbId = :kbId AND graphVersion = :graphVersion AND evidenceId = :evidenceId";
 
+    private static final String ASSIGN_COMMUNITY = "UPDATE Entity SET communityId = :communityId "
+            + "WHERE kbId = :kbId AND graphVersion = :graphVersion AND entityId IN :entityIds";
+
     private final ArcadeDbHttpAdapter client;
     private final ArcadeDbProperties properties;
     private final ObjectMapper objectMapper;
+    private final ArcadeDbSchemaInitializer schemaInitializer;
 
     public ArcadeDbKnowledgeGraphStore(ArcadeDbHttpAdapter client,
                                        ArcadeDbProperties properties,
-                                       ObjectMapper objectMapper) {
+                                       ObjectMapper objectMapper,
+                                       ArcadeDbSchemaInitializer schemaInitializer) {
         this.client = client;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.schemaInitializer = schemaInitializer;
     }
 
     @Override
     public GraphWriteResult write(GraphWriteRequest request) {
+        // 启动时 ArcadeDB 不可达会跳过初始化，这里在首次写入前补做
+        schemaInitializer.ensureInitialized();
         int sourceCount = writeSources(request);
         int entityCount = writeEntities(request);
         RelationWriteCounts relationCounts = writeRelations(request);
         return new GraphWriteResult(sourceCount, entityCount, relationCounts.relations(),
                 relationCounts.evidences(), false);
     }
+
+    /** 把聚类结果回写到实体顶点，供检索时按社区做有界邻接扩展。 */
+    @Override
+    public void assignCommunities(long kbId, long graphVersion,
+                                  List<com.kwiki.graph.CommunityMembership> memberships) {
+        Map<String, List<String>> byCommunity = new java.util.TreeMap<>();
+        for (var member : memberships) {
+            byCommunity.computeIfAbsent(member.communityId(), ignored -> new ArrayList<>())
+                    .add(member.entityId());
+        }
+        for (var entry : byCommunity.entrySet()) {
+            List<String> entityIds = entry.getValue();
+            for (int from = 0; from < entityIds.size(); from += ASSIGN_BATCH) {
+                Map<String, Object> params = new HashMap<>();
+                params.put("kbId", kbId);
+                params.put("graphVersion", graphVersion);
+                params.put("communityId", entry.getKey());
+                params.put("entityIds", new ArrayList<>(entityIds.subList(from,
+                        Math.min(entityIds.size(), from + ASSIGN_BATCH))));
+                client.command(properties.database(), ASSIGN_COMMUNITY, params,
+                        ArcadeDbTimeoutKind.BATCH_WRITE);
+            }
+        }
+    }
+
+    private static final int ASSIGN_BATCH = 500;
 
     /** 用固定查询计划入口供离线性能诊断使用。 */
     public ArcadeDbResponse explainEntityLookup(long kbId, long graphVersion, String entityId) {

@@ -35,6 +35,8 @@ public class LlmCommunitySummarizerV1 implements CommunitySummarizerPlugin {
     private final com.fasterxml.jackson.databind.ObjectMapper mapper =
             new com.fasterxml.jackson.databind.ObjectMapper();
 
+    /** 运行时注入入口；另一个包内构造器仅供测试注入模型端点。 */
+    @org.springframework.beans.factory.annotation.Autowired
     public LlmCommunitySummarizerV1(GraphModelClients clients) {
         this(clients, clients.summary().orElse(null));
     }

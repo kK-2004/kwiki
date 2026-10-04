@@ -36,9 +36,45 @@ class ArcadeDbHttpAdapterTest {
 
         assertThat(response.statusCode()).isEqualTo(200);
         var request = server.takeRequest();
-        assertThat(request.getPath()).isEqualTo("/api/v1/command/kwiki/sql");
+        // ArcadeDB 路径只含库名，语言放在请求体里
+        assertThat(request.getPath()).isEqualTo("/api/v1/command/kwiki");
         assertThat(request.getHeader("Authorization")).isEqualTo("Bearer arcade-contract-token");
-        assertThat(request.getBody().readUtf8()).contains("INSERT INTO Entity SET id=:id", "e-1");
+        assertThat(request.getBody().readUtf8()).contains("\"language\":\"sql\"",
+                "INSERT INTO Entity SET id=:id", "e-1");
+    }
+
+    @Test
+    void cypherQueryExistsAndHealthUseDocumentedEndpoints() throws Exception {
+        server = new MockWebServer();
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{\"result\":[]}"));
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{\"result\":true}"));
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{\"version\":\"26.9.1\"}"));
+        server.start();
+        ArcadeDbHttpAdapter adapter = new ArcadeDbHttpAdapter(properties(server.url("/").toString()),
+                new ObjectMapper());
+
+        adapter.query("kwiki", "cypher", "MATCH (n) RETURN n", Map.of());
+        assertThat(adapter.databaseExists("kwiki")).isTrue();
+        adapter.health();
+
+        var query = server.takeRequest();
+        assertThat(query.getPath()).isEqualTo("/api/v1/query/kwiki");
+        // limit=-1 取消服务端默认 20000 行的静默截断
+        assertThat(query.getBody().readUtf8()).contains("\"language\":\"cypher\"", "\"limit\":-1");
+        assertThat(server.takeRequest().getPath()).isEqualTo("/api/v1/exists/kwiki");
+        assertThat(server.takeRequest().getPath()).isEqualTo("/api/v1/server?mode=basic");
+    }
+
+    @Test
+    void rejectsUnknownQueryLanguageBeforeExternalCall() throws Exception {
+        server = new MockWebServer();
+        server.start();
+        ArcadeDbHttpAdapter adapter = new ArcadeDbHttpAdapter(properties(server.url("/").toString()),
+                new ObjectMapper());
+
+        assertThatThrownBy(() -> adapter.query("kwiki", "gremlin", "g.V()", Map.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(server.getRequestCount()).isZero();
     }
 
     @Test
@@ -80,7 +116,7 @@ class ArcadeDbHttpAdapterTest {
                 "kwiki", "arcade-contract-token",
                 Duration.ofMillis(100), Duration.ofMillis(50), Duration.ofMillis(100),
                 Duration.ofSeconds(1), 8, new ArcadeDbProperties.Tls(false, true),
-                "kwiki_leiden_", "24.6");
+                "kwiki_leiden", "24.6");
         ArcadeDbHttpAdapter adapter = new ArcadeDbHttpAdapter(properties, new ObjectMapper());
 
         assertThatThrownBy(() -> adapter.health())
@@ -93,6 +129,6 @@ class ArcadeDbHttpAdapterTest {
         return new ArcadeDbProperties(URI.create(endpoint), "kwiki", "arcade-contract-token",
                 Duration.ofSeconds(3), Duration.ofMillis(1500), Duration.ofSeconds(30),
                 Duration.ofMinutes(15), 8,
-                new ArcadeDbProperties.Tls(false, true), "kwiki_leiden_", "24.6");
+                new ArcadeDbProperties.Tls(false, true), "kwiki_leiden", "24.6");
     }
 }

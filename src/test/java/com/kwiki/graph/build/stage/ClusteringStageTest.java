@@ -4,6 +4,7 @@ import com.kwiki.graph.CommunityDetectionInput;
 import com.kwiki.graph.CommunityDetectionResult;
 import com.kwiki.graph.CommunityMembership;
 import com.kwiki.graph.GraphAlgorithmMode;
+import com.kwiki.graph.KnowledgeGraphStore;
 import com.kwiki.graph.UnweightedGraphProjection;
 import com.kwiki.graph.build.GraphBuildFailure;
 import com.kwiki.graph.build.RunArtifacts;
@@ -24,9 +25,14 @@ import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /** 聚类阶段：参数传递、结果保存与社区数量上限。 */
 class ClusteringStageTest {
+
+    private final KnowledgeGraphStore store = mock(KnowledgeGraphStore.class);
 
     private static GraphBuildRunRecord run() {
         return new GraphBuildRunRecord(12L, 9L, 7L, 5, "kwiki-chunks-v5", 6L,
@@ -64,7 +70,7 @@ class ClusteringStageTest {
                         Duration.ofMinutes(30), GraphProperties.Capacity.defaults()),
                 new GraphClusteringProperties(25, 1.5),
                 new GraphBuildProperties(Duration.ofSeconds(10), 2, Duration.ofMinutes(2),
-                        1, Duration.ZERO, 100, 50));
+                        1, Duration.ZERO, 100, 50), store);
         RunContext ctx = new RunContext(run(), "owner-a", 3L, () -> false, progress -> {
         });
         RunArtifacts artifacts = new RunArtifacts();
@@ -82,6 +88,9 @@ class ClusteringStageTest {
         assertThat(input.fencingToken()).isEqualTo(3L);
         assertThat(artifacts.detection).isNotNull();
         assertThat(artifacts.detection.memberships()).hasSize(1);
+        assertThat(input.projection()).isSameAs(artifacts.projection);
+        // 社区归属回写到图库实体
+        verify(store).assignCommunities(7L, 42L, artifacts.detection.memberships());
     }
 
     @Test
@@ -114,7 +123,7 @@ class ClusteringStageTest {
                         1_000_000, 2, 20_000, 100_000, 2, 50, 500)),
                 new GraphClusteringProperties(10, 1.0),
                 new GraphBuildProperties(Duration.ofSeconds(10), 2, Duration.ofMinutes(2),
-                        1, Duration.ZERO, 100, 2));
+                        1, Duration.ZERO, 100, 2), store);
         RunContext ctx = new RunContext(run(), "owner-a", 3L, () -> false, progress -> {
         });
         RunArtifacts artifacts = new RunArtifacts();
@@ -126,5 +135,6 @@ class ClusteringStageTest {
                     assertThat(failure.code()).isEqualTo("CAPACITY_EXCEEDED_COMMUNITIES");
                     assertThat(failure.retryable()).isFalse();
                 });
+        verifyNoInteractions(store);
     }
 }

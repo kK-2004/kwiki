@@ -9,13 +9,15 @@ public record CommunityDetectionInput(
         double resolution,
         String projectionHash,
         String runId,
-        long fencingToken) {
+        long fencingToken,
+        UnweightedGraphProjection projection) {
 
     public CommunityDetectionInput {
         if (kbId <= 0 || graphVersion <= 0 || algorithmMode == null
                 || maxIterations <= 0 || resolution <= 0
                 || projectionHash == null || projectionHash.isBlank()
-                || runId == null || runId.isBlank() || fencingToken < 0) {
+                || runId == null || runId.isBlank() || fencingToken < 0
+                || projection == null || !projectionHash.equals(projection.projectionHash())) {
             throw new IllegalArgumentException("社区发现输入无效");
         }
     }

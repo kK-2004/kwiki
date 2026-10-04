@@ -12,7 +12,7 @@ import com.kwiki.graph.GraphRelation;
 import com.kwiki.graph.GraphSeed;
 import com.kwiki.graph.GraphSourceRef;
 import com.kwiki.graph.config.ArcadeDbProperties;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -21,7 +21,8 @@ import java.util.Map;
 
 /** ArcadeDB 有界邻接查询；服务端先按版本/社区/预算过滤，再返回有限结果。 */
 @Component
-@ConditionalOnBean(ArcadeDbHttpAdapter.class)
+// 组件扫描阶段 @ConditionalOnBean 看不到配置类中的 @Bean，改用与 ArcadeDbHttpAdapter 相同的开关条件
+@ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
 public class ArcadeDbGraphExpansionAdapter implements GraphExpansionPort {
 
     private static final String ENTITY_QUERY = """

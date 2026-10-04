@@ -22,7 +22,8 @@ class ArcadeDbLeidenV1Test {
 
     private static CommunityDetectionInput input() {
         return new CommunityDetectionInput(7L, 2L, GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                10, 1.0, "hash", "12", 3);
+                10, 1.0, "hash", "12", 3,
+                new com.kwiki.graph.UnweightedGraphProjection(7L, 2L, List.of(), List.of(), "hash"));
     }
 
     private static ArcadeDbCapabilityReport report(boolean reachable, boolean leiden,

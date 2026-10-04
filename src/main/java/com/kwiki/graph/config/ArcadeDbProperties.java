@@ -12,8 +12,9 @@ import java.net.URI;
 import java.time.Duration;
 
 /**
- * 独立 ArcadeDB 服务的连接 token、超时和受控临时库配置。
- * 认证使用单一 token（该 token 需同时具备在线读与建库/临时库权限），
+ * 独立 ArcadeDB 服务的连接 token、超时与库配置。业务库（database）与社区检测
+ * 计算库（scratch-database）都需由管理员（root）预先创建，API token 无权建库。
+ * 认证使用单一 token（需对上述两个库都有读写与改 schema 权限），
  * 不再细分读/构建两组凭据；token 仅从环境/密钥配置读取，不通过后台回显。
  */
 @ConfigurationProperties(prefix = "kwiki.external.arcadedb")
@@ -28,7 +29,7 @@ public record ArcadeDbProperties(
         @NotNull @DefaultValue("15m") Duration algorithmTimeout,
         @NotNull @Min(1) @Max(128) @DefaultValue("8") Integer maxConnections,
         @Valid @NotNull @DefaultValue Tls tls,
-        @NotNull @DefaultValue("kwiki_leiden_") String temporaryDatabasePrefix,
+        @NotNull @DefaultValue("kwiki_leiden") String scratchDatabase,
         String requiredServerVersion) {
 
     public record Tls(
@@ -52,9 +53,7 @@ public record ArcadeDbProperties(
         }
         requireText(database, "kwiki.external.arcadedb.database");
         requireText(token, "kwiki.external.arcadedb.token");
-        if (temporaryDatabasePrefix == null || temporaryDatabasePrefix.isBlank()) {
-            throw new IllegalStateException("kwiki.external.arcadedb.temporary-database-prefix 不能为空");
-        }
+        requireText(scratchDatabase, "kwiki.external.arcadedb.scratch-database");
         // 锁定版本号可选：未填写时跳过版本比对（启动期由 GraphConfigurationGuard 打告警），
         // 填写后健康探测按前缀比对实际版本，不一致即判定图构建不可用。
     }

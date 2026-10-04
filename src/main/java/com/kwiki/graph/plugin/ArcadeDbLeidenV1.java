@@ -75,6 +75,10 @@ public class ArcadeDbLeidenV1 implements CommunityDetectorPlugin {
             return PluginAvailability.unavailable(
                     "ArcadeDB 不支持原生 Leiden 算法（" + report.failureCode() + "）");
         }
+        if ("database-missing".equals(report.failureCode())) {
+            return PluginAvailability.unavailable(
+                    "ArcadeDB 业务库或计算库不存在、或 token 无权访问（database-missing）");
+        }
         if (!report.buildEnabled()) {
             return PluginAvailability.unavailable(
                     "ArcadeDB 构建能力不可用（" + report.failureCode() + "）");

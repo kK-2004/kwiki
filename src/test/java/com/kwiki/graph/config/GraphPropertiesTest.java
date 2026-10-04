@@ -59,7 +59,7 @@ class GraphPropertiesTest {
                 URI.create("https://arcadedb.internal"), "kwiki", "arcade-contract-token",
                 Duration.ofSeconds(3), Duration.ofMillis(1500), Duration.ofSeconds(30),
                 Duration.ofMinutes(15), 8,
-                new ArcadeDbProperties.Tls(true, true), "kwiki_leiden_", "24.6");
+                new ArcadeDbProperties.Tls(true, true), "kwiki_leiden", "24.6");
 
         properties.requireUsableWhenEnabled(graph);
     }
@@ -75,7 +75,7 @@ class GraphPropertiesTest {
                     URI.create("https://arcadedb.internal"), "kwiki", "arcade-contract-token",
                     Duration.ofSeconds(3), Duration.ofMillis(1500), Duration.ofSeconds(30),
                     Duration.ofMinutes(15), 8,
-                    new ArcadeDbProperties.Tls(true, true), "kwiki_leiden_", version);
+                    new ArcadeDbProperties.Tls(true, true), "kwiki_leiden", version);
 
             properties.requireUsableWhenEnabled(graph);
             assertThat(properties.serverVersionPinned()).isFalse();
@@ -88,7 +88,7 @@ class GraphPropertiesTest {
                 URI.create("https://arcadedb.internal"), "kwiki", "arcade-contract-token",
                 Duration.ofSeconds(3), Duration.ofMillis(1500), Duration.ofSeconds(30),
                 Duration.ofMinutes(15), 8,
-                new ArcadeDbProperties.Tls(true, true), "kwiki_leiden_", "24.6");
+                new ArcadeDbProperties.Tls(true, true), "kwiki_leiden", "24.6");
         assertThat(properties.serverVersionPinned()).isTrue();
     }
 
@@ -96,6 +96,6 @@ class GraphPropertiesTest {
         return new ArcadeDbProperties(null, null, null,
                 Duration.ofSeconds(3), Duration.ofMillis(1500), Duration.ofSeconds(30),
                 Duration.ofMinutes(15), 8,
-                new ArcadeDbProperties.Tls(false, true), "kwiki_leiden_", null);
+                new ArcadeDbProperties.Tls(false, true), "kwiki_leiden", null);
     }
 }
