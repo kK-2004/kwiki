@@ -34,8 +34,8 @@ public final class KeywordRuleSet {
 
     public static KeywordRuleSet defaults() {
         List<KeywordRule> rules = new ArrayList<>();
-        rules.add(new KeywordRule("greet-zh", Pattern.compile("^(你好|您好|嗨|在吗|早上好|下午好)$"), Intent.DIRECT_ANSWER));
-        rules.add(new KeywordRule("greet-en", Pattern.compile("^(hi|hello|hey|good morning|good afternoon)$"), Intent.DIRECT_ANSWER));
+        rules.add(new KeywordRule("greet-zh", Pattern.compile("^(你好|您好|嗨|在吗|早上好|下午好|帮助)[!！。?？]*$"), Intent.DIRECT_ANSWER));
+        rules.add(new KeywordRule("greet-en", Pattern.compile("^(hi|hello|hey|good morning|good afternoon|help)[!！。?？.]*$"), Intent.DIRECT_ANSWER));
         rules.add(new KeywordRule("procedural-zh", Pattern.compile("(怎么|如何|怎样|步骤|操作指南|教程)"), Intent.PROCEDURAL));
         rules.add(new KeywordRule("procedural-en", Pattern.compile("\\b(how to|how do|steps to|guide to)\\b"), Intent.PROCEDURAL));
         rules.add(new KeywordRule("analytical-zh", Pattern.compile("(对比|区别|差异|分析|优缺点|总结)"), Intent.ANALYTICAL));
