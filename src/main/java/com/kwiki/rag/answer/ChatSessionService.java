@@ -15,6 +15,9 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import com.kwiki.rag.rewrite.ChatTurn;
+import com.kwiki.rag.routing.Intent;
+import com.kwiki.rag.routing.PriorRoute;
+import com.kwiki.rag.routing.RouteSource;
 
 /** 负责持久化的会话/运行状态；工作流本身与存储无关。 */
 @Service
@@ -153,6 +156,46 @@ public class ChatSessionService {
                         + "ORDER BY m.id DESC LIMIT 12", (rs, row) -> new ChatTurn(rs.getString(1), truncateContext(rs.getString(2))), runId, runId);
         java.util.Collections.reverse(rows);
         return rows;
+    }
+
+    /** 同一会话里、早于本 run 的最近一个带路由状态的 run 的路由；没有则为 null。 */
+    @Transactional(readOnly = true)
+    public PriorRoute priorRoute(long runId) {
+        if (jdbc == null) return null;
+        List<PriorRoute> rows = jdbc.query(
+                "SELECT p.route_intent, p.route_source, p.route_needs_retrieval, p.route_confidence "
+                        + "FROM chat_run p JOIN chat_run c ON c.session_id = p.session_id "
+                        + "WHERE c.id = ? AND p.id < c.id AND p.route_intent IS NOT NULL "
+                        + "ORDER BY p.id DESC LIMIT 1",
+                (rs, row) -> new PriorRoute(Intent.valueOf(rs.getString(1)),
+                        RouteSource.valueOf(rs.getString(2)), rs.getBoolean(3), rs.getDouble(4)),
+                runId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    @Transactional
+    public void recordRoute(long runId, PriorRoute route) {
+        if (jdbc == null || route == null) return;
+        jdbc.update("UPDATE chat_run SET route_intent = ?, route_source = ?, route_needs_retrieval = ?, "
+                        + "route_confidence = ? WHERE id = ?",
+                route.intent().name(), route.source().name(), route.needsRetrieval(), route.confidence(), runId);
+    }
+
+    @Transactional
+    public void savePendingClarification(long runId, String json) {
+        if (jdbc == null || json == null) return;
+        jdbc.update("UPDATE chat_run SET pending_clarification = ? WHERE id = ?", json, runId);
+    }
+
+    /** 仅看紧邻的上一个 run：用户若没有回答直接发了新问题，旧的待答反问自然失效。 */
+    @Transactional(readOnly = true)
+    public String pendingClarification(long runId) {
+        if (jdbc == null) return null;
+        List<String> rows = jdbc.query(
+                "SELECT p.pending_clarification FROM chat_run p JOIN chat_run c ON c.session_id = p.session_id "
+                        + "WHERE c.id = ? AND p.id < c.id ORDER BY p.id DESC LIMIT 1",
+                (rs, row) -> rs.getString(1), runId);
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     @Transactional
