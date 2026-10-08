@@ -40,7 +40,7 @@
 
 **后端修改**：`RetrievalPlan`、`RouterDecisionValidator`、`RouterLlmPort`、`KeywordRuleSet`、`RuleFirstRouter`、`RouterLlmAdapter`、`AgenticWorkflowPort`、`LangGraphAgenticWorkflow`、`ChatSessionService`、`AgenticAnswerService`、`ChatController`、`application.yml`、`.env.example`、`docs/agentic-rag.md`。
 
-**测试**：新增 `RetrievalPlanTest`、`RuleFirstRouterContextTest`、`RouterLlmAdapterTest`、`DirectAnswerLlmAdapterTest`、`AgenticRoutingWorkflowTest`、`PendingClarificationTest`、`ChatSessionRouteStateTest`、`AgenticAnswerClarificationTest`；修改 `RuleFirstRouterTest`、`AgenticTestSupport`、`AgenticAnswerSessionTest`。
+**测试**：新增 `RetrievalPlanTest`、`RuleFirstRouterContextTest`、`RouterLlmAdapterContextTest`、`DirectAnswerLlmAdapterTest`、`AgenticRoutingWorkflowTest`、`PendingClarificationTest`、`ChatSessionRouteStateTest`、`AgenticAnswerClarificationTest`；修改 `RuleFirstRouterTest`、`AgenticTestSupport`、`AgenticAnswerSessionTest`。
 
 **前端**：新增 `frontend/src/features/workspace/ClarificationPrompt.vue`、`frontend/tests/clarification.spec.ts`；修改 `sse.ts`、`conversationStore.ts`、`ConversationMessages.vue`。
 
@@ -1039,20 +1039,20 @@ git commit -m "feat(routing): RuleFirstRouter 感知上一轮路由，冲突升�
 
 **Files:**
 - Modify: `src/main/java/com/kwiki/infrastructure/ai/RouterLlmAdapter.java`
-- Test: `src/test/java/com/kwiki/infrastructure/ai/RouterLlmAdapterTest.java`
+- Test: `src/test/java/com/kwiki/infrastructure/ai/RouterLlmAdapterContextTest.java`（新建；同目录已有 `RouterLlmAdapterTest`（MockWebServer HTTP 桩契约），**不要覆盖它**）
 
 **Interfaces:**
 - Consumes: `RouterLlmPort` 3 参默认方法、`RouteContext`、`PriorRoute`（Task 2、4）。
 - Produces: `RouterLlmAdapter` 覆盖 3 参 `askRouter`；包可见静态方法 `userPrompt(String, String, RouteContext)`、`systemPrompt()`。
 
-- [ ] **Step 1: 确认没有测试依赖旧 prompt 文案**
+- [ ] **Step 1: 阅读既有 `RouterLlmAdapterTest` 并确认新 prompt 不破坏其断言**
 
 Run: `grep -rn "systemPrompt\|RouterLlmAdapter" src/test | head`
-Expected: 无输出（若有输出，先阅读并保持断言仍成立）。
+Expected: 输出里有既有的 `RouterLlmAdapterTest`（MockWebServer 契约测试，断言请求体包含查询与 `no-rule-match`）。先 Read 它；新的 `userPrompt` 必须保留 `Query: <查询>` 与 `Rule trace: <trace>` 两行，既有断言才继续成立。**不要修改或覆盖该文件**，新用例写进下面的新文件。
 
 - [ ] **Step 2: 写失败测试**
 
-`src/test/java/com/kwiki/infrastructure/ai/RouterLlmAdapterTest.java`:
+`src/test/java/com/kwiki/infrastructure/ai/RouterLlmAdapterContextTest.java`:
 
 ```java
 package com.kwiki.infrastructure.ai;
@@ -1079,7 +1079,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 
-class RouterLlmAdapterTest {
+class RouterLlmAdapterContextTest {
 
     private static final String DECISION = """
             {"intent":"KNOWLEDGE_QA","needsRetrieval":true,"rewriteMode":"NONE","subqueries":[],"confidence":0.9}
@@ -1131,7 +1131,7 @@ class RouterLlmAdapterTest {
 
 - [ ] **Step 3: 运行确认失败**
 
-Run: `./mvnw -q -o -Dtest=RouterLlmAdapterTest test`
+Run: `./mvnw -q -o -Dtest=RouterLlmAdapterContextTest test`
 Expected: 编译失败（`userPrompt` 未定义）。
 
 - [ ] **Step 4: 实现**（`RouterLlmAdapter.java` 整体替换）
@@ -1234,13 +1234,13 @@ public class RouterLlmAdapter implements RouterLlmPort {
 
 - [ ] **Step 5: 运行测试**
 
-Run: `./mvnw -q -o -Dtest='RouterLlmAdapterTest,RuleFirstRouterContextTest,RuleFirstRouterTest' test`
+Run: `./mvnw -q -o -Dtest='RouterLlmAdapterContextTest,RouterLlmAdapterTest,RuleFirstRouterContextTest,RuleFirstRouterTest' test`
 Expected: 全部通过。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/main/java/com/kwiki/infrastructure/ai/RouterLlmAdapter.java src/test/java/com/kwiki/infrastructure/ai/RouterLlmAdapterTest.java
+git add src/main/java/com/kwiki/infrastructure/ai/RouterLlmAdapter.java src/test/java/com/kwiki/infrastructure/ai/RouterLlmAdapterContextTest.java
 git commit -m "feat(routing): 路由 LLM 提示带上一轮路由与近期用户消息，schema 增加 clarify"
 ```
 
