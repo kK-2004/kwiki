@@ -1545,6 +1545,11 @@ class AgenticRoutingWorkflowTest {
                 .collect(Collectors.joining());
     }
 
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> route(ChatStreamEvent done) {
+        return (Map<String, Object>) done.payloadMap().get("route");
+    }
+
     static ChatStreamEvent event(List<ChatStreamEvent> events, String type) {
         return events.stream().filter(e -> e.type().equals(type)).findFirst().orElseThrow();
     }
@@ -1593,7 +1598,7 @@ class AgenticRoutingWorkflowTest {
         var done = events.getLast();
         assertThat(done.type()).isEqualTo("done");
         assertThat(done.payloadMap()).containsEntry("outcome", "direct");
-        assertThat((Map<?, ?>) done.payloadMap().get("route")).containsEntry("needsRetrieval", false);
+        assertThat(route(done)).containsEntry("needsRetrieval", false);
     }
 
     @Test
@@ -1610,7 +1615,7 @@ class AgenticRoutingWorkflowTest {
         assertThat(tokens(events)).isEqualTo("基于证据的回答 [P0]");
         var done = events.getLast();
         assertThat(done.payloadMap()).containsEntry("outcome", "completed");
-        assertThat((Map<?, ?>) done.payloadMap().get("route")).containsEntry("needsRetrieval", true);
+        assertThat(route(done)).containsEntry("needsRetrieval", true);
     }
 
     @Test
@@ -1688,8 +1693,7 @@ class AgenticRoutingWorkflowTest {
 
         var events = run(harness, "什么是部署方式", List.of(), RouteInput.NONE);
 
-        var route = (Map<?, ?>) events.getLast().payloadMap().get("route");
-        assertThat(route).containsEntry("intent", "KNOWLEDGE_QA")
+        assertThat(route(events.getLast())).containsEntry("intent", "KNOWLEDGE_QA")
                 .containsEntry("source", "RULE")
                 .containsEntry("needsRetrieval", true);
     }

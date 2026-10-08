@@ -23,4 +23,11 @@ public interface AgenticWorkflowPort {
                                                    java.util.Set<Long> kbIds, java.util.Set<Long> pageIds) {
         return answerInSession(user, query, history);
     }
+
+    /** 带路由输入（上一轮路由、反问续跑标记）的会话路径；旧适配器无需改动。 */
+    default Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, java.util.List<ChatTurn> history,
+                                                   java.util.Set<Long> kbIds, java.util.Set<Long> pageIds,
+                                                   RouteInput routeInput) {
+        return answerInSession(user, query, history, kbIds, pageIds);
+    }
 }

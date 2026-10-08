@@ -65,6 +65,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     private final Semaphore permits;
     /** 图增强仅在 kwiki.graph.enabled 时由装配注入；默认关闭，保持原检索路径。 */
     private volatile com.kwiki.rag.retrieval.GraphRetrievalEnhancer graphEnhancer;
+    /** 直答模型端口；缺失时 direct 节点直接转入检索。 */
+    private volatile DirectAnswerPort directAnswer;
     private final ScheduledExecutorService timer =
             Executors.newSingleThreadScheduledExecutor(
                     Thread.ofPlatform().daemon().name("agentic-deadline").factory());
@@ -112,6 +114,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         Map<String, Consumer<Session>> nodes = new LinkedHashMap<>();
         nodes.put("route", this::route);
         nodes.put("retrieve", this::retrieve);
+        nodes.put("direct", this::direct);
         nodes.put("generate", this::generate);
         nodes.put("quality", this::quality);
         nodes.put("rewrite", this::rewrite);
@@ -172,6 +175,16 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         this.graphEnhancer = enhancer.getIfAvailable();
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void configureDirectAnswer(ObjectProvider<DirectAnswerPort> provider) {
+        this.directAnswer = provider.getIfAvailable();
+    }
+
+    /** 测试与手工装配用的注入入口。 */
+    public void useDirectAnswer(DirectAnswerPort port) {
+        this.directAnswer = port;
+    }
+
     @Override
     public Flux<ChatStreamEvent> answer(CurrentUser user, String query) {
         return answer(user, query, List.of());
@@ -179,22 +192,29 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
 
     @Override
     public Flux<ChatStreamEvent> answer(CurrentUser user, String query, List<ChatTurn> conversationHistory) {
-        return streamAnswer(user, query, conversationHistory, true, Set.of(), Set.of());
+        return streamAnswer(user, query, conversationHistory, true, Set.of(), Set.of(), RouteInput.NONE);
     }
 
     @Override
     public Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, List<ChatTurn> conversationHistory) {
-        return streamAnswer(user, query, conversationHistory, false, Set.of(), Set.of());
+        return streamAnswer(user, query, conversationHistory, false, Set.of(), Set.of(), RouteInput.NONE);
     }
 
     @Override
     public Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, List<ChatTurn> conversationHistory,
                                                   Set<Long> kbIds, Set<Long> pageIds) {
-        return streamAnswer(user, query, conversationHistory, false, kbIds, pageIds);
+        return streamAnswer(user, query, conversationHistory, false, kbIds, pageIds, RouteInput.NONE);
+    }
+
+    @Override
+    public Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, List<ChatTurn> conversationHistory,
+                                                  Set<Long> kbIds, Set<Long> pageIds, RouteInput routeInput) {
+        return streamAnswer(user, query, conversationHistory, false, kbIds, pageIds,
+                routeInput == null ? RouteInput.NONE : routeInput);
     }
 
     private Flux<ChatStreamEvent> streamAnswer(CurrentUser user, String query, List<ChatTurn> conversationHistory, boolean persistConversation,
-                                                Set<Long> kbIds, Set<Long> pageIds) {
+                                                Set<Long> kbIds, Set<Long> pageIds, RouteInput routeInput) {
         Map<String, String> headers = new HashMap<>();
         String id =
                 Optional.ofNullable(org.slf4j.MDC.get("traceId"))
@@ -258,6 +278,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                                                                 run, user, query,
                                                                                 conversationHistory, sink, persistConversation,
                                                                                 kbIds, pageIds);
+                                                                s.routeInput = routeInput;
                                                                 reference.set(s);
                                                                 s.debugStage("workflow", "start", 0, () -> Map.of(
                                                                         "query", AgenticDebugLogger.boundedQuery(query),
@@ -396,50 +417,124 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         if (normalized.isBlank() || normalized.length() > 1000)
             throw new RunFailure(AgenticErrorCodes.INVALID_QUERY);
         s.currentQuery = normalized;
-        if (normalized.matches("(?i)(你好|您好|hello|hi|帮助|help)[!！。?？]*")) {
-            s.message = "你好，我可以根据你有权访问的 Wiki 内容检索资料并回答问题。";
-            s.outcome = "direct";
-            s.next = "respond";
-            s.debugStage("route", "direct", s.sinceMs(startedAt), () -> Map.of(
-                    "query", AgenticDebugLogger.boundedQuery(s.currentQuery),
-                    "intent", "GREETING"));
-            s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
-                    ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
-                    s.sinceMs(startedAt), "问候直接回复", Map.of(), null));
-            return;
-        }
-        s.route = router.route(s.query);
-        if (normalized.matches("(它|这个|那个|上面|刚才)(呢|是什么|怎么用|怎么样)[？?]?")) {
-            s.message = "请说明你指的是哪个页面、产品或主题。";
-            s.outcome = "clarification";
-            s.next = "respond";
-            s.debugStage("route", "clarification", s.sinceMs(startedAt), () -> Map.of(
-                    "query", AgenticDebugLogger.boundedQuery(s.currentQuery),
-                    "intent", s.route.intent().name()));
-            s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
-                    ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
-                    s.sinceMs(startedAt), "需要澄清", Map.of(), null));
-            return;
-        }
+        s.route = router.route(s.query, s.routeContext());
         s.debugStage("route", "complete", s.sinceMs(startedAt), () -> {
             var fields = new LinkedHashMap<String, Object>();
             fields.put("query", AgenticDebugLogger.boundedQuery(s.currentQuery));
             fields.put("intent", s.route.intent().name());
             fields.put("source", s.route.source().name());
             fields.put("needsRetrieval", s.route.needsRetrieval());
+            fields.put("needsClarification", s.route.needsClarification());
             fields.put("rewriteMode", s.route.rewriteMode().name());
             fields.put("confidence", s.route.confidence());
             fields.put("matchedRuleIds", s.route.matchedRuleIds());
+            fields.put("priorRoute", s.routeInput.prior() == null ? "none" : s.routeInput.prior().toMap());
+            fields.put("clarificationResumed", s.routeInput.clarificationResumed());
             if (s.route.fallbackReason() != null) {
                 fields.put("fallbackReason", s.route.fallbackReason());
             }
             return fields;
         });
+        if (s.route.needsClarification() && !s.routeInput.clarificationResumed()) {
+            clarify(s, startedAt);
+            return;
+        }
+        if (!s.route.needsRetrieval()) {
+            if (isGreeting(s.route)) {
+                s.message = "你好，我可以根据你有权访问的 Wiki 内容检索资料并回答问题。";
+                s.outcome = "direct";
+                s.next = "respond";
+                s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
+                        ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
+                        s.sinceMs(startedAt), "问候直接回复", Map.of(), null));
+                return;
+            }
+            s.next = "direct";
+            s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
+                    ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
+                    s.sinceMs(startedAt), "无需检索，直接回答", Map.of(), null));
+            return;
+        }
         s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
                 ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
                 s.sinceMs(startedAt), "已识别为知识检索", Map.of(), null));
         // 第 1 轮原样使用归一化后的原始查询：首次检索
         // 之前不做语义改写。
+        s.next = "retrieve";
+    }
+
+    private static boolean isGreeting(RetrievalPlan plan) {
+        return plan.source() == RouteSource.RULE
+                && plan.intent() == Intent.DIRECT_ANSWER
+                && plan.matchedRuleIds().stream().anyMatch(id -> id.startsWith("greet-"));
+    }
+
+    /** 反问：发出 clarification 事件后以 outcome=clarification 结束本次 run，由下次请求携带回答续跑。 */
+    private void clarify(Session s, long startedAt) {
+        ClarifyRequest request = s.route.clarify();
+        String clarificationId = UUID.randomUUID().toString();
+        s.emit("clarification", request.toPayload(clarificationId));
+        s.outcome = "clarification";
+        s.message = request.question();
+        s.debugStage("route", "clarification", s.sinceMs(startedAt), () -> Map.of(
+                "clarificationId", clarificationId,
+                "options", request.options().size(),
+                "allowFreeText", request.allowFreeText(),
+                "source", request.source()));
+        s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
+                ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
+                s.sinceMs(startedAt), "需要你确认", Map.of(), null));
+        s.debugTerminal("clarification", null, () -> Map.of(
+                "queryRound", s.queryRound,
+                "stage", s.stage.name()));
+        s.done(Map.of(
+                "outcome", "clarification",
+                "clarificationId", clarificationId,
+                "route", s.routeState()));
+        s.next = END;
+    }
+
+    /** 无需检索时的直答；模型输出哨兵或不可用则转入检索（每个请求只会发生一次）。 */
+    private void direct(Session s) {
+        long startedAt = s.nowMs();
+        String step = stepId(s, "direct");
+        s.emitActivity(ActivityEvent.started(step, null, s.queryRound, null,
+                ActivityEvent.Phase.GENERATION, startedAt, "正在直接回答"));
+        if (directAnswer == null) {
+            escalate(s, step, startedAt, "direct-unavailable");
+            return;
+        }
+        s.run.authorize();
+        String text;
+        try {
+            text = directAnswer.answer(s.query, s.conversationHistory);
+        } catch (RunFailure e) {
+            throw e;
+        } catch (Exception e) {
+            s.run.check();
+            escalate(s, step, startedAt, "direct-failed");
+            return;
+        }
+        String trimmed = text == null ? "" : text.strip();
+        if (trimmed.isEmpty() || trimmed.startsWith(DirectAnswerPort.ESCALATE_SENTINEL)) {
+            escalate(s, step, startedAt, "direct-escalated");
+            return;
+        }
+        s.message = trimmed;
+        s.outcome = "direct";
+        s.next = "respond";
+        s.debugStage("direct", "complete", s.sinceMs(startedAt), () -> Map.of("chars", trimmed.length()));
+        s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null,
+                ActivityEvent.Phase.GENERATION, ActivityEvent.Status.COMPLETED, startedAt,
+                s.sinceMs(startedAt), "已直接回答", Map.of("chars", trimmed.length()), null));
+    }
+
+    private void escalate(Session s, String step, long startedAt, String reason) {
+        s.route = RetrievalPlan.fallback(reason);
+        s.debugStage("direct", "escalated", s.sinceMs(startedAt), () -> Map.of("reason", reason));
+        s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null,
+                ActivityEvent.Phase.GENERATION, ActivityEvent.Status.SKIPPED, startedAt,
+                s.sinceMs(startedAt), "需要查询知识库，转入检索", Map.of(), reason));
         s.next = "retrieve";
     }
 
@@ -723,7 +818,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 "outcome", s.outcome,
                 "citationCount", s.citationCount,
                 "queryRound", s.queryRound,
-                "attemptStage", s.stage.name()));
+                "attemptStage", s.stage.name(),
+                "route", s.routeState()));
         s.next = END;
     }
 
@@ -805,8 +901,10 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         if (AgenticErrorCodes.INSUFFICIENT.equals(s.outcome)) {
             s.message = AgenticErrorCodes.INSUFFICIENT_MESSAGE;
         }
-        s.text.append(s.message);
-        s.emit("token", Map.of("text", s.message));
+        for (String token : paragraphs(s.message)) {
+            s.text.append(token);
+            s.emit("token", Map.of("text", token));
+        }
         s.emit("citations", Map.of("citations", List.of()));
         s.debugTerminal(s.outcome, s.outcome, () -> Map.of(
                 "queryRound", s.queryRound,
@@ -821,7 +919,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.done(Map.of(
                 "outcome", s.outcome,
                 "noEvidence", AgenticErrorCodes.INSUFFICIENT.equals(s.outcome),
-                "message", s.message));
+                "message", s.message,
+                "route", s.routeState()));
         s.next = END;
     }
 
@@ -943,6 +1042,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         CandidateAnswer candidate;
         QualityAssessment assessment;
         RetrievalPlan route;
+        RouteInput routeInput = RouteInput.NONE;
         AttemptStage stage = AttemptStage.BASE_CHILD;
         String currentQuery;
         String latestReason = "";
@@ -966,6 +1066,25 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             this.sink = sink;
             this.selectedKbIds = selectedKbIds == null ? java.util.Set.of() : selectedKbIds;
             this.selectedPageIds = selectedPageIds == null ? java.util.Set.of() : selectedPageIds;
+        }
+
+        RouteContext routeContext() {
+            List<String> recent = new ArrayList<>();
+            for (ChatTurn turn : conversationHistory) {
+                if (turn.isUser() && turn.content() != null && !turn.content().isBlank()) {
+                    recent.add(turn.content().strip());
+                }
+            }
+            int from = Math.max(0, recent.size() - 6);
+            List<String> bounded = recent.subList(from, recent.size()).stream()
+                    .map(q -> q.length() <= 200 ? q : q.substring(0, 200))
+                    .toList();
+            return new RouteContext(routeInput.prior(), bounded, routeInput.clarificationResumed());
+        }
+
+        /** 最终路由状态（done 事件携带，供持久化到 chat_run）；尚无路由时为空。 */
+        Map<String, Object> routeState() {
+            return route == null ? Map.of() : PriorRoute.of(route).toMap();
         }
 
         synchronized void emit(String type, Map<String, Object> payload) {
@@ -1108,6 +1227,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 trace.put("rewrites", rewritesUsed);
                 trace.put("stages", stageFailures);
                 trace.put("nodes", List.copyOf(nodes));
+                trace.put("route", routeState());
                 trace.put("toolSchemaVersion", "2");
                 if (persistConversation) persistence.persistTurn(
                         run.requestId, user.id(), query, text.toString(), trace, run.requestId);

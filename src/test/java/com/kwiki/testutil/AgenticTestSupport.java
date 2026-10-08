@@ -125,6 +125,22 @@ public final class AgenticTestSupport {
         }
     }
 
+    /** 脚本化直答模型；fail=true 时抛异常以模拟不可用。 */
+    public static final class ScriptDirect implements DirectAnswerPort {
+        public final List<String> questions = new CopyOnWriteArrayList<>();
+        public final ArrayDeque<String> scripted = new ArrayDeque<>();
+        public boolean fail;
+
+        @Override
+        public String answer(String question, List<ChatTurn> history) {
+            questions.add(question);
+            if (fail) {
+                throw new IllegalStateException("direct unavailable");
+            }
+            return scripted.isEmpty() ? "直接回答" : scripted.pop();
+        }
+    }
+
     /** 真实状态机 + 预算 + RRF，搭配脚本化的叶子适配器。 */
     public static final class Harness {
         public final ScriptRecall bm25;
@@ -133,6 +149,7 @@ public final class AgenticTestSupport {
         public final ScriptAnswer answer;
         public final ScriptQuality quality;
         public final ScriptRewriter rewriter;
+        public final ScriptDirect direct;
         public final QaChildRetrievalService childRetrieval;
         public final QaParentFetchService parentFetch;
         public final QaRetrievalBudgets budgets;
@@ -140,6 +157,7 @@ public final class AgenticTestSupport {
 
         Harness(ScriptRecall bm25, ScriptRecall vector, ScriptParentFetcher parents,
                 ScriptAnswer answer, ScriptQuality quality, ScriptRewriter rewriter,
+                ScriptDirect direct,
                 QaChildRetrievalService childRetrieval, QaParentFetchService parentFetch,
                 QaRetrievalBudgets budgets,
                 com.kwiki.rag.orchestration.AgenticWorkflowPort workflow) {
@@ -149,6 +167,7 @@ public final class AgenticTestSupport {
             this.answer = answer;
             this.quality = quality;
             this.rewriter = rewriter;
+            this.direct = direct;
             this.childRetrieval = childRetrieval;
             this.parentFetch = parentFetch;
             this.budgets = budgets;
@@ -167,6 +186,7 @@ public final class AgenticTestSupport {
         var answer = new ScriptAnswer();
         var quality = new ScriptQuality();
         var rewriter = new ScriptRewriter();
+        var direct = new ScriptDirect();
         var recall = new ConcurrentRecallService(bm25, vector);
         var embeddings = new com.kwiki.indexing.pipeline.ChunkEmbeddingPort() {
             @Override
@@ -192,7 +212,8 @@ public final class AgenticTestSupport {
                     router, candidates, quality, rewriter, childRetrieval, parentFetch,
                     budgets, scopes, versions, persistence, org.mockito.Mockito.mock(com.kwiki.rag.answer.CitationDisplayNameResolver.class), metrics, AgenticLimits.defaults(),
                     logger, 0.80, Optional.empty(), Optional.empty());
-            return new Harness(bm25, vector, parents, answer, quality, rewriter,
+            workflow.useDirectAnswer(direct);
+            return new Harness(bm25, vector, parents, answer, quality, rewriter, direct,
                     childRetrieval, parentFetch, budgets, workflow);
         } catch (Exception e) {
             throw new RuntimeException(e);
