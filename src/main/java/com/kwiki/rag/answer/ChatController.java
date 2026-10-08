@@ -39,12 +39,13 @@ public class ChatController {
                               String clientMessageId,
                               String agentId,
                               java.util.Set<Long> knowledgeBaseIds,
-                              java.util.Set<Long> pageIds) {
+                              java.util.Set<Long> pageIds,
+                              ClarificationReply clarification) {
         public ChatRequest(String query) {
-            this(query, null, null, null, java.util.Set.of(), java.util.Set.of());
+            this(query, null, null, null, java.util.Set.of(), java.util.Set.of(), null);
         }
         public ChatRequest(String query, String sessionId, String clientMessageId, String agentId) {
-            this(query, sessionId, clientMessageId, agentId, java.util.Set.of(), java.util.Set.of());
+            this(query, sessionId, clientMessageId, agentId, java.util.Set.of(), java.util.Set.of(), null);
         }
     }
 
@@ -54,7 +55,7 @@ public class ChatController {
         Flux<ChatStreamEvent> events = request.sessionId() == null && request.clientMessageId() == null
                 ? answers.answer(user, request.query())
                 : answers.answer(user, request.query(), request.sessionId(), request.clientMessageId(), request.agentId(),
-                        request.knowledgeBaseIds(), request.pageIds());
+                        request.knowledgeBaseIds(), request.pageIds(), request.clarification());
         return events
                 .map(
                         event ->

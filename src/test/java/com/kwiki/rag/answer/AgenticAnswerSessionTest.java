@@ -28,7 +28,8 @@ class AgenticAnswerSessionTest {
         var run = new ChatSessionService.RunHandle("s", "c", "r", 1L, 2L, false);
         when(sessions.begin(user, null, "c", null, "问题")).thenReturn(run);
         when(sessions.historyBefore(2L)).thenReturn(List.of());
-        when(workflow.answerInSession(user, "问题", List.of(), java.util.Set.of(), java.util.Set.of())).thenReturn(Flux.just(
+        when(workflow.answerInSession(eq(user), eq("问题"), eq(List.of()), eq(java.util.Set.of()),
+                eq(java.util.Set.of()), any(com.kwiki.rag.orchestration.RouteInput.class))).thenReturn(Flux.just(
                 ChatStreamEvent.of("error", 1, "r", Map.of("error", "retrieval-failed"))));
         var events = new AgenticAnswerService(workflow, provider, eventProvider).answer(user, "问题", null, "c", null).collectList().block();
         assertThat(events).extracting(ChatStreamEvent::type).containsExactly("session", "error");
