@@ -5,7 +5,7 @@
  */
 import { getAuthGeneration, getAuthToken, setAuthToken } from './api';
 
-export type SseEventType = 'session' | 'activity' | 'route' | 'rewrite' | 'retrieve' | 'tool' | 'quality' | 'retry' | 'reasoning-summary' | 'token' | 'citations' | 'done' | 'error';
+export type SseEventType = 'session' | 'activity' | 'route' | 'rewrite' | 'retrieve' | 'tool' | 'quality' | 'retry' | 'reasoning-summary' | 'token' | 'citations' | 'clarification' | 'done' | 'error';
 
 export interface SseFrame {
   type: SseEventType;
@@ -31,6 +31,53 @@ export interface CitationEntry {
   charStart: number;
   charEnd: number;
   excerpt: string;
+}
+
+export interface ClarificationOption {
+  id: string;
+  label: string;
+  kbId?: number;
+  pageId?: number;
+}
+
+export interface ClarificationState {
+  id: string;
+  question: string;
+  options: ClarificationOption[];
+  allowFreeText: boolean;
+  source: string;
+}
+
+/** 请求体里对一次反问的回答：选项（optionId）或自由输入（text）。 */
+export interface ClarificationReply {
+  id: string;
+  optionId?: string;
+  text?: string;
+}
+
+export function clarificationOf(payload: Record<string, unknown>): ClarificationState | null {
+  const id = payload.clarificationId;
+  if (typeof id !== 'string' || !id) return null;
+  const options = Array.isArray(payload.options)
+    ? payload.options.flatMap((item): ClarificationOption[] => {
+      if (!item || typeof item !== 'object') return [];
+      const option = item as Record<string, unknown>;
+      if (typeof option.id !== 'string' || typeof option.label !== 'string') return [];
+      return [{
+        id: option.id,
+        label: option.label,
+        kbId: typeof option.kbId === 'number' ? option.kbId : undefined,
+        pageId: typeof option.pageId === 'number' ? option.pageId : undefined,
+      }];
+    })
+    : [];
+  return {
+    id,
+    question: String(payload.question ?? ''),
+    options,
+    allowFreeText: payload.allowFreeText !== false,
+    source: String(payload.source ?? 'router'),
+  };
 }
 
 export const TERMINAL_TYPES: SseEventType[] = ['done', 'error'];
@@ -63,6 +110,7 @@ export interface StreamState {
   terminated: boolean;
   message?: string;
   outcome?: string;
+  clarification?: ClarificationState;
 }
 
 export interface ProgressItem {
@@ -218,6 +266,10 @@ export function reduce(state: StreamState, frame: SseFrame): StreamState {
         ...advanced,
         citations: (frame.payload.citations as CitationEntry[]) ?? [],
       };
+    case 'clarification': {
+      const clarification = clarificationOf(frame.payload);
+      return clarification ? { ...advanced, clarification } : advanced;
+    }
     case 'done':
       return { ...advanced, terminated: true, message: String(frame.payload.message ?? ''), outcome: String(frame.payload.outcome ?? '') };
     case 'error':
@@ -231,7 +283,7 @@ export function reduce(state: StreamState, frame: SseFrame): StreamState {
 export function openStream(
   query: string,
   onFrame: (frame: SseFrame) => void,
-  options: { sessionId?: string; clientMessageId?: string; agentId?: string; knowledgeBaseIds?: number[]; pageIds?: number[] } = {},
+  options: { sessionId?: string; clientMessageId?: string; agentId?: string; knowledgeBaseIds?: number[]; pageIds?: number[]; clarification?: ClarificationReply } = {},
 ): () => void {
   const controller = new AbortController();
   const requestGeneration = getAuthGeneration();

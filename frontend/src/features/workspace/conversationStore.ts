@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia';
 import { api, errorMessage } from '../wiki/api';
-import { initialState, openStream, reduce, replayStoredEvents, type ActivityStep, type StreamState } from '../wiki/sse';
+import { initialState, openStream, reduce, replayStoredEvents, type ActivityStep, type ClarificationReply, type ClarificationState, type StreamState } from '../wiki/sse';
 export type Session = { id: string; title: string; createdAt?: string; updatedAt?: string };
 type Message = { id: number; role: string; content: string; createdAt: string; requestId?: string | null };
 type StoredEvent = { seq: number; type: string; payloadJson: string };
 const RUN_CACHE_PREFIX = 'kwiki:conversation-run:v1:';
 const RUN_CACHE_INDEX = `${RUN_CACHE_PREFIX}index`;
-type CachedRun = { activitySteps: ActivityStep[]; citations: import('../wiki/sse').CitationEntry[] };
+type CachedRun = { activitySteps: ActivityStep[]; citations: import('../wiki/sse').CitationEntry[]; clarification?: ClarificationState };
 
 function runCacheKey(sessionId: string, requestId: string) { return `${RUN_CACHE_PREFIX}${sessionId}:${requestId}`; }
 function readRunCache(sessionId: string, requestId: string): CachedRun | null {
@@ -31,12 +31,22 @@ export const useConversationStore = defineStore('conversation', {
     /** 回放/持久化的活动时间线，以产生它的 run 为键。 */
     runActivities: {} as Record<string, ActivityStep[]>,
     runCitations: {} as Record<string, import('../wiki/sse').CitationEntry[]>,
+    /** 以反问结束的 run 对应的待答反问（回放/刚结束），以 requestId 为键。 */
+    runClarifications: {} as Record<string, ClarificationState>,
     query: '', lastQuery: '', sessionId: '', requestId: '', running: false, minimized: false, floatingOpen: false,
     selectedKnowledgeBaseIds: [] as number[], selectedPageIds: [] as number[],
     loaded: false, loading: false, listError: '', historyError: '', }),
   getters: {
     answer: s => s.state.answer, progress: s => s.state.progress, reasoning: s => s.state.reasoning, error: s => s.state.error,
     hasActiveConversation: s => Boolean(s.running || s.sessionId || s.query),
+    /** 当前等待用户回答的反问：本次 run 刚以反问结束，或最后一条助手消息对应的 run 以反问结束。 */
+    pendingClarification: (s): ClarificationState | null => {
+      if (s.running) return null;
+      if (s.state.terminated && s.state.outcome === 'clarification' && s.state.clarification) return s.state.clarification;
+      const last = s.history.at(-1);
+      if (last?.role === 'ASSISTANT' && last.requestId) return s.runClarifications[last.requestId] ?? null;
+      return null;
+    },
   },
   actions: {
     /** 拉取已存储的运行事件，只保留合并后的活动时间线。 */
@@ -46,6 +56,7 @@ export const useConversationStore = defineStore('conversation', {
       if (cached) {
         this.runActivities = { ...this.runActivities, [requestId]: cached.activitySteps ?? [] };
         this.runCitations = { ...this.runCitations, [requestId]: cached.citations ?? [] };
+        if (cached.clarification) this.runClarifications = { ...this.runClarifications, [requestId]: cached.clarification };
         return;
       }
       try {
@@ -53,7 +64,8 @@ export const useConversationStore = defineStore('conversation', {
         const replayed = replayStoredEvents(events);
         this.runActivities = { ...this.runActivities, [requestId]: replayed.activitySteps };
         this.runCitations = { ...this.runCitations, [requestId]: replayed.citations };
-        writeRunCache(this.sessionId, requestId, { activitySteps: replayed.activitySteps, citations: replayed.citations });
+        if (replayed.clarification) this.runClarifications = { ...this.runClarifications, [requestId]: replayed.clarification };
+        writeRunCache(this.sessionId, requestId, { activitySteps: replayed.activitySteps, citations: replayed.citations, clarification: replayed.clarification });
       } catch { /* 没有存储事件的旧运行则不显示任何时间线 */ }
     },
     async hydrateHistoryActivities() {
@@ -84,9 +96,17 @@ export const useConversationStore = defineStore('conversation', {
       this.sessionId = ''; this.history = []; this.query = ''; this.lastQuery = ''; this.state = initialState();
       this.minimized = false; this.floatingOpen = false; this.historyError = ''; this.loading = false;
     },
-    send() {
-      const current = this.query.trim(); if (!current || this.running || this.loading || this.historyError) return;
-      const run = ++generation; this.running = true; this.state = initialState(); this.requestId = ''; this.lastQuery = current; this.query = '';
+    send() { this.dispatch(this.query.trim()); },
+    /** 对待答反问的回答：选项或自由输入；展示文本（label）作为用户消息，服务端以存储的选项为准。 */
+    answerClarification(reply: Omit<ClarificationReply, 'id'>, label: string) {
+      const pending = this.pendingClarification;
+      if (!pending || this.running || this.loading) return;
+      this.dispatch(label.trim(), { id: pending.id, ...reply });
+    },
+    dispatch(current: string, clarification?: ClarificationReply) {
+      if (!current || this.running || this.loading || this.historyError) return;
+      const run = ++generation; this.running = true; this.state = initialState(); this.requestId = ''; this.lastQuery = current;
+      if (!clarification) this.query = '';
       this.history.push({ id: -Date.now(), role: 'USER', content: current, createdAt: new Date().toISOString() });
       disposeStream?.();
       disposeStream = openStream(current, frame => {
@@ -101,7 +121,7 @@ export const useConversationStore = defineStore('conversation', {
           void this.finishTurn(run);
         }
       }, { sessionId: this.sessionId || undefined, clientMessageId: crypto.randomUUID(),
-        knowledgeBaseIds: this.selectedKnowledgeBaseIds, pageIds: this.selectedPageIds });
+        knowledgeBaseIds: this.selectedKnowledgeBaseIds, pageIds: this.selectedPageIds, clarification });
     },
     async finishTurn(run: number) {
       const id = this.sessionId;
@@ -112,8 +132,11 @@ export const useConversationStore = defineStore('conversation', {
       if (this.requestId && this.state.citations.length) {
         this.runCitations = { ...this.runCitations, [this.requestId]: this.state.citations };
       }
+      if (this.requestId && this.state.clarification) {
+        this.runClarifications = { ...this.runClarifications, [this.requestId]: this.state.clarification };
+      }
       if (id && this.requestId) {
-        writeRunCache(id, this.requestId, { activitySteps: this.state.activitySteps, citations: this.state.citations });
+        writeRunCache(id, this.requestId, { activitySteps: this.state.activitySteps, citations: this.state.citations, clarification: this.state.clarification });
       }
       if (id) {
         try {
