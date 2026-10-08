@@ -201,4 +201,54 @@ class RuleFirstRouterTest {
         assertThatThrownBy(() -> RouterDecisionValidator.validate(badConfidence))
                 .hasMessageContaining("confidence");
     }
+
+    @Test
+    void validatorAcceptsWellFormedClarify() {
+        Map<String, Object> decision = validDecision(Intent.KNOWLEDGE_QA);
+        decision.put("clarify", Map.of(
+                "question", "你想了解哪一个？",
+                "options", java.util.List.of(
+                        Map.of("id", "a", "label", "部署文档"),
+                        Map.of("id", "b", "label", "运维手册")),
+                "allowFreeText", true));
+
+        RetrievalPlan plan = RouterDecisionValidator.validate(decision);
+
+        assertThat(plan.needsClarification()).isTrue();
+        assertThat(plan.clarify().options()).hasSize(2);
+        assertThat(plan.clarify().source()).isEqualTo("router");
+    }
+
+    @Test
+    void validatorRejectsMalformedClarify() {
+        Map<String, Object> extra = validDecision(Intent.KNOWLEDGE_QA);
+        extra.put("clarify", Map.of("question", "q", "allowFreeText", true, "scope", "x"));
+        assertThatThrownBy(() -> RouterDecisionValidator.validate(extra))
+                .hasMessageContaining("unknown clarify field");
+
+        Map<String, Object> tooMany = validDecision(Intent.KNOWLEDGE_QA);
+        tooMany.put("clarify", Map.of("question", "q", "options", java.util.List.of(
+                Map.of("id", "a", "label", "a"), Map.of("id", "b", "label", "b"),
+                Map.of("id", "c", "label", "c"), Map.of("id", "d", "label", "d"),
+                Map.of("id", "e", "label", "e"))));
+        assertThatThrownBy(() -> RouterDecisionValidator.validate(tooMany))
+                .hasMessageContaining("too many clarify options");
+
+        Map<String, Object> badId = validDecision(Intent.KNOWLEDGE_QA);
+        badId.put("clarify", Map.of("question", "q", "options", java.util.List.of(
+                Map.of("id", "A B", "label", "x"))));
+        assertThatThrownBy(() -> RouterDecisionValidator.validate(badId))
+                .hasMessageContaining("invalid clarify option id");
+
+        Map<String, Object> withKb = validDecision(Intent.KNOWLEDGE_QA);
+        withKb.put("clarify", Map.of("question", "q", "options", java.util.List.of(
+                Map.of("id", "a", "label", "x", "kbId", 3))));
+        assertThatThrownBy(() -> RouterDecisionValidator.validate(withKb))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        Map<String, Object> noWay = validDecision(Intent.KNOWLEDGE_QA);
+        noWay.put("clarify", Map.of("question", "q", "allowFreeText", false));
+        assertThatThrownBy(() -> RouterDecisionValidator.validate(noWay))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

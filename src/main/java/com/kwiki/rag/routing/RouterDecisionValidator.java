@@ -13,7 +13,12 @@ import java.util.Set;
 public final class RouterDecisionValidator {
 
     private static final Set<String> ALLOWED_FIELDS = Set.of(
-            "intent", "needsRetrieval", "rewriteMode", "subqueries", "confidence");
+            "intent", "needsRetrieval", "rewriteMode", "subqueries", "confidence", "clarify");
+
+    private static final Set<String> CLARIFY_FIELDS = Set.of("question", "options", "allowFreeText");
+
+    private static final java.util.regex.Pattern OPTION_ID =
+            java.util.regex.Pattern.compile("[a-z0-9_-]{1,40}");
 
     private static final java.util.regex.Pattern CREDENTIAL_LIKE = java.util.regex.Pattern.compile(
             "(sk-[A-Za-z0-9_-]{8,}|authorization|password\\s*[=:]|bearer\\s+\\S{8,})",
@@ -47,8 +52,64 @@ public final class RouterDecisionValidator {
         List<String> subqueries = subqueries(decision.get("subqueries"));
         double confidence = confidence(decision.get("confidence"));
 
+        ClarifyRequest clarify = clarify(decision.get("clarify"));
+
         rejectDangerousContent(decision);
-        return RetrievalPlan.llm(intent, needsRetrieval, rewriteMode, subqueries, confidence);
+        RetrievalPlan plan = RetrievalPlan.llm(intent, needsRetrieval, rewriteMode, subqueries, confidence);
+        return clarify == null ? plan : plan.withClarify(clarify);
+    }
+
+    private static ClarifyRequest clarify(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof Map<?, ?> map)) {
+            throw new IllegalArgumentException("clarify must be an object");
+        }
+        for (Object key : map.keySet()) {
+            if (!CLARIFY_FIELDS.contains(String.valueOf(key))) {
+                throw new IllegalArgumentException("unknown clarify field: " + key);
+            }
+        }
+        Object rawQuestion = map.get("question");
+        if (!(rawQuestion instanceof String question) || question.isBlank() || question.length() > 200) {
+            throw new IllegalArgumentException("clarify.question must be 1-200 chars");
+        }
+        List<ClarifyRequest.Option> options = new java.util.ArrayList<>();
+        Object rawOptions = map.get("options");
+        if (rawOptions != null) {
+            if (!(rawOptions instanceof List<?> list)) {
+                throw new IllegalArgumentException("clarify.options must be an array");
+            }
+            if (list.size() > ClarifyRequest.MAX_OPTIONS) {
+                throw new IllegalArgumentException("too many clarify options");
+            }
+            java.util.Set<String> ids = new java.util.HashSet<>();
+            for (Object item : list) {
+                if (!(item instanceof Map<?, ?> option) || option.size() != 2
+                        || !(option.get("id") instanceof String id)
+                        || !(option.get("label") instanceof String label)) {
+                    throw new IllegalArgumentException("invalid clarify option");
+                }
+                if (!OPTION_ID.matcher(id).matches() || !ids.add(id)) {
+                    throw new IllegalArgumentException("invalid clarify option id");
+                }
+                if (label.isBlank() || label.length() > 80) {
+                    throw new IllegalArgumentException("invalid clarify option label");
+                }
+                options.add(new ClarifyRequest.Option(id, label.strip()));
+            }
+        }
+        Object free = map.get("allowFreeText");
+        boolean allowFreeText;
+        if (free == null) {
+            allowFreeText = true;
+        } else if (free instanceof Boolean bool) {
+            allowFreeText = bool;
+        } else {
+            throw new IllegalArgumentException("clarify.allowFreeText must be a boolean");
+        }
+        return new ClarifyRequest(question.strip(), options, allowFreeText, "router");
     }
 
     private static void rejectDangerousContent(Map<String, Object> decision) {
