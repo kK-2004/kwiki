@@ -161,8 +161,9 @@ class RetrievalPlanTest {
                 .containsEntry("allowFreeText", true)
                 .containsEntry("source", "router");
         assertThat((List<?>) payload.get("options")).hasSize(2);
-        assertThat(((Map<?, ?>) ((List<?>) payload.get("options")).get(0)))
-                .containsEntry("id", "a").containsEntry("label", "部署文档")
+        @SuppressWarnings("unchecked")
+        Map<String, Object> first = (Map<String, Object>) ((List<?>) payload.get("options")).get(0);
+        assertThat(first).containsEntry("id", "a").containsEntry("label", "部署文档")
                 .doesNotContainKey("kbId");
     }
 
