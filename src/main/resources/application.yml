@@ -33,3 +33,10 @@ spring:
           enabled: false
         streamable-http:
           mcp-endpoint: /mcp
+
+kwiki:
+  routing:
+    # LLM 路由默认关闭：关闭时只有规则 + 回退到带作用域的 KNOWLEDGE_QA（偏向检索）。
+    llm-enabled: ${KWIKI_ROUTING_LLM_ENABLED:false}
+    # LLM 路由显式给出的置信度低于该值（且大于 0）时，向用户反问。
+    clarify-confidence-threshold: ${KWIKI_ROUTING_CLARIFY_CONFIDENCE_THRESHOLD:0.5}

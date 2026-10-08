@@ -43,3 +43,11 @@ SSE 保留 seq/requestId/type，新增 tool/quality/retry；done 可含 outcome/
 真实环境仍需操作者配置既有 external-it 所需 MySQL/ES/Qwen/聊天端点及凭据，先运行 `scripts/verify-external-services.sh`，再运行 `./mvnw -Pexternal-it verify`。该 profile 的既有测试不能替代新 agent 的供应商验收：还需通过已登录 chat HTTP 接口验证 native 和显式 JSON 两种模式、QA 重检索、引用、首 token 前后断开及取消后的外部请求停止，保留脱敏 trace 和调用次数。
 
 本次未执行真实供应商验收。部署前应将相同标注问题交给真实模型复测误判与调用成本。回滚部署前一应用制品及对应前端和配置；无需回滚数据库或重建 ES 索引。
+
+## 路由分流、直答与反问
+
+- **分流**：`route` 节点按 `RetrievalPlan` 分流。纯问候走固定文案；`needsRetrieval=false` 走 `direct` 节点（LLM 直答，无检索、无引用）；其余进入检索。
+- **直答升级**：`direct` 模型若整段只输出 `[[NEEDS_KNOWLEDGE]]`（或不可用），工作流转入检索；每个请求最多升级一次。
+- **路由状态**：每轮最终路由写入 `chat_run.route_*`；下一轮把它作为 `PriorRoute` 传给路由器。依赖上文的追问在有历史时升级到 LLM router；规则得出的“是否需要检索”与上一轮不一致时同样升级，LLM 不可用则保留规则结果。
+- **反问**：无历史的指代（“它怎么用？”）、LLM router 给出 `clarify` 或置信度低于阈值时，发出 `clarification` SSE 事件（问题、至多 4 个选项、是否允许自由输入）并以 `done(outcome=clarification)` 结束本次 run。下次请求在 `clarification:{id, optionId | text}` 里带回回答，服务端按存储的选项校验、合成有效问题后续跑，且续跑不再反问。待答记录存于 `chat_run.pending_clarification`，只认紧邻的上一个 run。
+- **配置**：`kwiki.routing.llm-enabled`（默认 `false`，`KWIKI_ROUTING_LLM_ENABLED`）、`kwiki.routing.clarify-confidence-threshold`（默认 `0.5`）。
