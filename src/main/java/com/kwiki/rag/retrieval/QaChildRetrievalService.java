@@ -50,14 +50,28 @@ public class QaChildRetrievalService {
     public StageOutcome retrieveChildren(AuthorizationScope scope, RunContext run,
                                          String query, QaRetrievalBudgets.StageBudget stage,
                                          Map<String, float[]> embeddingCache) {
+        return retrieveChildren(scope, run, query, stage, embeddingCache, RetrievalStrategy.HYBRID);
+    }
+
+    /**
+     * 按指定策略召回：BM25 只走关键词分支（不计算查询嵌入），VECTOR 只走向量分支，
+     * HYBRID 与原行为一致。
+     */
+    public StageOutcome retrieveChildren(AuthorizationScope scope, RunContext run,
+                                         String query, QaRetrievalBudgets.StageBudget stage,
+                                         Map<String, float[]> embeddingCache,
+                                         RetrievalStrategy strategy) {
         long started = System.nanoTime();
         authorize(scope);
         run.authorize();
         var filter = ScopeFilter.from(scope);
 
-        float[] vector = embeddingCache.computeIfAbsent(query, this::embed);
-        if (vector == null) {
-            embeddingCache.remove(query);
+        float[] vector = null;
+        if (strategy != RetrievalStrategy.BM25) {
+            vector = embeddingCache.computeIfAbsent(query, this::embed);
+            if (vector == null) {
+                embeddingCache.remove(query);
+            }
         }
 
         List<String> degradations = new ArrayList<>();
@@ -68,7 +82,7 @@ public class QaChildRetrievalService {
 
         var outcomes = recall.recall(query, vector, filter, stage.branchTopK(),
                 run.timeout(java.time.Duration.ofSeconds(5)).toMillis(),
-                RetrievalStrategy.HYBRID);
+                strategy);
         for (var outcome : outcomes) {
             if (outcome.degradation() != null) {
                 degradations.add(outcome.degradation());
