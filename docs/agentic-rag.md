@@ -51,3 +51,18 @@ SSE 保留 seq/requestId/type，新增 tool/quality/retry；done 可含 outcome/
 - **路由状态**：每轮最终路由写入 `chat_run.route_*`；下一轮把它作为 `PriorRoute` 传给路由器。依赖上文的追问在有历史时升级到 LLM router；规则得出的“是否需要检索”与上一轮不一致时同样升级，LLM 不可用则保留规则结果。
 - **反问**：无历史的指代（“它怎么用？”）、LLM router 给出 `clarify` 或置信度低于阈值时，发出 `clarification` SSE 事件（问题、至多 4 个选项、是否允许自由输入）并以 `done(outcome=clarification)` 结束本次 run。下次请求在 `clarification:{id, optionId | text}` 里带回回答，服务端按存储的选项校验、合成有效问题后续跑，且续跑不再反问。待答记录存于 `chat_run.pending_clarification`，只认紧邻的上一个 run。
 - **配置**：`kwiki.routing.llm-enabled`（默认 `false`，`KWIKI_ROUTING_LLM_ENABLED`）、`kwiki.routing.clarify-confidence-threshold`（默认 `0.5`）。
+
+## QA agent 工具层（P2，尚未接入图）
+
+为 QA 节点的 plan-execute 预备的工具层。**LLM 只产出 `tool_calls`（策略），校验与执行全部在代码里**，不使用 `AiServices` / `@Tool` 自动执行。
+
+- **工具**（`rag/tool`，schema 在 `resources/agentic/tools/*-v1.schema.json`，全部 `additionalProperties:false`，不含 scope / kbId / DSL）：
+  - `search_chunks`：`queries≤3`、`strategy`（BM25 / VECTOR / HYBRID）、`range`（BASE / EXPANDED，映射 `QaRetrievalBudgets`）；每个 query 一次独立召回，命中合并进证据池。
+  - `expand_parents`：child → parent，可指定证据池里的 `childChunkKeys`。
+  - `graph_expand`：图增强；图未启用或证据池为空时不暴露。
+  - `rewrite_query`：`CONVERSATIONAL` / `EXPANSION` / `DECOMPOSITION` / `FEEDBACK`；结果写入证据池状态（当前 query、改写历史、候选子查询）。
+- **校验**：`ToolRegistry.validateAgentBatch` 检查数量（≤ `callsPerRound`）、callId、工具是否当前可用、参数 schema，以及批级规则（去重后查询总数、每批至多 1 次改写）。
+- **执行**：`AgentToolDispatcher` 逐个执行——重新鉴权、`callId` 幂等、`toolCalls` 预算、错误映射（预期失败 → `ERROR` 结果；取消 / 超时 / 授权变化 → 中止 run）、结果按 `tool-result-v2` 校验、DEBUG 日志（`kwiki.agentic.debug`，`phase=tool`，不含证据全文）。
+- **Planner**：`AgentPlannerAdapter` 支持 `native` 与 `json` 两种模式（`kwiki.agentic.tool-mode`），只把模型输出转成 `ToolCall`。
+- **旧路径**：`es_search`、`ManualToolDispatcher`、`RetrievalPlannerAdapter` 保持不变。
+- **P3 才会做**：`plan` / `execute` 节点、`ask_user`、降级到固定阶梯、`kwiki.agentic.planner-enabled`、观察摘要。
