@@ -17,7 +17,9 @@ class KeywordRuleSetRealtimeTest {
     @Test
     void realtimeQuestionsResolveToDirectAnswer() {
         for (String query : List.of("现在几点了", "现在几点了？", "几点了", "今天几号", "今天星期几？",
-                "现在是什么时间", "今天天气怎么样", "当前什么日期", "What time is it?", "what day is it")) {
+                "现在是什么时间", "今天天气怎么样", "当前什么日期", "What time is it?", "what day is it",
+                "今天天气如何", "今天是什么日期", "今天是星期几", "今天是礼拜几", "what's the time",
+                "what is today's date", "What Time Is It?", "what day is it today")) {
             var result = match(query);
             assertThat(result).as(query).isInstanceOf(KeywordRuleSet.MatchResult.Resolved.class);
             var resolved = (KeywordRuleSet.MatchResult.Resolved) result;
@@ -34,6 +36,22 @@ class KeywordRuleSetRealtimeTest {
             boolean realtime = result instanceof KeywordRuleSet.MatchResult.Resolved resolved
                     && resolved.ruleIds().stream().anyMatch(id -> id.startsWith("realtime-"));
             assertThat(realtime).as(query).isFalse();
+        }
+    }
+
+    @Test
+    void existingRulesBehaviorIsUnchanged() {
+        for (String query : List.of("会议是什么时间", "TCP 是什么时间复杂度")) {
+            var result = match(query);
+            assertThat(result).as(query).isInstanceOf(KeywordRuleSet.MatchResult.Resolved.class);
+            var resolved = (KeywordRuleSet.MatchResult.Resolved) result;
+            assertThat(resolved.intent()).as(query).isEqualTo(Intent.KNOWLEDGE_QA);
+            assertThat(resolved.ruleIds()).as(query).contains("knowledge-zh");
+        }
+        for (String query : List.of("怎么部署", "怎么部署应用")) {
+            var result = match(query);
+            assertThat(result).as(query).isInstanceOf(KeywordRuleSet.MatchResult.Resolved.class);
+            assertThat(((KeywordRuleSet.MatchResult.Resolved) result).intent()).as(query).isEqualTo(Intent.PROCEDURAL);
         }
     }
 

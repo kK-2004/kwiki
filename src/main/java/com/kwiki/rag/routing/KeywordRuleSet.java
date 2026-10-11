@@ -15,7 +15,11 @@ public final class KeywordRuleSet {
 
     public static final String VERSION = "rules-v2";
 
-    public record KeywordRule(String id, Pattern pattern, Intent intent) {
+    /** terminal 规则（整句锚定）命中时优先于其他规则，不参与意图冲突判定。 */
+    public record KeywordRule(String id, Pattern pattern, Intent intent, boolean terminal) {
+        public KeywordRule(String id, Pattern pattern, Intent intent) {
+            this(id, pattern, intent, false);
+        }
     }
 
     public sealed interface MatchResult {
@@ -36,15 +40,16 @@ public final class KeywordRuleSet {
         List<KeywordRule> rules = new ArrayList<>();
         rules.add(new KeywordRule("greet-zh", Pattern.compile("^(你好|您好|嗨|在吗|早上好|下午好|帮助)[!！。?？]*$"), Intent.DIRECT_ANSWER));
         rules.add(new KeywordRule("greet-en", Pattern.compile("^(hi|hello|hey|good morning|good afternoon|help)[!！。?？.]*$"), Intent.DIRECT_ANSWER));
-        rules.add(new KeywordRule("procedural-zh", Pattern.compile("((?<!天气)怎么|(?<!天气)如何|怎样|步骤|操作指南|教程)"), Intent.PROCEDURAL));
+        rules.add(new KeywordRule("procedural-zh", Pattern.compile("(怎么|如何|怎样|步骤|操作指南|教程)"), Intent.PROCEDURAL));
         rules.add(new KeywordRule("procedural-en", Pattern.compile("\\b(how to|how do|steps to|guide to)\\b"), Intent.PROCEDURAL));
         rules.add(new KeywordRule("analytical-zh", Pattern.compile("(对比|区别|差异|分析|优缺点|总结)"), Intent.ANALYTICAL));
         rules.add(new KeywordRule("analytical-en", Pattern.compile("\\b(compare|difference|analyze|pros and cons|why)\\b"), Intent.ANALYTICAL));
-        rules.add(new KeywordRule("knowledge-zh", Pattern.compile("(什么是|是什么(?!时间|日期)|介绍一下|解释|定义)"), Intent.KNOWLEDGE_QA));
+        rules.add(new KeywordRule("knowledge-zh", Pattern.compile("(什么是|是什么|介绍一下|解释|定义)"), Intent.KNOWLEDGE_QA));
         rules.add(new KeywordRule("knowledge-en", Pattern.compile("\\b(what is|who is|explain|definition of)\\b"), Intent.KNOWLEDGE_QA));
-        // 实时信息：整句锚定的短问句，知识库里没有当前时间/天气；「今天的会议时间」这类带「的」的不会命中
-        rules.add(new KeywordRule("realtime-zh", Pattern.compile("^(现在|当前|今天)?(是)?(几点|几号|星期几|礼拜几|什么时间|什么日期|天气(怎么样|如何)?)(了|啊|呢)?[吗?？!！。]*$"), Intent.DIRECT_ANSWER));
-        rules.add(new KeywordRule("realtime-en", Pattern.compile("^(what time is it|what's the time|what is today's date|what day is it)( now| today)?[?!.]*$", Pattern.CASE_INSENSITIVE), Intent.DIRECT_ANSWER));
+        // 实时信息：整句锚定的短问句，知识库里没有当前时间/天气；「今天的会议时间」这类带「的」的不会命中。
+        // 裸「天气」也按设计命中。terminal=true：命中即优先于 knowledge-*/procedural-* 等泛化规则
+        rules.add(new KeywordRule("realtime-zh", Pattern.compile("^(现在|当前|今天)?(是)?(几点|几号|星期几|礼拜几|什么时间|什么日期|天气(怎么样|如何)?)(了|啊|呢)?[吗?？!！。]*$"), Intent.DIRECT_ANSWER, true));
+        rules.add(new KeywordRule("realtime-en", Pattern.compile("^(what time is it|what's the time|what is today's date|what day is it)( now| today)?[?!.]*$", Pattern.CASE_INSENSITIVE), Intent.DIRECT_ANSWER, true));
         return new KeywordRuleSet(rules);
     }
 
@@ -53,6 +58,13 @@ public final class KeywordRuleSet {
     }
 
     public MatchResult match(String normalizedQuery) {
+        if (!isCompound(normalizedQuery)) {
+            for (KeywordRule rule : rules) {
+                if (rule.terminal() && rule.pattern().matcher(normalizedQuery).find()) {
+                    return new MatchResult.Resolved(rule.intent(), List.of(rule.id()));
+                }
+            }
+        }
         Map<Intent, List<String>> matched = new LinkedHashMap<>();
         for (KeywordRule rule : rules) {
             if (rule.pattern().matcher(normalizedQuery).find()) {
