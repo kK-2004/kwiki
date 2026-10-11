@@ -1234,7 +1234,7 @@ public class QaPlanningService {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("childCount", children.size());
         view.put("parentCount", pool.parents().size());
-        view.put("uncoveredChildren", children.stream().filter(c -> !parentKeys.contains(c.parentChunkKey())).count());
+        view.put("uncoveredChildren", (int) children.stream().filter(c -> !parentKeys.contains(c.parentChunkKey())).count());
         view.put("answerEvidence", pool.parents().isEmpty() ? "CHILD" : "PARENT");
         List<Map<String, Object>> listed = new ArrayList<>();
         for (ChildEvidence child : children.stream().limit(LISTED_EVIDENCE).toList()) {
