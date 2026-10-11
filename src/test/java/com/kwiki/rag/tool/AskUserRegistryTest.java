@@ -30,7 +30,7 @@ class AskUserRegistryTest {
         assertThat(names(new ToolAvailability(true, false, true, true))).doesNotContain("ask_user");
         assertThat(names(new ToolAvailability(true, true, true))).as("3 参构造 = canAsk=false")
                 .doesNotContain("ask_user");
-        assertThat(AgentTools.ALL).endsWith("ask_user");
+        assertThat(AgentTools.ALL).contains("ask_user");
         assertThat(registry.get("ask_user").inputSchema()).contains("additionalProperties");
     }
 

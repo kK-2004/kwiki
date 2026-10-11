@@ -103,6 +103,12 @@ public final class ToolRegistry {
                         + " pool (ref) with a short label, the server derives the knowledge base and page from the"
                         + " evidence. It must be the only tool call of the turn and ends this run; the answer of"
                         + " the user starts a new run."));
+        definitions.put(AgentTools.ANSWER_DIRECTLY, agentTool(AgentTools.ANSWER_DIRECTLY, "answer-directly-v1",
+                "Give up retrieval and answer the user directly. Use it only when the question is plainly not"
+                        + " about the knowledge base (for example the current time, the weather or small talk)"
+                        + " and the last review shows the evidence is irrelevant. Never use it for a question the"
+                        + " knowledge base could answer. It must be the only tool call of the turn and ends the"
+                        + " evidence search. Give a short reason."));
         for (String name :
                 List.of(
                         "es-search-v1",
@@ -113,6 +119,7 @@ public final class ToolRegistry {
                         "graph-expand-v1",
                         "rewrite-query-v1",
                         "ask-user-v1",
+                        "answer-directly-v1",
                         "quality-v1",
                         "quality-v2"))
             compiled.put(name, schemas.getSchema(parse(resource(name))));
@@ -202,6 +209,7 @@ public final class ToolRegistry {
         if (availability.canRewrite()) tools.add(definitions.get(AgentTools.REWRITE_QUERY));
         if (availability.canAsk() && availability.hasChildren())
             tools.add(definitions.get(AgentTools.ASK_USER));
+        if (availability.canReroute()) tools.add(definitions.get(AgentTools.ANSWER_DIRECTLY));
         return List.copyOf(tools);
     }
 
@@ -215,6 +223,8 @@ public final class ToolRegistry {
             throw new RunFailure("invalid-tool-count");
         if (calls.size() > 1 && calls.stream().anyMatch(c -> AgentTools.ASK_USER.equals(c.name())))
             throw new RunFailure("ask_user_must_be_alone");
+        if (calls.size() > 1 && calls.stream().anyMatch(c -> AgentTools.ANSWER_DIRECTLY.equals(c.name())))
+            throw new RunFailure("answer_directly_must_be_alone");
         Set<String> exposed = new HashSet<>();
         available(availability).forEach(definition -> exposed.add(definition.name()));
         Set<String> ids = new HashSet<>(), allQueries = new HashSet<>();
@@ -278,6 +288,8 @@ public final class ToolRegistry {
                         options,
                         !node.has("allowFreeText") || node.get("allowFreeText").asBoolean());
             }
+            case AgentTools.ANSWER_DIRECTLY -> new AgentToolArguments.AnswerDirectly(
+                    node.get("reason").asText().strip());
             default -> throw new RunFailure("unknown-tool");
         };
     }

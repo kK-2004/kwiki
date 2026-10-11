@@ -75,4 +75,12 @@ public sealed interface AgentToolArguments {
             return question + ":" + options.stream().map(Option::ref).toList() + ":" + allowFreeText;
         }
     }
+
+    /** 放弃检索、改走直接回答；只携带 planner 给出的理由（用于日志与审计，不进入回答）。 */
+    record AnswerDirectly(String reason) implements AgentToolArguments {
+        @Override
+        public String signature() {
+            return reason;
+        }
+    }
 }
