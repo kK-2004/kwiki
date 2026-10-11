@@ -943,6 +943,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 s.next = "generate";
             }
             case QaPlanningService.Decision.Degrade degrade -> degrade(s, step, startedAt, degrade.reason());
+            // 占位：Task 4 接入改道。当前 Input 不传 canReroute，planner 看不到该工具，此分支不可达。
+            case QaPlanningService.Decision.Reroute reroute -> degrade(s, step, startedAt, "reroute-unsupported");
         }
     }
 
