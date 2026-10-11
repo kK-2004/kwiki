@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
  * 带版本号的确定性关键词规则。只有当恰好命中一个终止性意图
  * 且查询不是复合句时，查询才会不经 LLM 直接判定；
  * 无命中、冲突以及复合情形都会交给路由器 LLM。
+ * 例外：整句锚定的 terminal 规则（如实时问句）对非复合句命中后优先于其他规则，直接判定。
  */
 public final class KeywordRuleSet {
 

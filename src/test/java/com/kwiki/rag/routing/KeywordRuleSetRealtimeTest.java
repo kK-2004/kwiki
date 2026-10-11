@@ -40,6 +40,11 @@ class KeywordRuleSetRealtimeTest {
     }
 
     @Test
+    void compoundRealtimeQueryIsNotResolvedByRealtimeRule() {
+        assertThat(match("现在几点了？今天天气怎么样？")).isInstanceOf(KeywordRuleSet.MatchResult.NeedsLlm.class);
+    }
+
+    @Test
     void existingRulesBehaviorIsUnchanged() {
         for (String query : List.of("会议是什么时间", "TCP 是什么时间复杂度")) {
             var result = match(query);

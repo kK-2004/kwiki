@@ -77,3 +77,13 @@ SSE 保留 seq/requestId/type，新增 tool/quality/retry；done 可含 outcome/
 - **ask_user**：必须单独成批；选项只能引用证据池里的子块，kbId / pageId 由服务端从证据派生；反问续跑的 run 不暴露该工具。以 `clarification` 事件（`source=planner`）结束本次 run，回答协议与路由反问一致。
 - **降级**：planner 输出两次非法或供应商故障 → 回固定阶梯（`retrieve → … → rewrite`），预算计数从证据池带过去，降级只发生一次，指标 `kwiki_planner_degraded_total{reason}`。取消 / 超时 / 授权变化 / 模型预算耗尽照常中止，不降级。
 - **日志**（`kwiki.agentic.debug`，DEBUG）：`phase=plan`（observation / rejected / calls / sufficient / degraded）、`phase=tool`（start / complete）、`phase=observe`（证据池增量）。
+
+## 意图修正（reroute）
+
+路由一旦判成检索，QA 阶段可以在证据明显无关时把意图改回直答。
+
+- **规则兜底**：`KeywordRuleSet`（`rules-v2`）对整句的时间、日期、星期、天气类短问句（`realtime-zh` / `realtime-en`）直接判 `DIRECT_ANSWER`；「今天的会议时间」这类带「的」的知识库问题不会命中。整句锚定的实时规则标记为 terminal，命中后优先于其他关键词规则，复合句仍交给 LLM。
+- **planner 改道**：`answer_directly` 工具必须单独成批，只在这些条件同时满足时才暴露：已检索过、上一轮评审 `relevance ≤ kwiki.agentic.reroute-relevance-threshold`（默认 `0.2`）、不是反问续跑。通过校验后 `s.route` 改为 `DIRECT_ANSWER`（`source=PLANNER`，写回 `chat_run` 路由状态），进入 `direct` 节点；改道后 direct 输出 `[[NEEDS_KNOWLEDGE]]`、为空或失败时不再升级回检索，以「信息不足」结束。
+- **固定阶梯**（planner 关闭或降级）：不自动改道（评审的 relevance≈0 分不清「与知识库无关」和「知识库里没检索到」，自动改道会让 direct 凭常识作答）；只在评审 `relevance ≤ 阈值` 时跳过 `BASE_PARENT` / `EXPANDED_PARENT`，直接扩大检索或改写。
+- **配置**：`kwiki.agentic.reroute-relevance-threshold`（默认 `0.2`）。`application.yml` 只保留 Nacos 引导项，需要调整时在 Nacos 的应用配置里设置。
+- **日志**（`kwiki.agentic.debug`，DEBUG）：`phase=plan` 的 `reroute`（`reason`、`relevance`、`fromIntent`、`toIntent`、`planRound`）；direct 在改道后失败时 `phase=direct` 的 `reroute-failed`。

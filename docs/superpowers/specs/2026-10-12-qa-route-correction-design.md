@@ -58,9 +58,9 @@
 - 与 `ask_user` 相同：必须单独出现（和其他工具同批被拒，错误码 `answer_directly_must_be_alone`，
   下划线形式，避免 `-` 前缀被密钥审计的 `sk-` 规则误判）。
 - 可用性（`ToolAvailability` 新增第 5 个布尔 `canReroute`，保留 3 参 / 4 参构造）：
-  `canReroute = 本 run 尚未 reroute ∧ 非反问续跑 ∧ 证据池已检索过（hybridRetrievals>0）∧ 存在上一轮评审且 relevance ≤ 阈值`。
+  `canReroute = 非反问续跑 ∧ 证据池已检索过（hybridRetrievals>0）∧ 存在上一轮评审且 relevance ≤ 阈值`。「本 run 只允许一次」天然成立：改道后 direct 要么回答要么以信息不足结束，不会再回到 plan。
 - 阈值：`kwiki.agentic.reroute-relevance-threshold`，默认 `0.2`，与 `planner-enabled` 一样走 `@Value`。
-- 校验不通过的拒绝码沿用 `REJECTIONS` 机制（带原因重试一次，仍非法则降级），新增 `reroute-not-allowed`。
+- 工具未暴露时 planner 仍然输出它，沿用既有的 `tool-unavailable` 拒绝码（带原因重试一次，仍非法则降级），不新增拒绝码；与其他工具同批时拒绝码为 `answer_directly_must_be_alone`。
 
 ### 5.2 决策与流转
 
@@ -131,7 +131,7 @@ route(FALLBACK 检索) → plan(search_chunks) → execute → generate → qual
 |---|---|---|
 | `kwiki.agentic.reroute-relevance-threshold` | `0.2` | 评审 relevance 不高于此值才开放 `answer_directly` / 触发阶梯短路 |
 
-其余开关不变。`.env.example` 与 `docs/agentic-rag.md` 同步补充。
+其余开关不变。默认值写在代码的 `@Value` 中，不写入 `application.yml`（该文件只保留 Nacos 引导项），在 Nacos 配置覆盖；`docs/agentic-rag.md` 同步补充。
 
 ## 9. 未决 / 后续
 

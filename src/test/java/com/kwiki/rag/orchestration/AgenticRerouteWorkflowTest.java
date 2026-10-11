@@ -201,4 +201,33 @@ class AgenticRerouteWorkflowTest {
         assertThat(done(events).payloadMap()).containsEntry("attemptStage", "BASE_PARENT");
         assertThat(harness.parents.requestedKeys).isNotEmpty();
     }
+
+    @Test
+    void rerouteIsLoggedAtDebugLevelWithItsEvidence() {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("kwiki.agentic.debug");
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        var previousLevel = logger.getLevel();
+        logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
+        try {
+            setUp(true);
+            corpus(hit("C1", "P1"));
+            harness.quality.irrelevant = input -> true;
+            harness.answer.scripted.add("无关的候选 [P0]");
+            planner.then(call("a", "search_chunks", SEARCH)).then(call("b", "answer_directly", DIRECT));
+
+            run(QUERY, RouteInput.NONE);
+
+            String logs = appender.list.stream()
+                    .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(Collectors.joining("\n"));
+            assertThat(logs).contains("\"status\":\"reroute\"", "\"fromIntent\":\"KNOWLEDGE_QA\"",
+                    "\"toIntent\":\"DIRECT_ANSWER\"", "\"relevance\":0.0", "与知识库无关");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previousLevel);
+            appender.stop();
+        }
+    }
 }
