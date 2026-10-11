@@ -4,5 +4,7 @@ package com.kwiki.rag.routing;
 public enum RouteSource {
     RULE,
     LLM,
-    FALLBACK
+    FALLBACK,
+    /** QA planner 在检索过程中修正的路由（answer_directly）。 */
+    PLANNER
 }

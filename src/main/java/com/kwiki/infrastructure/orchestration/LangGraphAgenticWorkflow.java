@@ -72,6 +72,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     private volatile QaPlanningService planning;
     private volatile AgentToolDispatcher toolDispatcher;
     private volatile boolean plannerEnabled;
+    /** 评审 relevance 不高于该值，才开放 answer_directly / 触发固定阶梯的 *_PARENT 跳过；默认值写在代码里，由 Nacos 覆盖。 */
+    private volatile double rerouteRelevanceThreshold = 0.2;
     private final ScheduledExecutorService timer =
             Executors.newSingleThreadScheduledExecutor(
                     Thread.ofPlatform().daemon().name("agentic-deadline").factory());
@@ -208,6 +210,16 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         this.planning = planning;
         this.toolDispatcher = dispatcher;
         this.plannerEnabled = enabled;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void configureReroute(@Value("${kwiki.agentic.reroute-relevance-threshold:0.2}") double threshold) {
+        this.rerouteRelevanceThreshold = threshold;
+    }
+
+    /** 测试与手工装配用的注入入口。 */
+    public void useRerouteThreshold(double threshold) {
+        this.rerouteRelevanceThreshold = threshold;
     }
 
     private boolean plannerActive(Session s) {
@@ -576,6 +588,16 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     }
 
     private void escalate(Session s, String step, long startedAt, String reason) {
+        if (s.rerouted) {
+            // planner 刚判定「与知识库无关」：不能再回检索，避免来回跳；以信息不足结束
+            String code = "direct-after-reroute-failed";
+            s.debugStage("direct", "reroute-failed", s.sinceMs(startedAt), () -> Map.of("reason", reason));
+            s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null,
+                    ActivityEvent.Phase.GENERATION, ActivityEvent.Status.SKIPPED, startedAt,
+                    s.sinceMs(startedAt), "无法直接回答", Map.of(), code));
+            s.finishInsufficient(code);
+            return;
+        }
         s.route = RetrievalPlan.fallback(reason);
         s.debugStage("direct", "escalated", s.sinceMs(startedAt), () -> Map.of("reason", reason));
         s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null,
@@ -867,6 +889,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             s.pool.recordFailure(assessment.reasonCode());
             s.next = "plan";
         } else {
+            // 证据与问题无关时，无关块的父段落同样无关：跳过 *_PARENT 阶段，直接扩大检索或改写
+            s.skipParentStages = assessment.relevance() <= rerouteRelevanceThreshold;
             advanceRecovery(s);
         }
     }
@@ -924,7 +948,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 s.planRound, limits.queryRounds(), graphEnhancer != null,
                 !s.routeInput.clarificationResumed(),
                 s.pool.version() != s.generatedPoolVersion,
-                List.copyOf(s.toolHistory), s.run));
+                List.copyOf(s.toolHistory), s.run, canReroute(s)));
         switch (decision) {
             case QaPlanningService.Decision.Calls calls -> {
                 s.pendingCalls = calls.calls();
@@ -943,9 +967,33 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 s.next = "generate";
             }
             case QaPlanningService.Decision.Degrade degrade -> degrade(s, step, startedAt, degrade.reason());
-            // 占位：Task 4 接入改道。当前 Input 不传 canReroute，planner 看不到该工具，此分支不可达。
-            case QaPlanningService.Decision.Reroute reroute -> degrade(s, step, startedAt, "reroute-unsupported");
+            case QaPlanningService.Decision.Reroute reroute -> reroute(s, step, startedAt, reroute.reason());
         }
+    }
+
+    /** 允许 planner 改道：已检索过、上一轮评审判定证据无关，且不是反问续跑。 */
+    private boolean canReroute(Session s) {
+        return !s.routeInput.clarificationResumed()
+                && s.pool != null && s.pool.hybridRetrievals() > 0
+                && s.lastReview != null && s.lastReview.relevance() <= rerouteRelevanceThreshold;
+    }
+
+    /** planner 判定问题与知识库无关：路由改为直答并交给 direct 节点；之后 direct 不能再升级回检索。 */
+    private void reroute(Session s, String step, long startedAt, String reason) {
+        String from = s.route == null ? "none" : s.route.intent().name();
+        double relevance = s.lastReview == null ? 0.0 : s.lastReview.relevance();
+        s.route = RetrievalPlan.planner(Intent.DIRECT_ANSWER, false);
+        s.rerouted = true;
+        s.debugStage("plan", "reroute", s.sinceMs(startedAt), () -> Map.of(
+                "reason", AgenticDebugLogger.boundedQuery(reason),
+                "relevance", relevance,
+                "fromIntent", from,
+                "toIntent", Intent.DIRECT_ANSWER.name(),
+                "planRound", s.planRound));
+        s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null,
+                ActivityEvent.Phase.PLAN, ActivityEvent.Status.COMPLETED, startedAt,
+                s.sinceMs(startedAt), "与知识库无关，改为直接回答", Map.of(), null));
+        s.next = "direct";
     }
 
     /** 规划不可用：降级回固定阶梯，预算计数从证据池带过去；降级只发生一次。 */
@@ -1150,6 +1198,9 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
      */
     private void advanceRecovery(Session s) {
         AttemptStage next = s.stage.next();
+        while (next != null && s.skipParentStages && next.isParentStage()) {
+            next = next.next();
+        }
         if (next == null) {
             s.latestReason = s.stageFailures.isEmpty() ? "unknown" : latest(s.stageFailures);
             s.next = "rewrite";
@@ -1264,6 +1315,10 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         int planRound, generatedPoolVersion = -1;
         boolean plannerDegraded;
         QualityAssessment lastReview;
+        /** planner 已把本次 run 改成直答：direct 不得再升级回检索。 */
+        boolean rerouted;
+        /** 固定阶梯：最近一次评审判定证据无关，跳过 *_PARENT 阶段。 */
+        boolean skipParentStages;
         List<ToolRegistry.ValidatedAgentCall> pendingCalls = List.of();
         final Map<String, ToolResult> toolResults = new LinkedHashMap<>();
         final Map<String, String> toolIdentities = new LinkedHashMap<>();

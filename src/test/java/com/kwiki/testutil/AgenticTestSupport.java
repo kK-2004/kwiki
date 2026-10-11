@@ -84,6 +84,8 @@ public final class AgenticTestSupport {
     public static final class ScriptQuality implements QualityV2AnalyzerPort {
         public final List<QualityV2Input> inputs = new CopyOnWriteArrayList<>();
         public Predicate<QualityV2Input> passes = input -> true;
+        /** 命中时模拟「证据与问题无关」：relevance=0.0、reasonCode=off-topic，且一定不通过。 */
+        public Predicate<QualityV2Input> irrelevant = input -> false;
         public boolean unavailable;
 
         @Override
@@ -91,6 +93,10 @@ public final class AgenticTestSupport {
             inputs.add(input);
             if (unavailable) {
                 throw new com.kwiki.rag.orchestration.RunFailure("qa-unavailable");
+            }
+            if (irrelevant.test(input)) {
+                return new QualityAssessment(0.0, 0.0, 1.0, false, List.of(), List.of(), List.of("当前时间"),
+                        "off-topic", "证据与问题无关");
             }
             boolean pass = passes.test(input);
             return new QualityAssessment(0.95, 0.95, 0.95, pass,

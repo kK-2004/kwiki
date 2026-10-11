@@ -48,6 +48,12 @@ public record RetrievalPlan(
                 RouteSource.FALLBACK, null, List.of(), reason, 0.0);
     }
 
+    /** QA planner 在检索后修正出的路由；confidence 取 1.0（由代码门槛背书，不是模型自评）。 */
+    public static RetrievalPlan planner(Intent intent, boolean needsRetrieval) {
+        return new RetrievalPlan(intent, needsRetrieval, RewriteMode.NONE, List.of(),
+                RouteSource.PLANNER, null, List.of(), "planner-reroute", 1.0);
+    }
+
     /** 规则直接触发的反问（例如无上下文的指代）。 */
     public static RetrievalPlan ruleClarify(String ruleId, ClarifyRequest clarify) {
         return new RetrievalPlan(Intent.KNOWLEDGE_QA, true, RewriteMode.NONE, List.of(),
