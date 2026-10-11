@@ -36,6 +36,7 @@ public record ActivityEvent(
         PARENT_FETCH,
         EXPANSION,
         REWRITE,
+        PLAN,
         FINAL
     }
 

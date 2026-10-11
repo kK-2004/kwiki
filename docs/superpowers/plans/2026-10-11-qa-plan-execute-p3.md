@@ -1433,12 +1433,18 @@ class AgenticPlannerWorkflowTest {
     }
 
     void stubParent(String parentKey, ChunkHit child) {
-        harness.parents.byKey.put(parentKey, new ParentEvidenceChunk(parentKey, 1, "PAGE", 1, 1L, "heading",
-                "完整父段落 " + parentKey, 0, List.of(child)));
+        // 父块必须与子块同源（kbId / resourceId / revisionId / resourceType 一致），否则解析器会丢弃该子块
+        harness.parents.byKey.put(parentKey, new ParentEvidenceChunk(parentKey, child.kbId(), child.resourceType(),
+                child.resourceId(), child.revisionId(), "heading", "完整父段落 " + parentKey, 0, List.of(child)));
     }
 
     static ChatStreamEvent done(List<ChatStreamEvent> events) {
         return events.getLast();
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> route(ChatStreamEvent done) {
+        return (Map<String, Object>) done.payloadMap().get("route");
     }
 
     static String tokens(List<ChatStreamEvent> events) {
@@ -1468,7 +1474,7 @@ class AgenticPlannerWorkflowTest {
         var phases = events.stream().filter(e -> e.type().equals("activity"))
                 .map(e -> String.valueOf(e.payloadMap().get("phase"))).toList();
         assertThat(phases).contains("ROUTE", "PLAN", "RETRIEVAL", "GENERATION", "QUALITY");
-        assertThat((Map<?, ?>) done(events).payloadMap().get("route")).containsEntry("intent", "KNOWLEDGE_QA");
+        assertThat(route(done(events))).containsEntry("intent", "KNOWLEDGE_QA");
     }
 
     @Test

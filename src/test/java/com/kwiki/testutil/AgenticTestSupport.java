@@ -141,6 +141,32 @@ public final class AgenticTestSupport {
         }
     }
 
+    /** 脚本化 planner：按队列返回 tool_calls 或抛异常；队列为空时返回空计划。 */
+    public static final class ScriptPlanner implements com.kwiki.rag.tool.AgentPlannerPort {
+        public final List<Request> requests = new CopyOnWriteArrayList<>();
+        public final ArrayDeque<Object> scripted = new ArrayDeque<>();
+
+        @SuppressWarnings("unchecked")
+        @Override
+        public List<com.kwiki.rag.tool.ToolCall> plan(Request request) {
+            requests.add(request);
+            Object next = scripted.isEmpty() ? List.of() : scripted.pop();
+            if (next instanceof RuntimeException failure) {
+                throw failure;
+            }
+            return (List<com.kwiki.rag.tool.ToolCall>) next;
+        }
+
+        public ScriptPlanner then(com.kwiki.rag.tool.ToolCall... calls) {
+            scripted.add(List.of(calls));
+            return this;
+        }
+
+        public static com.kwiki.rag.tool.ToolCall call(String id, String name, String json) {
+            return new com.kwiki.rag.tool.ToolCall(id, name, json, "turn");
+        }
+    }
+
     /** 真实状态机 + 预算 + RRF，搭配脚本化的叶子适配器。 */
     public static final class Harness {
         public final ScriptRecall bm25;
@@ -154,6 +180,29 @@ public final class AgenticTestSupport {
         public final QaParentFetchService parentFetch;
         public final QaRetrievalBudgets budgets;
         public final com.kwiki.rag.orchestration.AgenticWorkflowPort workflow;
+
+        /** 启用 plan-execute：用真实的四个检索类执行器 + ask_user，planner 由脚本控制。 */
+        public ScriptPlanner enablePlanner() {
+            var planner = new ScriptPlanner();
+            var limits = AgenticLimits.defaults();
+            var registry = new com.kwiki.rag.tool.ToolRegistry();
+            var executors = List.<com.kwiki.rag.tool.AgentToolExecutor>of(
+                    new com.kwiki.rag.tool.SearchChunksTool(childRetrieval, budgets, limits),
+                    new com.kwiki.rag.tool.ExpandParentsTool(parentFetch, budgets, limits),
+                    new com.kwiki.rag.tool.GraphExpandTool(com.kwiki.testutil.StandardTestProperties.nullProvider()),
+                    new com.kwiki.rag.tool.RewriteQueryTool(
+                            new com.kwiki.rag.rewrite.ConversationalRewriter(Optional.empty()),
+                            new com.kwiki.rag.rewrite.ExpansionRewriter(Optional.empty()),
+                            new com.kwiki.rag.rewrite.DecompositionRewriter(Optional.empty()),
+                            rewriter, budgets, limits),
+                    new com.kwiki.rag.tool.AskUserTool());
+            var dispatcher = new com.kwiki.rag.tool.AgentToolDispatcher(registry, executors, new AgenticDebugLogger());
+            var planning = new com.kwiki.rag.orchestration.QaPlanningService(planner, registry, limits,
+                    new RetrievalBudgets(50, 40, 8, 3, 24000, java.time.Duration.ofSeconds(5)), new AgenticDebugLogger());
+            ((com.kwiki.infrastructure.orchestration.LangGraphAgenticWorkflow) workflow)
+                    .usePlanner(planning, dispatcher, true);
+            return planner;
+        }
 
         Harness(ScriptRecall bm25, ScriptRecall vector, ScriptParentFetcher parents,
                 ScriptAnswer answer, ScriptQuality quality, ScriptRewriter rewriter,

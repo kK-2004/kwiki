@@ -10,6 +10,7 @@ import com.kwiki.rag.quality.*;
 import com.kwiki.rag.retrieval.*;
 import com.kwiki.rag.rewrite.*;
 import com.kwiki.rag.routing.*;
+import com.kwiki.rag.tool.*;
 import com.kwiki.security.CurrentUser;
 import com.kwiki.wiki.access.*;
 
@@ -67,6 +68,10 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     private volatile com.kwiki.rag.retrieval.GraphRetrievalEnhancer graphEnhancer;
     /** 直答模型端口；缺失时 direct 节点直接转入检索。 */
     private volatile DirectAnswerPort directAnswer;
+    /** planner 三件套齐全且开关打开时，QA 走 plan-execute；否则保持固定阶梯。 */
+    private volatile QaPlanningService planning;
+    private volatile AgentToolDispatcher toolDispatcher;
+    private volatile boolean plannerEnabled;
     private final ScheduledExecutorService timer =
             Executors.newSingleThreadScheduledExecutor(
                     Thread.ofPlatform().daemon().name("agentic-deadline").factory());
@@ -113,6 +118,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         var g = new StateGraph<AgentState>(AgentState::new);
         Map<String, Consumer<Session>> nodes = new LinkedHashMap<>();
         nodes.put("route", this::route);
+        nodes.put("plan", this::plan);
+        nodes.put("execute", this::execute);
         nodes.put("retrieve", this::retrieve);
         nodes.put("direct", this::direct);
         nodes.put("generate", this::generate);
@@ -164,6 +171,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             case "generate" -> java.time.Duration.ofSeconds(120);
             case "quality" -> limits.modelDeadline().plusSeconds(15);
             case "route" -> java.time.Duration.ofSeconds(10);
+            case "plan" -> limits.modelDeadline().multipliedBy(2).plusSeconds(15);
+            case "execute" -> java.time.Duration.ofSeconds(60);
             default -> java.time.Duration.ofSeconds(30);
         };
     }
@@ -183,6 +192,35 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     /** 测试与手工装配用的注入入口。 */
     public void useDirectAnswer(DirectAnswerPort port) {
         this.directAnswer = port;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void configurePlanner(ObjectProvider<QaPlanningService> planning,
+                          ObjectProvider<AgentToolDispatcher> dispatcher,
+                          @Value("${kwiki.agentic.planner-enabled:false}") boolean enabled) {
+        this.planning = planning.getIfAvailable();
+        this.toolDispatcher = dispatcher.getIfAvailable();
+        this.plannerEnabled = enabled;
+    }
+
+    /** 测试与手工装配用的注入入口。 */
+    public void usePlanner(QaPlanningService planning, AgentToolDispatcher dispatcher, boolean enabled) {
+        this.planning = planning;
+        this.toolDispatcher = dispatcher;
+        this.plannerEnabled = enabled;
+    }
+
+    private boolean plannerActive(Session s) {
+        return plannerEnabled && planning != null && toolDispatcher != null && !s.plannerDegraded;
+    }
+
+    /** 进入检索的入口：planner 启用时先规划，否则走固定阶梯的 retrieve。 */
+    private String retrievalEntry(Session s) {
+        if (plannerActive(s)) {
+            if (s.pool == null) s.pool = new EvidencePool(s.currentQuery);
+            return "plan";
+        }
+        return "retrieve";
     }
 
     @Override
@@ -460,7 +498,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 s.sinceMs(startedAt), "已识别为知识检索", Map.of(), null));
         // 第 1 轮原样使用归一化后的原始查询：首次检索
         // 之前不做语义改写。
-        s.next = "retrieve";
+        s.next = retrievalEntry(s);
     }
 
     private static boolean isGreeting(RetrievalPlan plan) {
@@ -469,20 +507,28 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 && plan.matchedRuleIds().stream().anyMatch(id -> id.startsWith("greet-"));
     }
 
-    /** 反问：发出 clarification 事件后以 outcome=clarification 结束本次 run，由下次请求携带回答续跑。 */
+    /** 路由阶段的反问。 */
     private void clarify(Session s, long startedAt) {
-        ClarifyRequest request = s.route.clarify();
+        emitClarification(s, s.route.clarify(), startedAt, "route", ActivityEvent.Phase.ROUTE);
+    }
+
+    /**
+     * 反问：发出 clarification 事件后以 outcome=clarification 结束本次 run，由下次请求携带回答续跑。
+     * 路由与 planner（ask_user）共用。
+     */
+    private void emitClarification(Session s, ClarifyRequest request, long startedAt, String stepKey,
+                                   ActivityEvent.Phase phase) {
         String clarificationId = UUID.randomUUID().toString();
         s.emit("clarification", request.toPayload(clarificationId));
         s.outcome = "clarification";
         s.message = request.question();
-        s.debugStage("route", "clarification", s.sinceMs(startedAt), () -> Map.of(
+        s.debugStage(stepKey, "clarification", s.sinceMs(startedAt), () -> Map.of(
                 "clarificationId", clarificationId,
                 "options", request.options().size(),
                 "allowFreeText", request.allowFreeText(),
                 "source", request.source()));
-        s.emitActivity(ActivityEvent.finished(stepId(s, "route"), null, s.queryRound, null,
-                ActivityEvent.Phase.ROUTE, ActivityEvent.Status.COMPLETED, startedAt,
+        s.emitActivity(ActivityEvent.finished(stepId(s, stepKey), null, s.queryRound, null,
+                phase, ActivityEvent.Status.COMPLETED, startedAt,
                 s.sinceMs(startedAt), "需要你确认", Map.of(), null));
         s.debugTerminal("clarification", null, () -> Map.of(
                 "queryRound", s.queryRound,
@@ -535,7 +581,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null,
                 ActivityEvent.Phase.GENERATION, ActivityEvent.Status.SKIPPED, startedAt,
                 s.sinceMs(startedAt), "需要查询知识库，转入检索", Map.of(), reason));
-        s.next = "retrieve";
+        s.next = retrievalEntry(s);
     }
 
     /** 执行当前阶段的检索部分（子分块或父分块）。 */
@@ -640,11 +686,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             return;
         }
         boolean direct = s.route != null && !s.route.needsRetrieval();
-        var selection = s.selectedPageIds.isEmpty()
-                ? com.kwiki.graph.GraphSelectionScope.all()
-                : com.kwiki.graph.GraphSelectionScope.of(s.selectedPageIds.stream()
-                        .map(com.kwiki.graph.GraphResourceId::page)
-                        .toArray(com.kwiki.graph.GraphResourceId[]::new));
+        var selection = graphSelection(s);
         var enhancement = graphEnhancer.enhance(
                 s.run.scope.userId(), s.run.scope.superuser(),
                 s.children, s.currentQuery, selection, s.embeddingCache,
@@ -706,6 +748,13 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.generationsUsed++;
         if (s.generationsUsed > limits.generations()) {
             throw new RunFailure("generation-budget-exhausted");
+        }
+        if (s.plannerMode()) {
+            s.children = s.pool.children();
+            s.parentEvidence = s.pool.numberedParents();
+            s.currentQuery = s.pool.currentQuery();
+            s.stage = s.parentEvidence.isEmpty() ? AttemptStage.BASE_CHILD : AttemptStage.BASE_PARENT;
+            s.generatedPoolVersion = s.pool.version();
         }
         String step = stepId(s, "generate");
         long startedAt = s.nowMs();
@@ -792,7 +841,13 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                             "coverage", assessment.coverage(),
                             "faithfulness", assessment.faithfulness()),
                     assessment.reasonCode()));
-        advanceRecovery(s);
+        if (s.plannerMode()) {
+            s.lastReview = assessment;
+            s.pool.recordFailure(assessment.reasonCode());
+            s.next = "plan";
+        } else {
+            advanceRecovery(s);
+        }
     }
 
     /** 只发布被评审过的候选文本；不做二次生成。 */
@@ -821,6 +876,144 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 "attemptStage", s.stage.name(),
                 "route", s.routeState()));
         s.next = END;
+    }
+
+    private com.kwiki.graph.GraphSelectionScope graphSelection(Session s) {
+        return s.selectedPageIds.isEmpty()
+                ? com.kwiki.graph.GraphSelectionScope.all()
+                : com.kwiki.graph.GraphSelectionScope.of(s.selectedPageIds.stream()
+                        .map(com.kwiki.graph.GraphResourceId::page)
+                        .toArray(com.kwiki.graph.GraphResourceId[]::new));
+    }
+
+    /** 规划：planner 只给出工具策略，校验通过的调用交给 execute 由代码执行。 */
+    private void plan(Session s) {
+        long startedAt = s.nowMs();
+        if (s.planRound >= limits.queryRounds() || !s.run.canModel() || !s.run.canTools(1)) {
+            s.finishInsufficient("recovery-exhausted");
+            return;
+        }
+        s.planRound++;
+        s.queryRound = s.planRound;
+        String step = stepId(s, "plan");
+        s.emitActivity(ActivityEvent.started(step, null, s.queryRound, null,
+                ActivityEvent.Phase.PLAN, startedAt, "正在规划检索策略"));
+        var decision = planning.plan(new QaPlanningService.Input(
+                s.query, s.pool, s.route, s.conversationHistory, s.lastReview,
+                s.planRound, limits.queryRounds(), graphEnhancer != null,
+                !s.routeInput.clarificationResumed(),
+                s.pool.version() != s.generatedPoolVersion,
+                List.copyOf(s.toolHistory), s.run));
+        switch (decision) {
+            case QaPlanningService.Decision.Calls calls -> {
+                s.pendingCalls = calls.calls();
+                List<String> names = calls.calls().stream().map(c -> c.call().name()).toList();
+                s.plannedTools.addAll(names);
+                s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null,
+                        ActivityEvent.Phase.PLAN, ActivityEvent.Status.COMPLETED, startedAt,
+                        s.sinceMs(startedAt), "已规划：" + String.join("、", names),
+                        Map.of("toolCount", names.size()), null));
+                s.next = "execute";
+            }
+            case QaPlanningService.Decision.Sufficient sufficient -> {
+                s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null,
+                        ActivityEvent.Phase.PLAN, ActivityEvent.Status.COMPLETED, startedAt,
+                        s.sinceMs(startedAt), "现有证据足够", Map.of(), null));
+                s.next = "generate";
+            }
+            case QaPlanningService.Decision.Degrade degrade -> degrade(s, step, startedAt, degrade.reason());
+        }
+    }
+
+    /** 规划不可用：降级回固定阶梯，预算计数从证据池带过去；降级只发生一次。 */
+    private void degrade(Session s, String step, long startedAt, String reason) {
+        s.plannerDegraded = true;
+        s.hybridRetrievalUsed = s.pool.hybridRetrievals();
+        s.parentFetchUsed = s.pool.parentFetches();
+        s.rewritesUsed = s.pool.rewritesUsed();
+        s.currentQuery = s.pool.currentQuery();
+        s.rewriteHistory.addAll(s.pool.rewriteHistory());
+        s.children = List.of();
+        s.parentEvidence = List.of();
+        s.usedParentKeys.clear();
+        s.stage = AttemptStage.BASE_CHILD;
+        metrics.counter("kwiki_planner_degraded_total", "reason",
+                reason.contains(":") ? reason.substring(0, reason.indexOf(':')) : reason).increment();
+        s.debugStage("plan", "degraded", s.sinceMs(startedAt), () -> Map.of("reason", reason));
+        s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null,
+                ActivityEvent.Phase.PLAN, ActivityEvent.Status.SKIPPED, startedAt,
+                s.sinceMs(startedAt), "规划不可用，改用固定检索流程", Map.of(), reason));
+        s.next = "retrieve";
+    }
+
+    /** 执行：代码逐个调用工具（重新鉴权、幂等、预算），结果写入证据池。 */
+    private void execute(Session s) {
+        long nodeStartedAt = s.nowMs();
+        var calls = s.pendingCalls;
+        s.pendingCalls = List.of();
+        var context = new ToolExecutionContext(s.run, s.pool, s.query, s.conversationHistory,
+                graphSelection(s), s.queryRound);
+        int index = 0;
+        for (var call : calls) {
+            String name = call.call().name();
+            String step = stepId(s, "tool-" + (++index) + "-" + name);
+            long startedAt = s.nowMs();
+            ActivityEvent.Phase phase = toolPhase(name);
+            s.emitActivity(ActivityEvent.started(step, null, s.queryRound, null, phase, startedAt,
+                    toolStartSummary(name)));
+            ToolResult result = toolDispatcher.execute(call, context, s.toolResults, s.toolIdentities);
+            s.toolHistory.add(new RetrievalPlannerPort.ToolExchange(call.call(), result));
+            boolean ok = "SUCCESS".equals(result.status());
+            s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null, phase,
+                    ok ? ActivityEvent.Status.COMPLETED : ActivityEvent.Status.SKIPPED, startedAt,
+                    s.sinceMs(startedAt), toolDoneSummary(name, result), result.stats(),
+                    ok ? (result.degradations().isEmpty() ? null : result.degradations().get(0)) : result.errorCode()));
+        }
+        s.debugStage("observe", "pool", s.sinceMs(nodeStartedAt), () -> {
+            Map<String, Object> fields = new LinkedHashMap<>(s.pool.summary());
+            fields.put("poolVersion", s.pool.version());
+            fields.put("planRound", s.planRound);
+            return fields;
+        });
+        if (s.pool.clarification() != null) {
+            emitClarification(s, s.pool.clarification(), nodeStartedAt, "clarify", ActivityEvent.Phase.PLAN);
+            return;
+        }
+        // 证据有更新才值得重新生成；否则回到规划，让 planner 基于新的观察再决定
+        s.next = s.pool.hasChildren() && s.pool.version() != s.generatedPoolVersion ? "generate" : "plan";
+    }
+
+    private static ActivityEvent.Phase toolPhase(String tool) {
+        return switch (tool) {
+            case AgentTools.EXPAND_PARENTS -> ActivityEvent.Phase.PARENT_FETCH;
+            case AgentTools.REWRITE_QUERY -> ActivityEvent.Phase.REWRITE;
+            case AgentTools.ASK_USER -> ActivityEvent.Phase.PLAN;
+            default -> ActivityEvent.Phase.RETRIEVAL;
+        };
+    }
+
+    private static String toolStartSummary(String tool) {
+        return switch (tool) {
+            case AgentTools.SEARCH_CHUNKS -> "正在检索知识库";
+            case AgentTools.EXPAND_PARENTS -> "正在补充完整上下文";
+            case AgentTools.GRAPH_EXPAND -> "正在通过知识图谱扩展";
+            case AgentTools.REWRITE_QUERY -> "正在改写检索问题";
+            default -> "正在确认问题";
+        };
+    }
+
+    private static String toolDoneSummary(String tool, ToolResult result) {
+        if (!"SUCCESS".equals(result.status())) {
+            return "未执行：" + result.errorCode();
+        }
+        Object added = result.stats().getOrDefault("addedCount", 0);
+        return switch (tool) {
+            case AgentTools.SEARCH_CHUNKS -> "检索新增 " + added + " 个片段";
+            case AgentTools.EXPAND_PARENTS -> "补充 " + added + " 个完整段落";
+            case AgentTools.GRAPH_EXPAND -> "图检索新增 " + added + " 个片段";
+            case AgentTools.REWRITE_QUERY -> "已改写检索问题";
+            default -> "需要你确认";
+        };
     }
 
     private void rewrite(Session s) {
@@ -1043,6 +1236,20 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         QualityAssessment assessment;
         RetrievalPlan route;
         RouteInput routeInput = RouteInput.NONE;
+        /** plan-execute 状态；planner 未启用时 pool 为 null。 */
+        EvidencePool pool;
+        int planRound, generatedPoolVersion = -1;
+        boolean plannerDegraded;
+        QualityAssessment lastReview;
+        List<ToolRegistry.ValidatedAgentCall> pendingCalls = List.of();
+        final Map<String, ToolResult> toolResults = new LinkedHashMap<>();
+        final Map<String, String> toolIdentities = new LinkedHashMap<>();
+        final List<RetrievalPlannerPort.ToolExchange> toolHistory = new ArrayList<>();
+        final List<String> plannedTools = new ArrayList<>();
+
+        boolean plannerMode() {
+            return pool != null && !plannerDegraded;
+        }
         AttemptStage stage = AttemptStage.BASE_CHILD;
         String currentQuery;
         String latestReason = "";
@@ -1228,6 +1435,9 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 trace.put("stages", stageFailures);
                 trace.put("nodes", List.copyOf(nodes));
                 trace.put("route", routeState());
+                trace.put("planRounds", planRound);
+                trace.put("plannerDegraded", plannerDegraded);
+                trace.put("plannedTools", List.copyOf(plannedTools));
                 trace.put("toolSchemaVersion", "2");
                 if (persistConversation) persistence.persistTurn(
                         run.requestId, user.id(), query, text.toString(), trace, run.requestId);
