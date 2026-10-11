@@ -69,7 +69,7 @@ public class QaPlanningService {
     /** 这些码表示「planner 的输出不可用」，值得带原因重试；其余 RunFailure 是 run 中止。 */
     private static final Set<String> REJECTIONS = Set.of(
             "unknown-tool", "tool-unavailable", "retrieval-budget-exceeded", "duplicate-rewrite",
-            "ask-user-must-be-alone", "tool-budget-exceeded");
+            "ask_user_must_be_alone", "tool-budget-exceeded");
 
     private static final int ATTEMPTS = 2;
     private static final int EXCERPT_CHARS = 120;

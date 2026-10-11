@@ -231,7 +231,7 @@ class QaPlanningServiceTest {
         var decision = service.plan(input(pool, failedReview(), true, true));
 
         assertThat(decision).isInstanceOf(QaPlanningService.Decision.Calls.class);
-        assertThat(planner.requests.get(1).validationError()).isEqualTo("ask-user-must-be-alone");
+        assertThat(planner.requests.get(1).validationError()).isEqualTo("ask_user_must_be_alone");
         assertThat(planner.requests.getFirst().tools()).extracting(ToolRegistry.ToolDefinition::name).contains("ask_user");
     }
 

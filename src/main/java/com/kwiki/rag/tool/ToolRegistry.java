@@ -214,7 +214,7 @@ public final class ToolRegistry {
         if (calls == null || calls.isEmpty() || calls.size() > maxCalls)
             throw new RunFailure("invalid-tool-count");
         if (calls.size() > 1 && calls.stream().anyMatch(c -> AgentTools.ASK_USER.equals(c.name())))
-            throw new RunFailure("ask-user-must-be-alone");
+            throw new RunFailure("ask_user_must_be_alone");
         Set<String> exposed = new HashSet<>();
         available(availability).forEach(definition -> exposed.add(definition.name()));
         Set<String> ids = new HashSet<>(), allQueries = new HashSet<>();

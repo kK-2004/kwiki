@@ -77,7 +77,7 @@ class AskUserRegistryTest {
         assertThatThrownBy(() -> registry.validateAgentBatch(List.of(
                 call("a", "ask_user", VALID),
                 call("b", "rewrite_query", "{\"mode\":\"FEEDBACK\"}")), withAsk, 3, 3))
-                .hasMessage("ask-user-must-be-alone");
+                .hasMessage("ask_user_must_be_alone");
     }
 
     @Test

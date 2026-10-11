@@ -69,7 +69,7 @@ git add docs/superpowers/plans/2026-10-11-qa-plan-execute-p3.md && git commit -q
   - `AgentTools.ASK_USER = "ask_user"`，并加入 `AgentTools.ALL`（末位）。
   - `record ToolAvailability(boolean graphEnabled, boolean hasChildren, boolean canRewrite, boolean canAsk)`；保留 3 参构造（`canAsk=false`），P2 的调用方不变。
   - `AgentToolArguments.AskUser(String question, List<AskUser.Option> options, boolean allowFreeText)`，`AskUser.Option(String ref, String label)`。
-  - `ToolRegistry.available(..)`：`canAsk && hasChildren` 时在末位追加 `ask_user`；`validateAgentBatch`：批内含 `ask_user` 且调用数 > 1 → `RunFailure("ask-user-must-be-alone")`。
+  - `ToolRegistry.available(..)`：`canAsk && hasChildren` 时在末位追加 `ask_user`；`validateAgentBatch`：批内含 `ask_user` 且调用数 > 1 → `RunFailure("ask_user_must_be_alone")`。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -155,7 +155,7 @@ class AskUserRegistryTest {
         assertThatThrownBy(() -> registry.validateAgentBatch(List.of(
                 call("a", "ask_user", VALID),
                 call("b", "rewrite_query", "{\"mode\":\"FEEDBACK\"}")), withAsk, 3, 3))
-                .hasMessage("ask-user-must-be-alone");
+                .hasMessage("ask_user_must_be_alone");
     }
 
     @Test
@@ -278,7 +278,7 @@ edit(root + "src/main/java/com/kwiki/rag/tool/ToolRegistry.java", [
     ('        if (calls == null || calls.isEmpty() || calls.size() > maxCalls)\n            throw new RunFailure("invalid-tool-count");\n        Set<String> exposed',
      '        if (calls == null || calls.isEmpty() || calls.size() > maxCalls)\n            throw new RunFailure("invalid-tool-count");\n'
      '        if (calls.size() > 1 && calls.stream().anyMatch(c -> AgentTools.ASK_USER.equals(c.name())))\n'
-     '            throw new RunFailure("ask-user-must-be-alone");\n        Set<String> exposed', "alone"),
+     '            throw new RunFailure("ask_user_must_be_alone");\n        Set<String> exposed', "alone"),
     ('            default -> throw new RunFailure("unknown-tool");\n        };',
      '''            case AgentTools.ASK_USER -> {
                 List<AgentToolArguments.AskUser.Option> options = new ArrayList<>();
@@ -717,7 +717,7 @@ git commit -m "feat(planner): ask_user 执行器（选项范围由证据派生�
   - `QaPlanningService(AgentPlannerPort, ToolRegistry, AgenticLimits, RetrievalBudgets, AgenticDebugLogger)`，`@Component`。
   - `record Input(String originalQuery, EvidencePool pool, RetrievalPlan route, List<ChatTurn> history, QualityAssessment lastReview, int round, int maxRounds, boolean graphEnabled, boolean canAsk, boolean evidenceUnexamined, List<RetrievalPlannerPort.ToolExchange> toolHistory, RunContext run)`。
   - `sealed interface Decision`：`Calls(List<ToolRegistry.ValidatedAgentCall> calls)`、`Sufficient()`、`Degrade(String reason)`。
-  - `Decision plan(Input input)`：最多 2 次尝试（第 2 次带上一次的 `validationError`）。空计划仅当 `evidenceUnexamined && pool.hasChildren()` 才是 `Sufficient`，否则按非法处理（`no-tool-calls-without-new-evidence`）。输出被拒（`invalid-*`、`unknown-tool`、`tool-unavailable`、`retrieval-budget-exceeded`、`duplicate-rewrite`、`ask-user-must-be-alone`，以及本类的 `tool-budget-exceeded`）→ 重试，两次都拒 → `Degrade("planner-invalid-output:<码>")`；供应商 / 网络故障（非 `RunFailure` 的运行时异常）→ `Degrade("planner-unavailable")`，不重试；取消 / 超时 / 授权变化 / 模型预算等 `RunFailure` 原样抛出，不降级。
+  - `Decision plan(Input input)`：最多 2 次尝试（第 2 次带上一次的 `validationError`）。空计划仅当 `evidenceUnexamined && pool.hasChildren()` 才是 `Sufficient`，否则按非法处理（`no-tool-calls-without-new-evidence`）。输出被拒（`invalid-*`、`unknown-tool`、`tool-unavailable`、`retrieval-budget-exceeded`、`duplicate-rewrite`、`ask_user_must_be_alone`，以及本类的 `tool-budget-exceeded`）→ 重试，两次都拒 → `Degrade("planner-invalid-output:<码>")`；供应商 / 网络故障（非 `RunFailure` 的运行时异常）→ `Degrade("planner-unavailable")`，不重试；取消 / 超时 / 授权变化 / 模型预算等 `RunFailure` 原样抛出，不降级。
   - 观察摘要字段（均有界）：`question`、`currentQuery`、`rewriteHistory`（≤3）、`rewriteSuggestions`（≤3）、`routeHint`、`recentUserMessages`（≤4）、`round`、`maxRounds`、`pool{childCount,parentCount,uncoveredChildren,answerEvidence,children[≤8],parents[≤8]}`、`lastReview`、`budgetsLeft`、`canAskUser`、`evidenceUnexamined`、`note`。
 
 - [ ] **Step 1: 写失败测试**
@@ -958,7 +958,7 @@ class QaPlanningServiceTest {
         var decision = service.plan(input(pool, failedReview(), true, true));
 
         assertThat(decision).isInstanceOf(QaPlanningService.Decision.Calls.class);
-        assertThat(planner.requests.get(1).validationError()).isEqualTo("ask-user-must-be-alone");
+        assertThat(planner.requests.get(1).validationError()).isEqualTo("ask_user_must_be_alone");
         assertThat(planner.requests.getFirst().tools()).extracting(ToolRegistry.ToolDefinition::name).contains("ask_user");
     }
 
@@ -1075,7 +1075,7 @@ public class QaPlanningService {
     /** 这些码表示「planner 的输出不可用」，值得带原因重试；其余 RunFailure 是 run 中止。 */
     private static final Set<String> REJECTIONS = Set.of(
             "unknown-tool", "tool-unavailable", "retrieval-budget-exceeded", "duplicate-rewrite",
-            "ask-user-must-be-alone", "tool-budget-exceeded");
+            "ask_user_must_be_alone", "tool-budget-exceeded");
 
     private static final int ATTEMPTS = 2;
     private static final int EXCERPT_CHARS = 120;
@@ -1630,7 +1630,7 @@ class AgenticPlannerWorkflowTest {
 
         var events = run("什么是部署方式");
 
-        assertThat(planner.requests.get(2).validationError()).isEqualTo("ask-user-must-be-alone");
+        assertThat(planner.requests.get(2).validationError()).isEqualTo("ask_user_must_be_alone");
         assertThat(done(events).payloadMap()).containsEntry("outcome", "clarification");
     }
 

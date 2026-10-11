@@ -263,7 +263,7 @@ class AgenticPlannerWorkflowTest {
 
         var events = run("什么是部署方式");
 
-        assertThat(planner.requests.get(2).validationError()).isEqualTo("ask-user-must-be-alone");
+        assertThat(planner.requests.get(2).validationError()).isEqualTo("ask_user_must_be_alone");
         assertThat(done(events).payloadMap()).containsEntry("outcome", "clarification");
     }
 
