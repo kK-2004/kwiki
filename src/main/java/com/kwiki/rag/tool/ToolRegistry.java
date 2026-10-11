@@ -96,6 +96,13 @@ public final class ToolRegistry {
                         + " history), EXPANSION (add domain terms to a short query), DECOMPOSITION (split a"
                         + " compound question into sub-queries), FEEDBACK (redesign the query using earlier"
                         + " failures). The outcome is shown in the next observation."));
+        definitions.put(AgentTools.ASK_USER, agentTool(AgentTools.ASK_USER, "ask-user-v1",
+                "Ask the user a clarifying question when the evidence shows several plausible interpretations"
+                        + " (for example hits from different knowledge bases or pages) or a key constraint is"
+                        + " missing. Offer up to four options; each refers to a childChunkKey from the evidence"
+                        + " pool (ref) with a short label, the server derives the knowledge base and page from the"
+                        + " evidence. It must be the only tool call of the turn and ends this run; the answer of"
+                        + " the user starts a new run."));
         for (String name :
                 List.of(
                         "es-search-v1",
@@ -105,6 +112,7 @@ public final class ToolRegistry {
                         "expand-parents-v1",
                         "graph-expand-v1",
                         "rewrite-query-v1",
+                        "ask-user-v1",
                         "quality-v1",
                         "quality-v2"))
             compiled.put(name, schemas.getSchema(parse(resource(name))));
@@ -192,6 +200,8 @@ public final class ToolRegistry {
         if (availability.graphEnabled() && availability.hasChildren())
             tools.add(definitions.get(AgentTools.GRAPH_EXPAND));
         if (availability.canRewrite()) tools.add(definitions.get(AgentTools.REWRITE_QUERY));
+        if (availability.canAsk() && availability.hasChildren())
+            tools.add(definitions.get(AgentTools.ASK_USER));
         return List.copyOf(tools);
     }
 
@@ -203,6 +213,8 @@ public final class ToolRegistry {
             List<ToolCall> calls, ToolAvailability availability, int maxCalls, int maxQueries) {
         if (calls == null || calls.isEmpty() || calls.size() > maxCalls)
             throw new RunFailure("invalid-tool-count");
+        if (calls.size() > 1 && calls.stream().anyMatch(c -> AgentTools.ASK_USER.equals(c.name())))
+            throw new RunFailure("ask-user-must-be-alone");
         Set<String> exposed = new HashSet<>();
         available(availability).forEach(definition -> exposed.add(definition.name()));
         Set<String> ids = new HashSet<>(), allQueries = new HashSet<>();
@@ -256,6 +268,16 @@ public final class ToolRegistry {
             }
             case AgentTools.REWRITE_QUERY -> new AgentToolArguments.RewriteQuery(
                     AgentToolArguments.RewriteKind.valueOf(node.get("mode").asText()));
+            case AgentTools.ASK_USER -> {
+                List<AgentToolArguments.AskUser.Option> options = new ArrayList<>();
+                if (node.has("options"))
+                    node.get("options").forEach(o -> options.add(new AgentToolArguments.AskUser.Option(
+                            o.get("ref").asText(), o.get("label").asText().strip())));
+                yield new AgentToolArguments.AskUser(
+                        node.get("question").asText().strip(),
+                        options,
+                        !node.has("allowFreeText") || node.get("allowFreeText").asBoolean());
+            }
             default -> throw new RunFailure("unknown-tool");
         };
     }

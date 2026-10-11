@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["question"],
+  "properties": {
+    "question": {"type": "string", "minLength": 1, "maxLength": 200},
+    "options": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "label"],
+        "properties": {
+          "ref": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "label": {"type": "string", "minLength": 1, "maxLength": 80}
+        }
+      }
+    },
+    "allowFreeText": {"type": "boolean"}
+  }
+}

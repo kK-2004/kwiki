@@ -60,4 +60,19 @@ public sealed interface AgentToolArguments {
             return mode.name();
         }
     }
+
+    /** 选项只带对证据池子块的引用；kbId / pageId 由服务端从证据派生。 */
+    record AskUser(String question, List<Option> options, boolean allowFreeText) implements AgentToolArguments {
+        public AskUser {
+            options = List.copyOf(options);
+        }
+
+        public record Option(String ref, String label) {
+        }
+
+        @Override
+        public String signature() {
+            return question + ":" + options.stream().map(Option::ref).toList() + ":" + allowFreeText;
+        }
+    }
 }

@@ -27,7 +27,8 @@
         "parentCount": {"type": "integer", "minimum": 0},
         "addedCount": {"type": "integer", "minimum": 0},
         "queryCount": {"type": "integer", "minimum": 0},
-        "suggestionCount": {"type": "integer", "minimum": 0}
+        "suggestionCount": {"type": "integer", "minimum": 0},
+        "optionCount": {"type": "integer", "minimum": 0}
       }
     }
   }
