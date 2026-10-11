@@ -40,8 +40,24 @@ class KeywordRuleSetRealtimeTest {
     }
 
     @Test
-    void compoundRealtimeQueryIsNotResolvedByRealtimeRule() {
+    void realtimeQuestionWithRepeatedPunctuationStillResolves() {
+        for (String query : List.of("几点了？？", "现在几点了??")) {
+            var result = match(query);
+            assertThat(result).as(query).isInstanceOf(KeywordRuleSet.MatchResult.Resolved.class);
+            var resolved = (KeywordRuleSet.MatchResult.Resolved) result;
+            assertThat(resolved.intent()).as(query).isEqualTo(Intent.DIRECT_ANSWER);
+            assertThat(resolved.ruleIds()).as(query).anyMatch(id -> id.startsWith("realtime-"));
+        }
+    }
+
+    @Test
+    void trulyCompoundRealtimeQueryIsNotResolvedByRealtimeRule() {
         assertThat(match("现在几点了？今天天气怎么样？")).isInstanceOf(KeywordRuleSet.MatchResult.NeedsLlm.class);
+    }
+
+    @Test
+    void nonTerminalCompoundQueryStillGoesToTheLlm() {
+        assertThat(match("什么是知识库？另外怎么部署？")).isInstanceOf(KeywordRuleSet.MatchResult.NeedsLlm.class);
     }
 
     @Test

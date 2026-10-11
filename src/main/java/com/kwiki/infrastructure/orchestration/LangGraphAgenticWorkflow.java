@@ -853,6 +853,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         }
         var evidenceIds = evidenceIdsOf(s.candidate);
         boolean passes = assessment.gatePasses(qaThreshold, evidenceIds);
+        // 固定阶梯：证据与问题无关时跳过 *_PARENT；日志与行为共用同一个布尔值，避免分叉
+        boolean skipParents = !passes && !s.plannerMode() && assessment.relevance() <= rerouteRelevanceThreshold;
         s.debugStage("quality", passes ? "pass" : "fail", 0, () -> Map.of(
                 "candidateId", s.candidate.candidateId(),
                 "threshold", qaThreshold,
@@ -861,7 +863,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 "faithfulness", assessment.faithfulness(),
                 "reasonCode", assessment.reasonCode(),
                 "missingAspects", assessment.missingAspects(),
-                "unsupportedClaims", assessment.unsupportedClaims()));
+                "unsupportedClaims", assessment.unsupportedClaims(),
+                "skipParentStages", skipParents));
         if (passes) {
             s.assessment = assessment;
             s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, s.stage.name(),
@@ -890,7 +893,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             s.next = "plan";
         } else {
             // 证据与问题无关时，无关块的父段落同样无关：跳过 *_PARENT 阶段，直接扩大检索或改写
-            s.skipParentStages = assessment.relevance() <= rerouteRelevanceThreshold;
+            s.skipParentStages = skipParents;
             advanceRecovery(s);
         }
     }
@@ -975,11 +978,17 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     private boolean canReroute(Session s) {
         return !s.routeInput.clarificationResumed()
                 && s.pool != null && s.pool.hybridRetrievals() > 0
+                && s.pool.version() == s.generatedPoolVersion
                 && s.lastReview != null && s.lastReview.relevance() <= rerouteRelevanceThreshold;
     }
 
     /** planner 判定问题与知识库无关：路由改为直答并交给 direct 节点；之后 direct 不能再升级回检索。 */
     private void reroute(Session s, String step, long startedAt, String reason) {
+        if (!s.run.canModel()) {
+            // 直答需要一次模型调用，而预算可能恰好在规划后耗尽
+            s.finishInsufficient("recovery-exhausted");
+            return;
+        }
         String from = s.route == null ? "none" : s.route.intent().name();
         double relevance = s.lastReview == null ? 0.0 : s.lastReview.relevance();
         s.route = RetrievalPlan.planner(Intent.DIRECT_ANSWER, false);

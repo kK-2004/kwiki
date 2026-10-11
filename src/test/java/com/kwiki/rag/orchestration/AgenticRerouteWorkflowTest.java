@@ -203,6 +203,60 @@ class AgenticRerouteWorkflowTest {
     }
 
     @Test
+    void rerouteEndsInsufficientWhenThePlannerCallUsedTheLastModelCall() {
+        setUp(true);
+        corpus(hit("C1", "P1"));
+        harness.quality.irrelevant = input -> true;
+        harness.answer.scripted.add("无关的候选 [P0]");
+        // 真实适配器在规划时会 run.modelCall()；这里在第二轮规划中把模型预算用尽
+        planner.onPlan = request -> {
+            if (planner.requests.size() == 2) {
+                var run = RunContext.current();
+                while (run.canModel()) {
+                    run.modelCall();
+                }
+            }
+        };
+        planner.then(call("a", "search_chunks", SEARCH)).then(call("b", "answer_directly", DIRECT));
+
+        var events = run(QUERY, RouteInput.NONE);
+
+        assertThat(done(events).payloadMap()).containsEntry("outcome", AgenticErrorCodes.INSUFFICIENT);
+        assertThat(harness.direct.questions).as("没有预算，不发起直答").isEmpty();
+        assertThat(harness.bm25.topKs).hasSize(1);
+        assertThat(route(done(events))).doesNotContainEntry("source", "PLANNER");
+    }
+
+    @Test
+    void fixedLadderLogsSkipParentStagesOnTheFailedReview() {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("kwiki.agentic.debug");
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        var previousLevel = logger.getLevel();
+        logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
+        try {
+            setUp(false);
+            corpus(hit("C1", "P1"));
+            harness.quality.irrelevant = input -> input.candidate().attemptStage() == AttemptStage.BASE_CHILD;
+            harness.quality.passes = input -> input.candidate().attemptStage() == AttemptStage.EXPANDED_CHILD;
+            harness.answer.scripted.add("基础子候选");
+            harness.answer.scripted.add("扩大检索候选 [P0]");
+
+            run(QUERY, RouteInput.NONE);
+
+            String logs = appender.list.stream()
+                    .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(Collectors.joining("\n"));
+            assertThat(logs).contains("\"skipParentStages\":true");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previousLevel);
+            appender.stop();
+        }
+    }
+
+    @Test
     void rerouteIsLoggedAtDebugLevelWithItsEvidence() {
         var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("kwiki.agentic.debug");
         var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();

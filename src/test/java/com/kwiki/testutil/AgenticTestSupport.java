@@ -151,11 +151,14 @@ public final class AgenticTestSupport {
     public static final class ScriptPlanner implements com.kwiki.rag.tool.AgentPlannerPort {
         public final List<Request> requests = new CopyOnWriteArrayList<>();
         public final ArrayDeque<Object> scripted = new ArrayDeque<>();
+        /** 每次规划调用时先执行（可用来模拟真实适配器在规划中消耗模型预算）。 */
+        public java.util.function.Consumer<Request> onPlan = request -> { };
 
         @SuppressWarnings("unchecked")
         @Override
         public List<com.kwiki.rag.tool.ToolCall> plan(Request request) {
             requests.add(request);
+            onPlan.accept(request);
             Object next = scripted.isEmpty() ? List.of() : scripted.pop();
             if (next instanceof RuntimeException failure) {
                 throw failure;

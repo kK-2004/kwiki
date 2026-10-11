@@ -10,7 +10,8 @@ import java.util.regex.Pattern;
  * 带版本号的确定性关键词规则。只有当恰好命中一个终止性意图
  * 且查询不是复合句时，查询才会不经 LLM 直接判定；
  * 无命中、冲突以及复合情形都会交给路由器 LLM。
- * 例外：整句锚定的 terminal 规则（如实时问句）对非复合句命中后优先于其他规则，直接判定。
+ * 例外：整句锚定的 terminal 规则（如实时问句）先于且独立于复合句判断，命中后优先于其他规则，直接判定；
+ * 它们是整句锚定的，不可能是复合句（重复标点如「现在几点了??」同样直接命中）。
  */
 public final class KeywordRuleSet {
 
@@ -59,11 +60,10 @@ public final class KeywordRuleSet {
     }
 
     public MatchResult match(String normalizedQuery) {
-        if (!isCompound(normalizedQuery)) {
-            for (KeywordRule rule : rules) {
-                if (rule.terminal() && rule.pattern().matcher(normalizedQuery).find()) {
-                    return new MatchResult.Resolved(rule.intent(), List.of(rule.id()));
-                }
+        // terminal 规则整句锚定，不可能是复合句：先于 isCompound 判断，重复标点也能命中
+        for (KeywordRule rule : rules) {
+            if (rule.terminal() && rule.pattern().matcher(normalizedQuery).find()) {
+                return new MatchResult.Resolved(rule.intent(), List.of(rule.id()));
             }
         }
         Map<Intent, List<String>> matched = new LinkedHashMap<>();
