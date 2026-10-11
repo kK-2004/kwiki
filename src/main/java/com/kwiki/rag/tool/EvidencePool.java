@@ -3,6 +3,7 @@ package com.kwiki.rag.tool;
 import com.kwiki.rag.answer.ParentEvidence;
 import com.kwiki.rag.retrieval.ChildEvidence;
 import com.kwiki.rag.retrieval.GraphRetrievalEnhancer;
+import com.kwiki.rag.routing.ClarifyRequest;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -31,6 +32,8 @@ public final class EvidencePool {
     private int hybridRetrievals;
     private int parentFetches;
     private int rewritesUsed;
+    private int version;
+    private ClarifyRequest clarification;
 
     public EvidencePool(String initialQuery) {
         this.currentQuery = initialQuery == null ? "" : initialQuery;
@@ -84,6 +87,7 @@ public final class EvidencePool {
         childCharBudget = Math.max(childCharBudget, charBudget);
         List<ChildEvidence> ordered = new ArrayList<>(candidates.values());
         ordered.sort(ChildEvidence::orderByScore);
+        Map<String, ChildEvidence> previous = new LinkedHashMap<>(children);
         children.clear();
         long remaining = childCharBudget > 0 ? childCharBudget : Long.MAX_VALUE;
         for (ChildEvidence child : ordered) {
@@ -92,6 +96,9 @@ public final class EvidencePool {
             }
             children.put(child.chunkKey(), child);
             remaining -= child.content().length();
+        }
+        if (!previous.equals(children)) {
+            version++;
         }
         int added = 0;
         for (String key : children.keySet()) {
@@ -118,6 +125,7 @@ public final class EvidencePool {
         for (ParentEvidence parent : incoming) {
             if (parents.putIfAbsent(parent.parentChunkKey(), parent) == null) {
                 added++;
+                version++;
             }
         }
         return added;
@@ -150,6 +158,35 @@ public final class EvidencePool {
     }
 
     // ---- query 状态 ----------------------------------------------------
+
+    /** 证据（子块 / 父块）每次实际变化时递增；用来判断自上次生成以来证据是否有更新。 */
+    public int version() {
+        return version;
+    }
+
+    /**
+     * 生成用的父块：按池内顺序把 firstHitOrder 重新编号为 0..n-1。
+     * 多次 expand_parents 各自从 0 编号，直接用会让 [P#] 引用冲突。
+     */
+    public List<ParentEvidence> numberedParents() {
+        List<ParentEvidence> numbered = new ArrayList<>();
+        int order = 0;
+        for (ParentEvidence parent : parents.values()) {
+            numbered.add(new ParentEvidence(parent.parentChunkKey(), parent.resourceType(),
+                    parent.resourceId(), parent.revisionId(), parent.kbId(), parent.headingPath(),
+                    parent.body(), parent.truncated(), order++, parent.matchedChildren()));
+        }
+        return List.copyOf(numbered);
+    }
+
+    /** ask_user 登记的反问；非空表示本次 run 应以反问结束。 */
+    public ClarifyRequest clarification() {
+        return clarification;
+    }
+
+    public void requestClarification(ClarifyRequest request) {
+        this.clarification = request;
+    }
 
     public String currentQuery() {
         return currentQuery;
