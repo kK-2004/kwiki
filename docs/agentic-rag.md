@@ -66,3 +66,14 @@ SSE 保留 seq/requestId/type，新增 tool/quality/retry；done 可含 outcome/
 - **Planner**：`AgentPlannerAdapter` 支持 `native` 与 `json` 两种模式（`kwiki.agentic.tool-mode`），只把模型输出转成 `ToolCall`。
 - **旧路径**：`es_search`、`ManualToolDispatcher`、`RetrievalPlannerAdapter` 保持不变。
 - **P3 才会做**：`plan` / `execute` 节点、`ask_user`、降级到固定阶梯、`kwiki.agentic.planner-enabled`、观察摘要。
+
+## QA plan-execute（P3）
+
+`kwiki.agentic.planner-enabled=true`（默认关闭）时，QA 节点由 planner 规划工具、**代码**执行并拼装上下文；关闭时保持固定的检索—评审—改写阶梯。
+
+- **流程**：`route →（需要检索）plan → execute → generate → quality`；质量门禁不过则带评审结果回到 `plan`，最多 `max-query-rounds`（3）轮，耗尽后回固定的“信息不足”文案。证据没有更新就不会重新生成，而是回到规划。
+- **plan**：`QaPlanningService` 构造有界观察摘要（问题、当前 query、证据摘录、上一轮评审、剩余预算；证据按不可信数据处理并脱敏限长），调用 planner，校验输出；非法则带原因重试 1 次。
+- **execute**：`AgentToolDispatcher` 逐个执行 `search_chunks` / `expand_parents` / `graph_expand` / `rewrite_query` / `ask_user`，结果写入 per-run 的 `EvidencePool`。生成时已扩展 parent 则用 parent 上下文（`[P#]` 按池内顺序重新编号），否则用 child。
+- **ask_user**：必须单独成批；选项只能引用证据池里的子块，kbId / pageId 由服务端从证据派生；反问续跑的 run 不暴露该工具。以 `clarification` 事件（`source=planner`）结束本次 run，回答协议与路由反问一致。
+- **降级**：planner 输出两次非法或供应商故障 → 回固定阶梯（`retrieve → … → rewrite`），预算计数从证据池带过去，降级只发生一次，指标 `kwiki_planner_degraded_total{reason}`。取消 / 超时 / 授权变化 / 模型预算耗尽照常中止，不降级。
+- **日志**（`kwiki.agentic.debug`，DEBUG）：`phase=plan`（observation / rejected / calls / sufficient / degraded）、`phase=tool`（start / complete）、`phase=observe`（证据池增量）。

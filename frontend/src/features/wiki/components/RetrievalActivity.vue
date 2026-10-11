@@ -96,6 +96,7 @@ const PHASE_LABELS: Record<string, string> = {
   PARENT_FETCH: '补充完整段落',
   EXPANSION: '扩大检索范围',
   REWRITE: '改写检索问题',
+  PLAN: '规划检索策略',
   FINAL: '结束',
 };
 

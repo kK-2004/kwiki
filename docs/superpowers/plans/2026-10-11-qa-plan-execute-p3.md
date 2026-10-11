@@ -2011,7 +2011,8 @@ describe('plan phase', () => {
     const view = render(RetrievalActivity, { props: { steps: [plan], running: true, failed: false } });
     expect(view.getByText('规划检索策略')).toBeTruthy();
     expect(view.queryByText('PLAN')).toBeNull();
-    expect(view.getByText('已规划：search_chunks、rewrite_query')).toBeTruthy();
+    // 运行态下摘要会同时出现在顶部状态栏和时间线步骤里
+    expect(view.getAllByText('已规划：search_chunks、rewrite_query')).toHaveLength(2);
   });
 });
 ```
