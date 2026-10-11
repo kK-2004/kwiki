@@ -111,6 +111,28 @@ class AgenticPlannerWorkflowTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void searchChunksActivityCarriesTheNewlyAddedChunksAsSources() {
+        setUp();
+        corpus(hit("C1", "P1", 1, 11), hit("C2", "P2", 1, 12));
+        harness.answer.scripted.add("基于证据的回答 [P0]");
+        planner.then(call("a", "search_chunks", SEARCH));
+
+        var events = run("什么是部署方式");
+
+        var finished = events.stream().filter(e -> e.type().equals("activity"))
+                .map(ChatStreamEvent::payloadMap)
+                .filter(p -> "RETRIEVAL".equals(p.get("phase")) && "COMPLETED".equals(p.get("status")))
+                .findFirst().orElseThrow();
+        var metrics = (Map<String, Object>) finished.get("metrics");
+        assertThat(metrics).containsEntry("addedCount", 2);
+        var sources = (List<Map<String, Object>>) metrics.get("sources");
+        assertThat(sources).extracting(source -> source.get("childChunkKey")).containsExactlyInAnyOrder("C1", "C2");
+        assertThat(sources.getFirst()).containsKeys("parentChunkKey", "kbId", "resourceId", "resourceType",
+                "revisionId", "headingPath", "charStart", "charEnd", "excerpt");
+    }
+
+    @Test
     void failedReviewReplansWithTheReviewAndExpandsToParents() {
         setUp();
         var child = hit("C1", "P1", 1, 11);

@@ -622,20 +622,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         metrics.put("finalTopK", budget.finalTopK());
         metrics.put("fusedCandidateCount", outcome.fusedCandidateCount());
         metrics.put("retainedChildCount", s.children.size());
-        metrics.put("sources", s.children.stream().map(child -> {
-            var source = new LinkedHashMap<String, Object>();
-            source.put("childChunkKey", child.chunkKey());
-            source.put("parentChunkKey", child.parentChunkKey());
-            source.put("kbId", child.kbId());
-            source.put("resourceId", child.resourceId());
-            source.put("resourceType", child.resourceType());
-            source.put("revisionId", child.revisionId());
-            source.put("headingPath", child.headingPath());
-            source.put("charStart", child.charStart());
-            source.put("charEnd", child.charEnd());
-            source.put("excerpt", child.content());
-            return source;
-        }).toList());
+        metrics.put("sources", activitySources(s.children));
         if (!s.lastDegradations.isEmpty()) {
             metrics.put("degradedBranches", s.lastDegradations);
         }
@@ -674,6 +661,40 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 metrics,
                 s.lastDegradations.isEmpty() ? null : s.lastDegradations.get(0)));
         s.next = "generate";
+    }
+
+    /** 前端检索时间线用来渲染 chunk 标签的来源列表；固定阶梯与 planner 的检索工具共用。 */
+    private static List<Map<String, Object>> activitySources(List<ChildEvidence> children) {
+        return children.stream().map(child -> {
+            var source = new LinkedHashMap<String, Object>();
+            source.put("childChunkKey", child.chunkKey());
+            source.put("parentChunkKey", child.parentChunkKey());
+            source.put("kbId", child.kbId());
+            source.put("resourceId", child.resourceId());
+            source.put("resourceType", child.resourceType());
+            source.put("revisionId", child.revisionId());
+            source.put("headingPath", child.headingPath());
+            source.put("charStart", child.charStart());
+            source.put("charEnd", child.charEnd());
+            source.put("excerpt", child.content());
+            return (Map<String, Object>) source;
+        }).toList();
+    }
+
+    /** 检索类工具完成后，把本次新增的 chunk 作为 sources 附到活动事件上，与固定阶梯的展示一致。 */
+    private Map<String, Object> toolActivityMetrics(Session s, String tool, ToolResult result) {
+        if (!"SUCCESS".equals(result.status())
+                || !(AgentTools.SEARCH_CHUNKS.equals(tool) || AgentTools.GRAPH_EXPAND.equals(tool))) {
+            return result.stats();
+        }
+        List<ChildEvidence> added = result.evidenceRefs().stream()
+                .map(s.pool::child).flatMap(Optional::stream).toList();
+        if (added.isEmpty()) {
+            return result.stats();
+        }
+        Map<String, Object> metrics = new LinkedHashMap<>(result.stats());
+        metrics.put("sources", activitySources(added));
+        return metrics;
     }
 
     /**
@@ -966,7 +987,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             boolean ok = "SUCCESS".equals(result.status());
             s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null, phase,
                     ok ? ActivityEvent.Status.COMPLETED : ActivityEvent.Status.SKIPPED, startedAt,
-                    s.sinceMs(startedAt), toolDoneSummary(name, result), result.stats(),
+                    s.sinceMs(startedAt), toolDoneSummary(name, result), toolActivityMetrics(s, name, result),
                     ok ? (result.degradations().isEmpty() ? null : result.degradations().get(0)) : result.errorCode()));
         }
         s.debugStage("observe", "pool", s.sinceMs(nodeStartedAt), () -> {
