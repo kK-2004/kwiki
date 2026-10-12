@@ -17,6 +17,10 @@
 ### Requirement: reload 失败保护与状态查询
 reload 中解密、校验或客户端构建任一步失败时，系统 SHALL 保留旧快照并记录错误；`GET /api/v1/admin/models/status` SHALL 返回当前快照版本、加载时间与最近一次错误。
 
+#### Scenario: 首次加载失败
+- **WHEN** 启动时目录无法加载（如数据库中的密文无法解密）
+- **THEN** 应用照常启动，各用途表现为未配置，`status` 中显示加载错误
+
 #### Scenario: 主密钥被改错
 - **WHEN** 运行中把主密钥改成错误值，并触发 reload
 - **THEN** 服务继续使用旧快照，`status` 中显示解密失败

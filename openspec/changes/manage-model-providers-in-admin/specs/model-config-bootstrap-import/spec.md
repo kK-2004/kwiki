@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: 首次启动导入现有配置
-当 `model_provider` 为空且存在旧配置时，系统 SHALL 在 registry 首次加载前、持有 MySQL `GET_LOCK` 的情况下，把 `kwiki.answer-llm`、`kwiki.graph.models.*`、`kwiki.vision-model`、`kwiki.qwen-embedding`、`kwiki.indexing.embeddings.*` 导入为 provider、模型与用途分配，按 `(baseUrl, apiKey)` 去重 provider，并保持与现有行为一致的模型与参数。导入 SHALL 是幂等的。
+当 `model_provider` 为空且存在旧配置时，系统 SHALL 在 registry 首次加载前、在锁住 `model_config_version` 行（`SELECT ... FOR UPDATE`）的同一事务内，把 `kwiki.answer-llm`、`kwiki.graph.models.*`、`kwiki.vision-model`、`kwiki.qwen-embedding`、`kwiki.indexing.embeddings.*` 导入为 provider、模型与用途分配，按 `(baseUrl, apiKey)` 去重 provider，并保持与现有行为一致的模型与参数。导入 SHALL 是幂等的。
 
 #### Scenario: 两个实例同时首次启动
 - **WHEN** 两个实例同时以空目录启动
-- **THEN** 只有一个实例执行导入，另一个在获得锁后发现目录非空并跳过
+- **THEN** 只有一个实例执行导入，另一个等到前者提交后发现目录非空并跳过
 
 #### Scenario: 图谱沿用问答模型
 - **WHEN** 旧配置中只有 `kwiki.answer-llm`，没有 `kwiki.graph.models.*`

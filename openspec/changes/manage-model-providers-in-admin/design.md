@@ -60,11 +60,13 @@ model_config_version(id=1, version BIGINT)
 | AGENT_PLANNER | chat | 同步 | temperature 0.0 | `tool-mode=native` 时要求 supports_tools |
 | RETRIEVAL_PLANNER | chat | 同步 | temperature 0.0 | 同上 |
 | ROUTER / REWRITE / DIRECT_ANSWER / QUALITY_ANALYZER | chat | 同步 | temperature 0.0 | — |
-| ANSWER / SELECTION_QUESTION | chat | 流式 | temperature 0.2，thinking 开启 | 开启 thinking 时要求 supports_thinking |
+| ANSWER / SELECTION_QUESTION | chat | 流式 | temperature 0.2；thinking 为空时不下发，沿用 provider 默认（与迁移前一致） | 显式开启 thinking 时要求 supports_thinking |
 | GRAPH_EXTRACTION / GRAPH_SUMMARY | chat | 同步 | 沿用 `GraphModelClients` 的现有参数 | — |
 | VISION_SUMMARY | vision | HTTP | 沿用 `kwiki.vision-model` 的现有默认值 | — |
 
-`QualityV2AnalyzerAdapter` 目前使用流式模型，与 v1 共用 `QUALITY_ANALYZER` 分配：registry 对同一个分配可以同时提供同步客户端和流式客户端。
+`QualityV2AnalyzerAdapter` 目前使用流式模型，与 v1 共用 `QUALITY_ANALYZER` 分配：registry 对同一个分配可以同时提供同步客户端和流式客户端。注意：v2 迁移前共用回答 Bean 的 temperature 0.2，迁移后默认 0.0，可在后台为该用途单独设置。
+
+thinking 取值为空时请求不带 `enable_thinking`；非空时以 `enable_thinking` 自定义参数下发（请求级参数仍可覆盖，如 Quality v2 固定关闭）。
 
 ### D3 ModelRegistry 与快照
 
@@ -79,7 +81,7 @@ model_config_version(id=1, version BIGINT)
 1. 后台的写操作都在一个事务内完成：写业务表，并执行 `UPDATE model_config_version SET version = version + 1`。
 2. 事务提交后（`@TransactionalEventListener(AFTER_COMMIT)`），本机执行 `reload()`，然后 `PUBLISH kwiki:model-config <version>`。
 3. 其他实例订阅该频道，收到的版本号大于本地版本时执行 reload；同时用 `@Scheduled(fixedDelay = 30s)` 比对数据库中的版本号作为兜底。
-4. `reload()` 依次读库、解密、校验、构建，最后原子替换快照；任何一步失败都保留旧快照，并把错误记录到 `status().lastError` 和日志。没有快照时（首次加载失败）启动失败。
+4. `reload()` 依次读库、解密、校验、构建，最后原子替换快照；任何一步失败都保留旧快照，并把错误记录到 `status().lastError` 和日志。首次加载失败时不阻止启动：快照为空，各用途表现为「未配置」，错误同样暴露在 `/status`。
 
 ### D5 API key 加密
 
@@ -99,7 +101,8 @@ model_config_version(id=1, version BIGINT)
 
 ### D7 首次导入
 
-- `ModelConfigBootstrapImporter` 在 `ApplicationReadyEvent` 之前、registry 首次加载之前运行，用 `GET_LOCK('kwiki_model_config_import', 30)` 实现多实例互斥，拿到锁后再检查一次 `model_provider` 是否为空。
+- `ModelConfigBootstrapImporter` 由 `ModelConfigRefresher`（`SmartInitializingSingleton`）在 registry 首次加载之前调用。导入在一个事务内执行，先 `SELECT ... FROM model_config_version ... FOR UPDATE` 锁住版本行，再检查 `model_provider` 是否为空；并发启动的另一个实例会等到前者提交，随后看到目录非空而跳过。（不用 `GET_LOCK`：它绑定数据库会话，连接池复用连接时加锁与释放可能不在同一会话。）
+- 导入失败（例如需要导入但缺少主密钥）只记录错误日志，不阻止启动；管理员可补齐主密钥后重启，或直接在后台录入。
 - provider 去重的 key 是规范化后的 `(baseUrl, apiKey)`，导入的 provider 名形如「answer-llm」「graph-extraction」，可在导入后重命名。
 - 用途映射：9 个问答用途分配给 answer-llm 模型；`GRAPH_*` 有独立配置时用独立配置，没有时用 answer-llm 模型；`VISION_SUMMARY` 只在 vision 已配置时分配。
 - embedding 导入：`kwiki.qwen-embedding` 导入到名为 `default` 的 provider（与 `IndexingProperties.DEFAULT_EMBEDDING_PROFILE` 一致），`kwiki.indexing.embeddings.<profile>` 导入到名为 `<profile>` 的 provider。这样已有索引版本的 `(embedding_provider, embedding_model)` 无需回填即可对上。embedding 的 provider 不参与按 `(baseUrl, apiKey)` 去重，以保证名称对应。
@@ -137,7 +140,7 @@ model_config_version(id=1, version BIGINT)
 
 ## Migration Plan
 
-1. 部署前在 Nacos 中添加 `kwiki.model-config.master-key`。
+1. 部署前在 Nacos 中添加 `kwiki.model-config.master-key`，取值用 `openssl rand -base64 32` 生成，并与数据库备份分开保管（丢失后所有 key 都需要在后台重新录入）。
 2. 发布新版本：Flyway V40 建表，首次启动时自动导入。
 3. 在后台检查导入结果，按需调整各用途的模型。
 4. 观察稳定后，从 Nacos 中删除旧的 `kwiki.answer-llm` / `graph.models` / `vision-model` / `qwen-embedding` / `indexing.embeddings`。
