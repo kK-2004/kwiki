@@ -57,6 +57,7 @@ public class SearchIndexAdminService {
      */
     public SearchIndexVersion createVersion(EditableIndexConfig config) {
         requireMutationsEnabled();
+        config = withCatalogEmbedding(config);
         requireSupported(config);
         requireCapacityAllowsOneMoreIndex();
         SearchIndexVersion created = versions.createNext(config);
@@ -72,11 +73,35 @@ public class SearchIndexAdminService {
      */
     public SearchIndexVersion editVersion(int versionNumber, EditableIndexConfig config) {
         requireMutationsEnabled();
+        config = withCatalogEmbedding(config);
         requireSupported(config);
         SearchIndexVersion edited = versions.edit(versionNumber, config);
         log.info("index version {} edited (configRevision={}, pending migration)",
                 edited.getVersionNumber(), edited.getConfigRevision());
         return edited;
+    }
+
+    private com.kwiki.infrastructure.ai.registry.ModelRegistry models;
+
+    /** 模型目录；未装配（离线测试）时按请求原样校验。 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setModelRegistry(com.kwiki.infrastructure.ai.registry.ModelRegistry models) {
+        this.models = models;
+    }
+
+    /**
+     * embedding 的 (provider, model) 必须是模型目录中可用的 embedding 模型；
+     * 维度一律取目录登记值，客户端提交的维度被忽略。
+     */
+    private EditableIndexConfig withCatalogEmbedding(EditableIndexConfig config) {
+        if (models == null) {
+            return config;
+        }
+        var binding = models.embedding(config.embeddingProvider(), config.embeddingModel())
+                .orElseThrow(() -> new IllegalArgumentException("embedding 模型未在模型目录中登记或已停用："
+                        + config.embeddingProvider() + "/" + config.embeddingModel()));
+        return new EditableIndexConfig(config.parserVersion(), config.chunkerVersion(),
+                config.embeddingProvider(), config.embeddingModel(), binding.dimensions(), config.indexSchema());
     }
 
     private void requireMutationsEnabled() {

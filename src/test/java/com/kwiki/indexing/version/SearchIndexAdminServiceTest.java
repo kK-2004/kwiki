@@ -88,6 +88,21 @@ class SearchIndexAdminServiceTest {
     }
 
     @Test
+    void embedding维度取模型目录登记值_未登记的模型被拒绝() {
+        service.setModelRegistry(com.kwiki.testutil.StubModelRegistry.defaultEmbedding("text-embedding-v4", 1024,
+                Mockito.mock(com.kwiki.indexing.pipeline.ChunkEmbeddingPort.class)));
+
+        SearchIndexVersion created = service.createVersion(config(2048));
+        assertThat(created.editableConfig().embeddingDimensions()).isEqualTo(1024);
+
+        EditableIndexConfig unknown = new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "bailian",
+                "text-embedding-v4", 1024, "kwiki-schema-1");
+        assertThatThrownBy(() -> service.createVersion(unknown))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("bailian/text-embedding-v4");
+    }
+
+    @Test
     void unsupportedConfigurationIsRejectedWithoutPartialVersion() {
         when(pipelines.supports(any(EditableIndexConfig.class))).thenReturn(false);
         when(pipelines.unsupportedReason(any()))

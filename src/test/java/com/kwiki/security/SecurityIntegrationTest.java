@@ -117,6 +117,14 @@ class SecurityIntegrationTest {
     }
 
     @Test
+    void nonAdminCannotReadModelConfiguration() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/models/providers")
+                        .header("Authorization", bearer(new CurrentUser(7L, "alice", false))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
     void adminPassesAdminEndpoint() throws Exception {
         mockMvc.perform(get("/api/v1/probe/admin")
                         .header("Authorization", bearer(new CurrentUser(1L, "root", true))))
