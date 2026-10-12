@@ -11,9 +11,9 @@
 - **WHEN** 旧配置中只有 `kwiki.answer-llm`，没有 `kwiki.graph.models.*`
 - **THEN** `GRAPH_EXTRACTION` 与 `GRAPH_SUMMARY` 分配给从 answer-llm 导入的模型
 
-### Requirement: 回填已有索引版本
-导入时系统 SHALL 按 profile、模型名与维度为已有 `search_index_version` 回填 `embedding_model_id`；匹配不上的版本 SHALL 保持为空，并标记为不受支持。
+### Requirement: 已有索引版本无需回填
+导入 embedding 配置时，系统 SHALL 以 profile 名作为 provider 名（`kwiki.qwen-embedding` 对应 `default`），使已有 `search_index_version` 的 `(embedding_provider, embedding_model)` 直接对应到目录中的模型。
 
-#### Scenario: 回填默认 profile 的索引版本
+#### Scenario: 默认 profile 的索引版本
 - **WHEN** 已有版本的 `embedding_provider=default`、`embedding_model=text-embedding-v4`、维度为 1024，且 `kwiki.qwen-embedding` 与之一致
-- **THEN** 该版本的 `embedding_model_id` 指向导入的 `text-embedding-v4` 模型，并继续正常服务
+- **THEN** 导入后该版本解析到 provider `default` 下的 `text-embedding-v4`，并继续正常服务

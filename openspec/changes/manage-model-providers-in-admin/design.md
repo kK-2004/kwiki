@@ -9,8 +9,10 @@
 | `StreamingAnswerLlmAdapter`、`SelectionQuestionLlmAdapter`、`QualityV2AnalyzerAdapter` | 注入同一个 `StreamingChatModel` | 同上 |
 | `GraphModelClients` | 抽取/摘要读取 `kwiki.graph.models.*`，缺失项回退到问答模型；每个端点各有一个 `RateLimiter` | 从 registry 获取模型，限流器改为每个 provider 一个 |
 | `MultimodalConfiguration.qwenVisionSummaryClient` | 读取 `kwiki.vision-model`，构建 WebClient | 改为由 registry 提供 `ImageSummaryPort` |
-| `VersionedIndexingPipelineRegistry` | 按 `EditableIndexConfig.embeddingProvider`（profile 名）查 `kwiki.indexing.embeddings.*` 或 `kwiki.qwen-embedding` | 按 `embedding_model_id` 从 registry 取客户端 |
-| `search_index_version`（V21） | `embedding_provider` 只存 profile 名，外加 `embedding_model` 和 `embedding_dimensions` | 新增可空列 `embedding_model_id`，原有三列保留作为快照 |
+| `VersionedIndexingPipelineRegistry` | 按 `EditableIndexConfig.embeddingProvider`（profile 名）查 `kwiki.indexing.embeddings.*` 或 `kwiki.qwen-embedding` | 按 provider 名与模型名从 registry 取客户端 |
+| `search_index_version`（V21） | `embedding_provider` 只存 profile 名，外加 `embedding_model` 和 `embedding_dimensions` | 表结构不变：`(embedding_provider, embedding_model)` 改为引用目录中的「provider 名 + 模型名」 |
+| `EditableIndexConfig` | 81 处构造调用 | 不加字段，避免大面积改动 |
+| `QwenEmbeddingClient`（`@Component`） | 作为唯一 `ChunkEmbeddingPort` bean，供查询侧与社区索引使用，固定读取 `kwiki.qwen-embedding` | 去掉 `@Component`；新增 `SelectedIndexEmbeddingPort`，按已发布索引版本引用的模型委托给 registry |
 | `admin-frontend` | 已有索引管理、灰度、知识图谱三个视图，后端接口在 `/api/v1/admin/*` 下 | 新增「模型配置」视图 |
 
 数据库为 MySQL，迁移工具为 Flyway（已有迁移只读，最新版本为 V39）。Redis 已接入（`KwikiRedisConfiguration`）。
@@ -42,7 +44,6 @@ model_definition_tag(model_id FK, tag ENUM('chat','vision','embedding'), PK(mode
 model_assignment(purpose PK, model_id FK NULL, temperature NULL, max_tokens NULL,
                  thinking NULL, updated_at)
 model_config_version(id=1, version BIGINT)
-search_index_version.embedding_model_id BIGINT NULL FK
 ```
 
 - 迁移中预置全部 `model_assignment` 行（`model_id` 为 NULL），以及 `model_config_version` 的唯一一行。
@@ -89,17 +90,19 @@ search_index_version.embedding_model_id BIGINT NULL FK
 
 ### D6 Embedding 与索引版本
 
-- `EditableIndexConfig` 新增 `embeddingModelId`。新建版本时必须提供，服务端根据模型目录填好 `embeddingProvider`（取 provider 名）、`embeddingModel` 和 `embeddingDimensions` 这几个快照字段，客户端不能自行指定这些值。
-- `VersionedIndexingPipelineRegistry` 改为：版本带有 `embedding_model_id` 时，从 `registry.embedding(id)` 获取客户端，并校验模型的当前维度与版本固化的维度一致；不一致或模型已停用时，该版本标记为 `pipeline_supported = 0`，原因写入 `needs_attention_reason`。
-- 修改 provider 的 key 或 baseUrl 会热更新到 embedding 客户端；修改 embedding 模型的维度会被拒绝（返回 409），只要该模型仍被任何未删除的索引版本引用。
-- 隐式 manifest（`implicitManifest`）改为从带 `embedding` 标签的模型目录中生成。
+- 索引版本的 `(embedding_provider, embedding_model)` 解释为目录中的「provider 名 + 模型名」；provider 名唯一，`(provider, model_name)` 唯一，所以能唯一定位一个模型。表结构不变，`EditableIndexConfig` 也不变。
+- 新建或编辑索引版本时，服务端按 `(embeddingProvider, embeddingModel)` 查找目录中带 `embedding` 标签且已启用的模型，并把 `embeddingDimensions` 改写为目录登记的维度；找不到时返回 409。
+- `VersionedIndexingPipelineRegistry` 通过 `registry.embedding(providerName, modelName)` 获取客户端，并校验维度一致；找不到、已停用或维度不一致时，`unsupportedReason` 返回原因，该版本按现有机制标记为不受支持。隐式 manifest 改为对目录中每个可用的 embedding 模型生成一条；显式 manifest 的 `embeddingProfile` 按 provider 名解释。
+- 查询侧（`HybridRetrievalOrchestrator`、`QaChildRetrievalService`、`CommunityRecallCoordinator`、`CommunityIndexWriter`）注入的 `ChunkEmbeddingPort` 改为 `SelectedIndexEmbeddingPort`：它读取已发布版本（`findBySelectedTrue`，缓存 10 秒），再委托给 registry 中对应的客户端。`cacheIdentity` 为 `provider:model:dimensions`。
+- provider 改名时，在同一事务中更新 `search_index_version.embedding_provider`。修改 provider 的 key 或 baseUrl 会热更新到 embedding 客户端；embedding 模型被未删除的索引版本引用时，不允许修改维度或模型名（返回 409）。
+- 首次部署引导（`ElasticsearchIndexBootstrap.deployedConfig`）改为使用目录中名为 `default` 的 provider 下的第一个 embedding 模型；没有时取任意一个可用的 embedding 模型。
 
 ### D7 首次导入
 
 - `ModelConfigBootstrapImporter` 在 `ApplicationReadyEvent` 之前、registry 首次加载之前运行，用 `GET_LOCK('kwiki_model_config_import', 30)` 实现多实例互斥，拿到锁后再检查一次 `model_provider` 是否为空。
 - provider 去重的 key 是规范化后的 `(baseUrl, apiKey)`，导入的 provider 名形如「answer-llm」「graph-extraction」，可在导入后重命名。
 - 用途映射：9 个问答用途分配给 answer-llm 模型；`GRAPH_*` 有独立配置时用独立配置，没有时用 answer-llm 模型；`VISION_SUMMARY` 只在 vision 已配置时分配。
-- 索引版本回填：按 `(embedding_provider 对应的 profile → baseUrl/key, embedding_model, embedding_dimensions)` 匹配导入后的模型；匹配不上的版本保持 `embedding_model_id` 为 NULL，并标记为不受支持。
+- embedding 导入：`kwiki.qwen-embedding` 导入到名为 `default` 的 provider（与 `IndexingProperties.DEFAULT_EMBEDDING_PROFILE` 一致），`kwiki.indexing.embeddings.<profile>` 导入到名为 `<profile>` 的 provider。这样已有索引版本的 `(embedding_provider, embedding_model)` 无需回填即可对上。embedding 的 provider 不参与按 `(baseUrl, apiKey)` 去重，以保证名称对应。
 - 导入后 `ExternalServicesProperties` 中的 `answerLlm`、`qwenEmbedding`、`visionModel` 以及 `GraphModelProperties` 都改为可选；不再有其他读取它们的路径。
 
 ### D8 管理 API（`/api/v1/admin/models`）
@@ -107,7 +110,7 @@ search_index_version.embedding_model_id BIGINT NULL FK
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET/POST | `/providers` | 列表 / 新建 |
-| PUT/DELETE | `/providers/{id}` | 修改 / 删除（仍被引用时返回 409，并列出引用方） |
+| PUT/DELETE | `/providers/{id}` | 修改（改名时联动更新索引版本）/ 删除（仍被引用时返回 409，并列出引用方） |
 | POST | `/providers/test` | 用未保存的表单值测试；`providerId` 加空 key 表示使用已保存的 key |
 | POST | `/providers/{id}/discover` | 调用 provider 的 `/models`，返回尚未登记的模型名 |
 | GET/POST | `/providers/{id}/models` | 列表 / 新建（支持批量） |
@@ -123,7 +126,7 @@ search_index_version.embedding_model_id BIGINT NULL FK
 - 路由为 `/models`，在 `AdminLayout` 的菜单中新增「模型配置」。
 - 「Provider 与模型」tab：左侧是 provider 列表，右侧是选中 provider 下的模型表格（标签 chips、维度、tools/thinking、启停、测试），提供「从 provider 拉取模型」的勾选对话框。key 输入框显示 hint，留空表示不修改。
 - 「用途分配」tab：每个用途一行，包括说明、按 provider 分组且按标签过滤的模型下拉框、参数输入框（placeholder 显示代码默认值）。保存时整体提交，成功后提示「已生效（版本 N）」。
-- `GrayReleaseCreateDialog` 等新建索引版本的入口：embedding 下拉框只显示带 `embedding` 标签的模型，维度只读显示。
+- `IndexManagementView` 的版本编辑表单：原来的三个自由输入框（provider、模型、维度）改为一个下拉框，只列出带 `embedding` 标签的模型，维度只读显示。灰度创建沿用已发布版本的 embedding，不需要改动。
 
 ## Risks / Trade-offs
 
@@ -135,7 +138,7 @@ search_index_version.embedding_model_id BIGINT NULL FK
 ## Migration Plan
 
 1. 部署前在 Nacos 中添加 `kwiki.model-config.master-key`。
-2. 发布新版本：Flyway V40 建表，首次启动时自动导入并回填。
+2. 发布新版本：Flyway V40 建表，首次启动时自动导入。
 3. 在后台检查导入结果，按需调整各用途的模型。
 4. 观察稳定后，从 Nacos 中删除旧的 `kwiki.answer-llm` / `graph.models` / `vision-model` / `qwen-embedding` / `indexing.embeddings`。
 5. 回滚：旧版本不读取新表，回滚到旧版本即可，前提是 Nacos 中的旧配置还没有删除。
