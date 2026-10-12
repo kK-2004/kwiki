@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { api, ApiError, type Audit, type Config, type CommunityVersion, type MultimodalReadiness, type Run, type PluginCatalog, type Version } from "../api";
+import { api, ApiError, type Audit, type Config, type CommunityVersion, type MultimodalReadiness, type ProviderView, type Run, type PluginCatalog, type Version } from "../api";
+import { embeddingOptions } from "../modelConfig";
 import { statusLabel, statusType } from "../status";
 import { auditActionLabel, auditOutcomeLabel, auditResultLabel, runKindLabel, runStateLabel, validationText } from "../labels";
 import { useAuth } from "../auth";
@@ -10,6 +11,9 @@ import CurrentIndexCards from "../components/CurrentIndexCards.vue";
 
 const auth = useAuth();
 const plugins = ref<PluginCatalog | null>(null);
+/** 模型目录中的 provider；索引版本的 embedding 只能从带 embedding 标签的模型中选择。 */
+const modelProviders = ref<ProviderView[]>([]);
+const embeddings = computed(() => embeddingOptions(modelProviders.value));
 const versions = ref<Version[]>([]);
 const runs = ref<Run[]>([]);
 const audits = ref<Audit[]>([]);
@@ -88,7 +92,27 @@ function edit(target?: Version) {
   Object.assign(form, base || { parserVersion: "kwiki-parse-1", chunkerVersion: "kwiki-chunk-1", embeddingProvider: "default", embeddingModel: "", embeddingDimensions: 1024, indexSchema: "" });
   // 新建字段格式采用目录默认值，编辑保留原值。
   if (!target) form.indexSchema = plugins.value?.defaults.indexSchema || "";
+  void loadEmbeddings();
   dialog.config = true;
+}
+
+const embeddingKey = computed({
+  get: () => form.embeddingProvider && form.embeddingModel ? `${form.embeddingProvider}/${form.embeddingModel}` : "",
+  set: (key: string) => {
+    const option = embeddings.value.find(item => item.key === key);
+    if (!option) return;
+    form.embeddingProvider = option.provider;
+    form.embeddingModel = option.model;
+    form.embeddingDimensions = option.dimensions;
+  },
+});
+
+async function loadEmbeddings() {
+  try {
+    modelProviders.value = await api.modelProviders();
+  } catch {
+    modelProviders.value = [];
+  }
 }
 
 const selectionError = computed(() => pluginSelectionError(plugins.value, form.parserVersion, form.chunkerVersion, form.indexSchema));
@@ -458,17 +482,11 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
             </el-option>
           </el-select>
         </el-form-item>
-        <el-form-item label="Embedding 档案">
-          <el-input v-model="form.embeddingProvider"/>
-          <div class="hint">向量服务提供商标识（如 default）。</div>
-        </el-form-item>
         <el-form-item label="Embedding 模型">
-          <el-input v-model="form.embeddingModel"/>
-          <div class="hint">向量模型名称；更换模型需要全量重建索引。</div>
-        </el-form-item>
-        <el-form-item label="向量维度">
-          <el-input-number v-model="form.embeddingDimensions" :min="64" :max="2048"/>
-          <div class="hint">必须与模型实际输出维度一致，否则写入会被 ES 拒绝。</div>
+          <el-select v-model="embeddingKey" aria-label="Embedding 模型" placeholder="从模型目录选择">
+            <el-option v-for="option in embeddings" :key="option.key" :value="option.key" :label="`${option.provider} / ${option.model}（${option.dimensions} 维）`" />
+          </el-select>
+          <div class="hint">来自「模型配置」中带向量标签的模型；更换模型需要全量重建索引。向量维度：{{ form.embeddingDimensions }}</div>
         </el-form-item>
         <el-form-item label="字段格式">
           <el-select v-model="form.indexSchema" aria-label="字段格式">

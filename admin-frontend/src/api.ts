@@ -6,6 +6,15 @@ export interface Range{resourceType:string;minId:number;maxId:number;lastSeenId:
 export interface Run{runId:number;versionNumber:number;buildGeneration:number;kind:string;state:string;switchState:string;configRevision:number;buildStartEventId:number;replayEventId:number;dualWriteStartEventId:number|null;catchupBarrierEventId:number|null;scanned:number;succeeded:number;skipped:number;failed:number;requestedBy:string;startedAt:string;completedAt?:string;errorClass?:string;errorSummary?:string;ranges:Range[]}
 export interface Validation{id:number;versionNumber:number;runId:number;status:string;summary:string;createdAt:string;[key:string]:unknown}
 export interface Audit{id:number;action:string;targetVersion?:number;runId?:number;operator:string;priorState?:string;resultState?:string;outcome:string;errorSummary?:string;createdAt:string}
+export type ModelTag="chat"|"vision"|"embedding";
+export interface ModelView{id:number;providerId:number;modelName:string;displayName:string|null;tags:ModelTag[];dimensions:number|null;maxOutputTokens:number|null;supportsTools:boolean;supportsThinking:boolean;enabled:boolean;usedBy:string[]}
+export interface ProviderView{id:number;name:string;protocol:string;baseUrl:string;apiKeyHint:string;requestTimeoutMs:number;maxRetries:number;maxConcurrency:number|null;qps:number|null;enabled:boolean;models:ModelView[]}
+export interface ProviderRequest{name:string;baseUrl:string;apiKey?:string;requestTimeoutMs:number|null;maxRetries:number|null;maxConcurrency:number|null;qps:number|null;enabled:boolean}
+export interface ModelRequest{modelName:string;displayName:string|null;tags:ModelTag[];dimensions:number|null;maxOutputTokens:number|null;supportsTools:boolean;supportsThinking:boolean;enabled:boolean}
+export interface AssignmentView{purpose:string;label:string;description:string;requiredTag:ModelTag;requiresTools:boolean;defaultTemperature:number;modelId:number|null;temperature:number|null;maxTokens:number|null;thinking:boolean|null;effectiveModel:string|null}
+export interface AssignmentRequest{purpose:string;modelId:number|null;temperature:number|null;maxTokens:number|null;thinking:boolean|null}
+export interface ModelTestResult{ok:boolean;message:string;latencyMs:number}
+export interface ModelConfigStatus{version:number;loadedAt:string|null;lastError:string|null;databaseVersion:number}
 const tokenKey="kwiki_access_token";
 export const token={get:()=>localStorage.getItem(tokenKey),set:(value:string)=>localStorage.setItem(tokenKey,value),clear:()=>localStorage.removeItem(tokenKey)};
 export class ApiError extends Error{constructor(public status:number,public code:string){super(code)}}
@@ -54,6 +63,19 @@ export const api={
   graphAudits:()=>request<Record<string,unknown>[]>("/admin/knowledge-graphs/audits"),
   graphServiceStatus:()=>request<GraphServiceStatus>("/admin/knowledge-graphs/service-status"),
   graphPlugins:()=>request<GraphPlugins>("/admin/knowledge-graphs/plugins"),
+  modelProviders:()=>request<ProviderView[]>("/admin/models/providers"),
+  createModelProvider:(body:ProviderRequest)=>request<ProviderView>("/admin/models/providers",{method:"POST",body:JSON.stringify(body)}),
+  updateModelProvider:(id:number,body:ProviderRequest)=>request<ProviderView>(`/admin/models/providers/${id}`,{method:"PUT",body:JSON.stringify(body)}),
+  deleteModelProvider:(id:number)=>request<boolean>(`/admin/models/providers/${id}`,{method:"DELETE"}),
+  testModelProvider:(body:{providerId:number|null;baseUrl:string;apiKey?:string;requestTimeoutMs:number|null})=>request<ModelTestResult>("/admin/models/providers/test",{method:"POST",body:JSON.stringify(body)}),
+  discoverModels:(id:number)=>request<string[]>(`/admin/models/providers/${id}/discover`,{method:"POST"}),
+  createModels:(providerId:number,body:ModelRequest[])=>request<ModelView[]>(`/admin/models/providers/${providerId}/models`,{method:"POST",body:JSON.stringify(body)}),
+  updateModel:(id:number,body:ModelRequest)=>request<ModelView>(`/admin/models/models/${id}`,{method:"PUT",body:JSON.stringify(body)}),
+  deleteModel:(id:number)=>request<boolean>(`/admin/models/models/${id}`,{method:"DELETE"}),
+  testModel:(id:number)=>request<ModelTestResult>(`/admin/models/models/${id}/test`,{method:"POST"}),
+  modelAssignments:()=>request<AssignmentView[]>("/admin/models/assignments"),
+  saveModelAssignments:(body:AssignmentRequest[])=>request<{version:number;assignments:AssignmentView[]}>("/admin/models/assignments",{method:"PUT",body:JSON.stringify(body)}),
+  modelConfigStatus:()=>request<ModelConfigStatus>("/admin/models/status"),
   graphCommand,
   graphSubmit:(payload:Record<string,unknown>)=>graphCommand<{batchId:number;chunkIndexSchema:string;communityIndexVersion:number;runIds:number[];replayed:boolean}>("/batches",payload)
 };

@@ -12,6 +12,9 @@
         <RouterLink to="/knowledge-graphs" class="nav-item" active-class="active">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6a2 2 0 1 0 0 .01M18 6a2 2 0 1 0 0 .01M12 18a2 2 0 1 0 0 .01M7.5 7.5l3.5 8.5M16.5 7.5 13 16M8 6h8" /></svg>知识图谱
         </RouterLink>
+        <RouterLink to="/models" class="nav-item" active-class="active">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14M8 5v4M16 10v4M11 15v4" /></svg>模型配置
+        </RouterLink>
       </nav>
       <footer>
         <ThemeSwitcher />
