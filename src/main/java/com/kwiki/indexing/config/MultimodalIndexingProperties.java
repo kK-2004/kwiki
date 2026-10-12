@@ -44,17 +44,4 @@ public record MultimodalIndexingProperties(
         @NotNull @Min(0) @Max(10) @DefaultValue("3") Integer externalImageMaxRedirects,
         /** 允许的外链端口；默认仅标准 HTTPS 端口。 */
         @NotNull @DefaultValue("443") Set<Integer> externalImageAllowedPorts) {
-
-    /** 多模态开关 + 视觉模型配置的组合校验：启用即要求可用凭据。 */
-    public void requireUsableWhenEnabled(com.kwiki.infrastructure.config.ExternalServicesProperties external) {
-        if (!Boolean.TRUE.equals(enabled)) {
-            return;
-        }
-        if (external == null || external.visionModel() == null
-                || !external.visionModel().isConfigured()) {
-            throw new IllegalStateException(
-                    "kwiki.multimodal.enabled=true requires a configured kwiki.vision-model "
-                            + "(base-url and api-key)");
-        }
-    }
 }

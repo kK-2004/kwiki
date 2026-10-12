@@ -3,10 +3,10 @@ package com.kwiki.indexing.pipeline;
 import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.parse.DocumentParseService;
 import com.kwiki.indexing.version.EditableIndexConfig;
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
+import com.kwiki.testutil.StubModelRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Duration;
 import java.util.List;
@@ -30,25 +30,16 @@ class VersionedIndexingPipelineRegistryTest {
     }
 
     private VersionedIndexingPipelineRegistry registry(IndexingProperties indexing,
-                                                       ExternalServicesProperties external) {
+                                                       ModelRegistry external) {
         return new VersionedIndexingPipelineRegistry(indexing, external,
                 com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
-                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
-                provider(defaultEmbeddings),
-                nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
     }
 
-    private static ExternalServicesProperties external(String model, int dimensions) {
-        return new ExternalServicesProperties(
-                new ExternalServicesProperties.ContentCenter("https://cc", "t", null, null,
-                        Duration.ofSeconds(5), Duration.ofSeconds(30)),
-                new ExternalServicesProperties.Elasticsearch(null, null, null),
-                new ExternalServicesProperties.AnswerLlm("https://l/v1", "k", "m",
-                        Duration.ofSeconds(10)),
-                new ExternalServicesProperties.QwenEmbedding("https://e/v1", "key", model,
-                        dimensions, Duration.ofSeconds(30)),
-                ExternalServicesProperties.unusedVisionModel());
+    /** 只有一个 default provider embedding 模型的目录（迁移前 kwiki.qwen-embedding 的形态）。 */
+    private StubModelRegistry external(String model, int dimensions) {
+        return StubModelRegistry.defaultEmbedding(model, dimensions, defaultEmbeddings);
     }
 
     private static IndexingProperties emptyManifests() {
@@ -104,16 +95,11 @@ class VersionedIndexingPipelineRegistryTest {
 
     @Test
     void configuredVisionAndMultimodalSwitchAddImplicitV2Generation() {
-        ExternalServicesProperties base = external("text-embedding-v4", 1024);
-        ExternalServicesProperties configured = new ExternalServicesProperties(
-                base.contentCenter(), base.elasticsearch(), base.answerLlm(), base.qwenEmbedding(),
-                new ExternalServicesProperties.VisionModel("https://vision.example/v1", "secret",
-                        "qwen3.7-flash", Duration.ofSeconds(5), Duration.ofSeconds(60), 2, 4));
+        var configured = external("text-embedding-v4", 1024);
         VersionedIndexingPipelineRegistry registry = new VersionedIndexingPipelineRegistry(
                 emptyManifests(), configured, com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth(),
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
-                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
-                provider(defaultEmbeddings), nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 
         // 每个解析器与提供资源能力的注册字段格式生成一个组合。
         assertThat(registry.effectiveManifests())
@@ -154,15 +140,12 @@ class VersionedIndexingPipelineRegistryTest {
                 .hasValueSatisfying(reason -> assertThat(reason)
                         .contains("embedding profile is not configured"));
 
-        // 配置档案凭据后：解析为该代的流水线，模型与维度取自清单。
-        Map<String, IndexingProperties.EmbeddingProfile> profiles = Map.of(
-                "qwen-v4", new IndexingProperties.EmbeddingProfile(
-                        "https://embed.internal/v1", "sk-profile", Duration.ofSeconds(45)));
-        var withProfile = registry(manifests(profiles,
+        // 目录登记 qwen-v4 provider 的模型后：解析为该代的流水线，模型与维度取自清单。
+        var withProfile = registry(manifests(
                 manifest("gen-v1", "default", "text-embedding-v4", 1024),
                 manifest("gen-v2", "qwen-v4", "text-embedding-v4", 2048)),
-                external("text-embedding-v4", 1024));
-        withProfile.registerProfileClientForTests("qwen-v4", mock(ChunkEmbeddingPort.class));
+                external("text-embedding-v4", 1024)
+                        .withEmbedding("qwen-v4", "text-embedding-v4", 2048, mock(ChunkEmbeddingPort.class)));
 
         var resolved = withProfile.resolve(new EditableIndexConfig("kwiki-parse-1",
                 "kwiki-chunk-1", "qwen-v4", "text-embedding-v4", 2048, "kwiki-schema-1"));
@@ -224,14 +207,10 @@ class VersionedIndexingPipelineRegistryTest {
         var text = schema("text-schema", java.util.Set.of(), true);
         var unavailable = schema("offline-schema", java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.ENTITY_LINKING), false);
         var resource = schema("resource-schema", java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.RESOURCE_IDS), true);
-        var external = external("text-embedding-v4", 1024);
-        var configured = new ExternalServicesProperties(external.contentCenter(), external.elasticsearch(), external.answerLlm(),
-                external.qwenEmbedding(), new ExternalServicesProperties.VisionModel("https://vision.example/v1", "test", "vision",
-                Duration.ofSeconds(5), Duration.ofSeconds(60), 2, 4));
+        var configured = external("text-embedding-v4", 1024);
         var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), configured, com.kwiki.indexing.parse.plugin.ParserTestFixtures.availableBoth(),
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
                         new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
-                provider(defaultEmbeddings), nullProvider(),
                 new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(text, unavailable, resource)));
         assertThat(registry.effectiveManifests()).extracting(IndexingProperties.Manifest::id).containsExactly(
                 "implicit-kwiki-parse-1-kwiki-chunk-1-resource-schema", "implicit-kwiki-parse-2-kwiki-chunk-1-resource-schema", "implicit-kwiki-parse-1-kwiki-chunk-1-text-schema");
@@ -252,7 +231,7 @@ class VersionedIndexingPipelineRegistryTest {
         var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), external("model", 1024),
                 new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(third, offline)),
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
-                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))), provider(defaultEmbeddings), nullProvider(),
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
                 new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema("text-schema", java.util.Set.of(), true),
                         schema("resource-schema", java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.RESOURCE_IDS), true))));
         assertThat(registry.effectiveManifests()).extracting(IndexingProperties.Manifest::id).containsExactly("implicit-third-parser-kwiki-chunk-1-resource-schema");
@@ -274,7 +253,7 @@ class VersionedIndexingPipelineRegistryTest {
         var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), external("model", 1024),
                 new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(parser)),
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
-                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))), provider(defaultEmbeddings), nullProvider(),
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
                 new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema("empty-schema", java.util.Set.of(), true),
                         schema("resource-schema", java.util.Set.of(com.kwiki.indexing.plugin.IndexCapability.RESOURCE_IDS), true))));
         var empty = new EditableIndexConfig("diagnostic-parser", "kwiki-chunk-1", "default", "model", 1024, "empty-schema");
@@ -301,8 +280,7 @@ class VersionedIndexingPipelineRegistryTest {
         var offline = chunker("offline-chunker", false);
         var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), external("model", 1024),
                 com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
-                new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(List.of(third, second, offline)),
-                provider(defaultEmbeddings), nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+                new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(List.of(third, second, offline)), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         assertThat(registry.effectiveManifests()).extracting(IndexingProperties.Manifest::chunkerVersion).containsExactly("second-chunker", "third-chunker");
         var config = new EditableIndexConfig("kwiki-parse-1", "third-chunker", "default", "model", 1024, "kwiki-schema-1");
         assertThat(registry.resolve(config)).hasValueSatisfying(pipeline -> assertThat(pipeline.chunker()).isSameAs(third));
@@ -314,14 +292,14 @@ class VersionedIndexingPipelineRegistryTest {
         var explicit = new VersionedIndexingPipelineRegistry(manifests(new IndexingProperties.Manifest(
                 "offline", "kwiki-parse-1", "offline-chunker", "default", "model", 1024, "kwiki-schema-1")), external("model", 1024),
                 com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
-                new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(List.of(offline)), provider(defaultEmbeddings), nullProvider(),
+                new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(List.of(offline)),
                 com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         assertThat(explicit.resolve(unavailable)).isEmpty();
         assertThat(explicit.supportDiagnostics()).containsEntry("offline", "pipeline or profile unavailable");
         var unknown = new VersionedIndexingPipelineRegistry(manifests(new IndexingProperties.Manifest(
                 "unknown", "kwiki-parse-1", "missing-chunker", "default", "model", 1024, "kwiki-schema-1")), external("model", 1024),
                 com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
-                new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(List.of(third)), provider(defaultEmbeddings), nullProvider(),
+                new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(List.of(third)),
                 com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         assertThat(unknown.supportDiagnostics()).containsEntry("unknown", "pipeline or profile unavailable");
     }
@@ -342,23 +320,5 @@ class VersionedIndexingPipelineRegistryTest {
         org.mockito.Mockito.when(schema.availability()).thenReturn(available ? com.kwiki.indexing.plugin.PluginAvailability.ok()
                 : com.kwiki.indexing.plugin.PluginAvailability.unavailable("测试不可用"));
         return schema;
-    }
-
-    private static <T> ObjectProvider<T> provider(T value) {
-        return new ObjectProvider<>() {
-            @Override
-            public T getIfAvailable() {
-                return value;
-            }
-        };
-    }
-
-    private static <T> ObjectProvider<T> nullProvider() {
-        return new ObjectProvider<>() {
-            @Override
-            public T getIfAvailable() {
-                return null;
-            }
-        };
     }
 }

@@ -39,7 +39,7 @@ class QualityV2AnalyzerAdapterTest {
             handler.onCompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from(output)).build());
             return null;
         }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
-        return new QualityV2AnalyzerAdapter(model, new ToolRegistry());
+        return new QualityV2AnalyzerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), new ToolRegistry());
     }
     private QualityV2Input input() {
         return new QualityV2Input("问题", "问题", new CandidateAnswer("c", "回答",
@@ -69,7 +69,7 @@ class QualityV2AnalyzerAdapterTest {
             return null;
         }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
 
-        assertThat(new QualityV2AnalyzerAdapter(model, new ToolRegistry()).assess(input()).passed())
+        assertThat(new QualityV2AnalyzerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), new ToolRegistry()).assess(input()).passed())
                 .isTrue();
         var format = request.get().responseFormat();
         assertThat(format.type()).isEqualTo(
@@ -104,7 +104,7 @@ class QualityV2AnalyzerAdapterTest {
             return null;
         }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
 
-        assertThat(new QualityV2AnalyzerAdapter(model, new ToolRegistry()).assess(input()).passed())
+        assertThat(new QualityV2AnalyzerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), new ToolRegistry()).assess(input()).passed())
                 .isTrue();
         assertThat(requests).hasSize(2);
         assertThat(requests.get(0).responseFormat().jsonSchema()).isNotNull();

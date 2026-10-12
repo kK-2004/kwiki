@@ -31,19 +31,21 @@ public class LlmCommunitySummarizerV1 implements CommunitySummarizerPlugin {
             sourceRefs 只能引用输入中给出的来源块身份；start/end 是被引用内容在来源块正文中的字符区间。""";
 
     private final GraphModelClients clients;
-    private final ModelEndpoint endpoint;
+    /** 每次使用时解析，使后台修改模型配置后无需重建插件即可生效。 */
+    private final java.util.function.Supplier<java.util.Optional<ModelEndpoint>> endpoint;
     private final com.fasterxml.jackson.databind.ObjectMapper mapper =
             new com.fasterxml.jackson.databind.ObjectMapper();
 
     /** 运行时注入入口；另一个包内构造器仅供测试注入模型端点。 */
     @org.springframework.beans.factory.annotation.Autowired
     public LlmCommunitySummarizerV1(GraphModelClients clients) {
-        this(clients, clients.summary().orElse(null));
+        this.clients = clients;
+        this.endpoint = clients::summary;
     }
 
     LlmCommunitySummarizerV1(GraphModelClients clients, ModelEndpoint endpoint) {
         this.clients = clients;
-        this.endpoint = endpoint;
+        this.endpoint = () -> java.util.Optional.ofNullable(endpoint);
     }
 
     @Override
@@ -63,12 +65,12 @@ public class LlmCommunitySummarizerV1 implements CommunitySummarizerPlugin {
 
     @Override
     public String modelName() {
-        return endpoint == null ? "" : endpoint.modelName();
+        return endpoint.get().map(ModelEndpoint::modelName).orElse("");
     }
 
     @Override
     public PluginAvailability availability() {
-        if (endpoint == null) {
+        if (endpoint.get().isEmpty()) {
             return PluginAvailability.unavailable(
                     "缺少配置：" + String.join("、", clients.missing("summary")));
         }
@@ -77,12 +79,13 @@ public class LlmCommunitySummarizerV1 implements CommunitySummarizerPlugin {
 
     @Override
     public CommunitySummary summarize(CommunitySummaryInput input) {
-        if (endpoint == null) {
+        ModelEndpoint current = endpoint.get().orElse(null);
+        if (current == null) {
             throw GraphBuildFailure.retryable("SUMMARY_MODEL_UNAVAILABLE", "摘要模型未配置");
         }
         String text;
         try {
-            text = LlmPluginSupport.complete(endpoint, SYSTEM_PROMPT, userPrompt(input));
+            text = LlmPluginSupport.complete(current, SYSTEM_PROMPT, userPrompt(input));
         } catch (Exception failure) {
             throw LlmPluginSupport.modelFailure(failure, "SUMMARY_MODEL_UNAVAILABLE", "摘要模型暂不可用");
         }

@@ -1,6 +1,7 @@
 package com.kwiki.indexing.config;
 
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
+import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -10,12 +11,11 @@ import java.util.List;
 @Component
 public class MultimodalSwitchReadiness {
     private final MultimodalIndexingProperties multimodal;
-    private final ExternalServicesProperties external;
+    private final ModelRegistry models;
 
-    public MultimodalSwitchReadiness(MultimodalIndexingProperties multimodal,
-                                     ExternalServicesProperties external) {
+    public MultimodalSwitchReadiness(MultimodalIndexingProperties multimodal, ModelRegistry models) {
         this.multimodal = multimodal;
-        this.external = external;
+        this.models = models;
     }
 
     public List<String> missingConfiguration() {
@@ -23,13 +23,8 @@ public class MultimodalSwitchReadiness {
         if (!Boolean.TRUE.equals(multimodal.enabled())) {
             missing.add("KWIKI_MULTIMODAL_ENABLED=true");
         }
-        ExternalServicesProperties.VisionModel vision = external.visionModel();
-        if (vision == null || vision.baseUrl() == null || vision.baseUrl().isBlank()
-                || !vision.baseUrl().matches("https?://\\S+")) {
-            missing.add("KWIKI_VISION_BASE_URL");
-        }
-        if (vision == null || vision.apiKey() == null || vision.apiKey().isBlank()) {
-            missing.add("KWIKI_VISION_API_KEY");
+        if (models.find(ModelPurpose.VISION_SUMMARY).isEmpty()) {
+            missing.add("模型配置：" + ModelPurpose.VISION_SUMMARY.name() + "（" + ModelPurpose.VISION_SUMMARY.label() + "）");
         }
         return List.copyOf(missing);
     }

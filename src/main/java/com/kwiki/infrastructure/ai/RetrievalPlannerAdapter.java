@@ -1,11 +1,12 @@
 package com.kwiki.infrastructure.ai;
 
+import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import com.kwiki.rag.orchestration.*;
 import com.kwiki.rag.tool.*;
 
 import dev.langchain4j.agent.tool.*;
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -15,17 +16,17 @@ import java.util.*;
 
 @Component
 public class RetrievalPlannerAdapter implements RetrievalPlannerPort {
-    private final ChatModel model;
+    private final ModelRegistry models;
     private final ToolRegistry registry;
     private final String mode;
 
     public RetrievalPlannerAdapter(
-            ChatModel model,
+            ModelRegistry models,
             ToolRegistry registry,
             @Value("${kwiki.agentic.tool-mode:native}") String mode) {
         if (!Set.of("native", "json").contains(mode))
             throw new IllegalArgumentException("invalid tool-mode");
-        this.model = model;
+        this.models = models;
         this.registry = registry;
         this.mode = mode;
     }
@@ -113,7 +114,7 @@ public class RetrievalPlannerAdapter implements RetrievalPlannerPort {
         }
         var builder = ChatRequest.builder().messages(messages);
         if (mode.equals("native")) builder.toolSpecifications(specification());
-        var response = model.chat(builder.build()).aiMessage();
+        var response = models.chat(ModelPurpose.RETRIEVAL_PLANNER).chat(builder.build()).aiMessage();
         String turnId = UUID.randomUUID().toString();
         if (mode.equals("native"))
             return response.toolExecutionRequests().stream()

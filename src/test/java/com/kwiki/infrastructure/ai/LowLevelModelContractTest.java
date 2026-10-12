@@ -62,7 +62,7 @@ class LowLevelModelContractTest {
                             .maxRetries(0)
                             .httpClientBuilder(new CancellableModelHttpClient.Builder())
                             .build();
-            var adapter = new RetrievalPlannerAdapter(model, new ToolRegistry(), "native");
+            var adapter = new RetrievalPlannerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), new ToolRegistry(), "native");
             var calls = adapter.plan("kwiki", List.of("kwiki"), List.of(), List.of(), "");
             assertThat(calls).hasSize(1);
             assertThat(calls.getFirst().callId()).isEqualTo("call-1");
@@ -97,13 +97,13 @@ class LowLevelModelContractTest {
                                         + " {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
                                         + "data: [DONE]\n\n"));
             var adapter =
-                    new StreamingAnswerLlmAdapter(
+                    new StreamingAnswerLlmAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(
                             OpenAiStreamingChatModel.builder()
                                     .baseUrl(server.url("/v1").toString())
                                     .apiKey("test")
                                     .modelName("test")
                                     .httpClientBuilder(new CancellableModelHttpClient.Builder())
-                                    .build());
+                                    .build()));
             var flux = adapter.streamAnswer("question");
             assertThat(server.getRequestCount()).isZero();
             assertThat(flux.collectList().block(Duration.ofSeconds(5))).containsExactly("hello");
@@ -196,13 +196,13 @@ class LowLevelModelContractTest {
                                 }
                             });
             var adapter =
-                    new StreamingAnswerLlmAdapter(
+                    new StreamingAnswerLlmAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(
                             OpenAiStreamingChatModel.builder()
                                     .baseUrl("http://127.0.0.1:" + server.getLocalPort() + "/v1")
                                     .apiKey("test")
                                     .modelName("test")
                                     .httpClientBuilder(new CancellableModelHttpClient.Builder())
-                                    .build());
+                                    .build()));
             var subscription = adapter.streamAnswer("question").subscribe(v -> token.countDown());
             assertThat(received.await(3, TimeUnit.SECONDS)).isTrue();
             if (sendToken) assertThat(token.await(3, TimeUnit.SECONDS)).isTrue();

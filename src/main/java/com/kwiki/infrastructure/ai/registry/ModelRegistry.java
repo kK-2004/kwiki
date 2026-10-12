@@ -37,6 +37,16 @@ public interface ModelRegistry {
     record Status(long version, Instant loadedAt, String lastError) {
     }
 
+    /** 测试辅助：所有用途都返回给定的同步客户端。 */
+    static ModelRegistry fixed(ChatModel chat) {
+        return fixed(chat, null);
+    }
+
+    /** 测试辅助：所有用途都返回给定的流式客户端。 */
+    static ModelRegistry fixed(StreamingChatModel streaming) {
+        return fixed(null, streaming);
+    }
+
     /** 测试辅助：所有用途都返回给定客户端，没有 embedding。 */
     static ModelRegistry fixed(ChatModel chat, StreamingChatModel streaming) {
         return new ModelRegistry() {

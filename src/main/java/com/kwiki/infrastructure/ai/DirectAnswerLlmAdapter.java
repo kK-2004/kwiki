@@ -1,12 +1,13 @@
 package com.kwiki.infrastructure.ai;
 
+import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import com.kwiki.rag.answer.DirectAnswerPort;
 import com.kwiki.rag.orchestration.RunContext;
 import com.kwiki.rag.rewrite.ChatTurn;
 
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.ChatModel;
 
 import org.springframework.stereotype.Component;
 
@@ -17,16 +18,16 @@ public class DirectAnswerLlmAdapter implements DirectAnswerPort {
     private static final int MAX_HISTORY_TURNS = 6;
     private static final int MAX_TURN_CHARS = 500;
 
-    private final ChatModel model;
+    private final ModelRegistry models;
 
-    public DirectAnswerLlmAdapter(ChatModel model) {
-        this.model = model;
+    public DirectAnswerLlmAdapter(ModelRegistry models) {
+        this.models = models;
     }
 
     @Override
     public String answer(String question, List<ChatTurn> history) {
         if (RunContext.current() != null) RunContext.current().modelCall();
-        return model.chat(List.of(
+        return models.chat(ModelPurpose.DIRECT_ANSWER).chat(List.of(
                         SystemMessage.from(systemPrompt()),
                         UserMessage.from(userPrompt(question, history))))
                 .aiMessage()

@@ -2,11 +2,7 @@ package com.kwiki.infrastructure.ai;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.kwiki.indexing.pipeline.ChunkEmbeddingPort;
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
 
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
@@ -15,12 +11,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 基于 OpenAI 兼容的 /embeddings 端点的 Qwen text-embedding-v4 适配器（adapter），
- * 使用 kwiki 专属凭据。请求会批量处理，仅在截止时间（deadline）内对瞬时状态（429/5xx）
+ * 基于 OpenAI 兼容的 /embeddings 端点的 embedding 适配器（adapter），
+ * 凭据来自模型目录。请求会批量处理，仅在截止时间（deadline）内对瞬时状态（429/5xx）
  * 重试，且每个返回的向量在使用前都会进行维度校验。错误中绝不
  * 包含 API key。
  */
-@Component
 public class QwenEmbeddingClient implements ChunkEmbeddingPort {
 
     private final WebClient webClient;
@@ -29,17 +24,7 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
     private final int batchSize;
     private final int maxRetries;
 
-    @org.springframework.beans.factory.annotation.Autowired
-    public QwenEmbeddingClient(
-            @Qualifier("kwikiEmbeddingWebClient") WebClient webClient,
-            ExternalServicesProperties properties,
-            @Value("${kwiki.qwen-embedding.batch-size:25}") int batchSize,
-            @Value("${kwiki.qwen-embedding.max-retries:2}") int maxRetries) {
-        this(webClient, properties.qwenEmbedding().model(),
-                properties.qwenEmbedding().dimensions(), batchSize, maxRetries);
-    }
-
-    /** 版本化流水线按 embedding 档案构建独立客户端时使用。 */
+    /** 由模型目录（{@code OpenAiModelClientFactory}）按 provider 与模型构建。 */
     public QwenEmbeddingClient(WebClient webClient, String model, int dimensions,
                                int batchSize, int maxRetries) {
         this.webClient = webClient;

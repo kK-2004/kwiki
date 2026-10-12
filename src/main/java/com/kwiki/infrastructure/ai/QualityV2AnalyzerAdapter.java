@@ -1,5 +1,7 @@
 package com.kwiki.infrastructure.ai;
 
+import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import com.kwiki.rag.answer.CandidateAnswer;
 import com.kwiki.rag.answer.ParentEvidence;
 import com.kwiki.rag.orchestration.RunContext;
@@ -12,7 +14,6 @@ import com.kwiki.infrastructure.observability.SecretRedaction;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.*;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ResponseFormat;
@@ -42,11 +43,11 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
 
     public static final String QA_V2_UNAVAILABLE = "qa-unavailable";
 
-    private final StreamingChatModel model;
+    private final ModelRegistry models;
     private final ToolRegistry registry;
 
-    public QualityV2AnalyzerAdapter(StreamingChatModel model, ToolRegistry registry) {
-        this.model = model;
+    public QualityV2AnalyzerAdapter(ModelRegistry models, ToolRegistry registry) {
+        this.models = models;
         this.registry = registry;
     }
 
@@ -164,7 +165,7 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
         }
         var result = new CompletableFuture<ChatResponse>();
         try {
-            model.chat(ChatRequest.builder().messages(messages)
+            models.streaming(ModelPurpose.QUALITY_ANALYZER).chat(ChatRequest.builder().messages(messages)
                     .parameters(OpenAiChatRequestParameters.builder()
                             .customParameters(Map.of("enable_thinking", false))
                             .build())

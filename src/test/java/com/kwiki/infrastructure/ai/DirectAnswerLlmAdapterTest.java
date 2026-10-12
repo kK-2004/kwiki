@@ -29,7 +29,7 @@ class DirectAnswerLlmAdapterTest {
         when(model.chat(anyList())).thenReturn(
                 ChatResponse.builder().aiMessage(AiMessage.from("Hello, world.")).build());
 
-        String answer = new DirectAnswerLlmAdapter(model).answer(
+        String answer = new DirectAnswerLlmAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model)).answer(
                 "把“你好世界”翻译成英文",
                 List.of(new ChatTurn("USER", "介绍一下知识库")));
 
@@ -49,7 +49,7 @@ class DirectAnswerLlmAdapterTest {
         when(model.chat(anyList())).thenReturn(ChatResponse.builder()
                 .aiMessage(AiMessage.from(DirectAnswerPort.ESCALATE_SENTINEL)).build());
 
-        assertThat(new DirectAnswerLlmAdapter(model).answer("公司报销制度是什么", List.of()))
+        assertThat(new DirectAnswerLlmAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model)).answer("公司报销制度是什么", List.of()))
                 .isEqualTo(DirectAnswerPort.ESCALATE_SENTINEL);
     }
 }

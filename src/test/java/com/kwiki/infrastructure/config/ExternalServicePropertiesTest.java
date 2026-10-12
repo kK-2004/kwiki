@@ -160,9 +160,11 @@ class ExternalServicePropertiesTest {
     @Test
     @DisplayName("null sections are rejected so a missing KWIKI_* mapping fails at startup")
     void missingSectionsAreRejected() {
+        // answerLlm / qwenEmbedding 已迁入模型目录，只供首次导入读取，可以缺省
         assertThat(validator.validate(new ExternalServicesProperties(
                 null, null, null, null, null)))
                 .extracting(v -> v.getPropertyPath().toString())
-                .contains("contentCenter", "elasticsearch", "answerLlm", "qwenEmbedding");
+                .contains("contentCenter", "elasticsearch")
+                .doesNotContain("answerLlm", "qwenEmbedding");
     }
 }

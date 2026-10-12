@@ -1,11 +1,12 @@
 package com.kwiki.infrastructure.ai;
 
+import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import com.kwiki.rag.answer.AnswerLlmPort;
 import com.kwiki.rag.orchestration.*;
 import com.kwiki.wiki.access.AuthorizationScope;
 
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.output.FinishReason;
 import dev.langchain4j.model.chat.response.*;
 
@@ -18,10 +19,10 @@ import java.util.*;
 
 @Component
 public class StreamingAnswerLlmAdapter implements AnswerLlmPort {
-    private final StreamingChatModel model;
+    private final ModelRegistry models;
 
-    public StreamingAnswerLlmAdapter(StreamingChatModel model) {
-        this.model = model;
+    public StreamingAnswerLlmAdapter(ModelRegistry models) {
+        this.models = models;
     }
 
     public Flux<String> streamAnswer(String prompt) {
@@ -42,7 +43,7 @@ public class StreamingAnswerLlmAdapter implements AnswerLlmPort {
                                         sink.onCancel(run::close);
                                         try (var ignored = run.bind()) {
                                             run.authorize();
-                                            model.chat(
+                                            models.streaming(ModelPurpose.ANSWER).chat(
                                                     List.of(
                                                             SystemMessage.from(
                                                                     evidenceOnlyContract()),

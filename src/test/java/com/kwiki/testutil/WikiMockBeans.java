@@ -24,10 +24,6 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 @TestConfiguration
 public class WikiMockBeans {
 
-    /** 上下文测试不访问外部 provider；能力探测由专用契约测试覆盖。 */
-    @MockBean
-    public com.kwiki.infrastructure.ai.AnswerModelCapabilities answerModelCapabilities;
-
     /**
      * 搜索索引与图构建的持久化支撑层在此一并模拟：这些 bean 现已随应用
      * 无条件装配（此前的 @ConditionalOnBean 评估时机错误导致从未生效），

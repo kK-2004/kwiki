@@ -1,6 +1,5 @@
 package com.kwiki.infrastructure.ai;
 
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -38,23 +37,12 @@ class QwenEmbeddingClientTest {
                 .defaultHeader("Authorization", "Bearer test-embedding-key")
                 .clientConnector(new ReactorClientHttpConnector(HttpClient.create()))
                 .build();
-        client = new QwenEmbeddingClient(webClient, properties(), 2, 2);
+        client = new QwenEmbeddingClient(webClient, "text-embedding-v4", 4, 2, 2);
     }
 
     @AfterEach
     void stop() throws IOException {
         server.shutdown();
-    }
-
-    private static ExternalServicesProperties properties() {
-        return new ExternalServicesProperties(
-                new ExternalServicesProperties.ContentCenter("http://cc:8080", "kapp-test",
-                        null, null, Duration.ofSeconds(5), Duration.ofSeconds(30)),
-                new ExternalServicesProperties.Elasticsearch( null, null, null),
-                new ExternalServicesProperties.AnswerLlm("http://l/v1", "k", "m", Duration.ofSeconds(10)),
-                new ExternalServicesProperties.QwenEmbedding("http://q/v1", "test-embedding-key",
-                        "text-embedding-v4", 4, Duration.ofSeconds(10)),
-                ExternalServicesProperties.unusedVisionModel());
     }
 
     private static String embeddingJson(int count, int dims) {

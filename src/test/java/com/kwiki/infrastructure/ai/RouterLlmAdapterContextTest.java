@@ -35,7 +35,7 @@ class RouterLlmAdapterContextTest {
         ChatModel model = mock(ChatModel.class);
         when(model.chat(anyList())).thenReturn(
                 ChatResponse.builder().aiMessage(AiMessage.from(DECISION)).build());
-        RouterLlmAdapter adapter = new RouterLlmAdapter(model);
+        RouterLlmAdapter adapter = new RouterLlmAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model));
         RouteContext context = new RouteContext(
                 new PriorRoute(Intent.KNOWLEDGE_QA, RouteSource.RULE, true, 1.0),
                 List.of("介绍一下知识库", "怎么导出页面"), false);
@@ -61,7 +61,7 @@ class RouterLlmAdapterContextTest {
         when(model.chat(anyList())).thenReturn(
                 ChatResponse.builder().aiMessage(AiMessage.from(DECISION)).build());
 
-        assertThat(new RouterLlmAdapter(model).askRouter("什么是知识库", "no-rule-match")).isPresent();
+        assertThat(new RouterLlmAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model)).askRouter("什么是知识库", "no-rule-match")).isPresent();
     }
 
     @Test
@@ -77,6 +77,6 @@ class RouterLlmAdapterContextTest {
         when(model.chat(anyList())).thenReturn(
                 ChatResponse.builder().aiMessage(AiMessage.from("not json")).build());
 
-        assertThat(new RouterLlmAdapter(model).askRouter("q", "t")).isEmpty();
+        assertThat(new RouterLlmAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model)).askRouter("q", "t")).isEmpty();
     }
 }

@@ -10,7 +10,6 @@ import com.kwiki.graph.build.GraphBuildFailure;
 import com.kwiki.graph.model.GraphModelClients;
 import com.kwiki.graph.model.ModelEndpoint;
 import com.kwiki.graph.model.RateLimiter;
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.exception.HttpException;
@@ -167,30 +166,16 @@ class LlmGraphExtractorV1Test {
 
     @Test
     void 抽取模型未配置时不可用并给出缺失键() {
-        ExternalServicesProperties external = properties("");
-        GraphModelClients clients = new GraphModelClients(
-                new com.kwiki.graph.config.GraphModelProperties(null, null), external);
+        GraphModelClients clients = new GraphModelClients(com.kwiki.testutil.StubModelRegistry.empty());
         LlmGraphExtractorV1 extractor = new LlmGraphExtractorV1(clients);
 
         assertThat(extractor.availability().available()).isFalse();
         assertThat(extractor.availability().unavailableReason())
                 .contains("缺少配置")
-                .contains("kwiki.graph.models.extraction.api-key");
+                .contains("GRAPH_EXTRACTION");
         assertThatThrownBy(() -> extractor.extract(input()))
                 .isInstanceOfSatisfying(GraphBuildFailure.class,
                         failure -> assertThat(failure.retryable()).isTrue());
     }
 
-    private static ExternalServicesProperties properties(String answerApiKey) {
-        return new ExternalServicesProperties(
-                new ExternalServicesProperties.ContentCenter("https://files.example.com", "app-token",
-                        null, null, Duration.ofSeconds(5), Duration.ofSeconds(60)),
-                new ExternalServicesProperties.Elasticsearch(null, null, null),
-                new ExternalServicesProperties.AnswerLlm("https://llm.example.com/v1", answerApiKey,
-                        "answer-model", Duration.ofSeconds(30)),
-                new ExternalServicesProperties.QwenEmbedding(
-                        "https://dashscope.example.com/compatible-mode/v1", "embed-key",
-                        "text-embedding-model", 1024, Duration.ofSeconds(30)),
-                ExternalServicesProperties.unusedVisionModel());
-    }
 }

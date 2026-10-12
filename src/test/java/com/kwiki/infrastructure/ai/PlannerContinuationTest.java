@@ -56,7 +56,7 @@ class PlannerContinuationTest {
                                 new ToolCall("b", "es_search", "{}", "turn"),
                                 new ToolResult(
                                         "b", "ERROR", List.of(), List.of(), "timeout", Map.of())));
-        new RetrievalPlannerAdapter(model, new ToolRegistry(), mode)
+        new RetrievalPlannerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), new ToolRegistry(), mode)
                 .plan("q", List.of("q"), List.of(), history, "");
         var captured = ArgumentCaptor.forClass(ChatRequest.class);
         verify(model).chat(captured.capture());

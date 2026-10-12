@@ -6,7 +6,6 @@ import com.kwiki.indexing.parse.MarkdownStructParser;
 import com.kwiki.indexing.parse.StructBlock;
 import com.kwiki.indexing.parse.StructuredDocument;
 import com.kwiki.indexing.parse.UnsupportedInputException;
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import com.kwiki.wiki.attach.AttachmentStorage;
 import com.kwiki.wiki.attach.AttachmentUpload;
 import com.kwiki.wiki.attach.StoredAttachment;
@@ -82,25 +81,13 @@ class MultimodalIndexingServiceTest {
 
         ImageResourceService imageResources = new ImageResourceService(
                 repos.assets, repos.summaries, storage, vision,
-                testProperties(), testMultimodalProperties(), new MultimodalMetrics(null));
+                testMultimodalProperties(), new MultimodalMetrics(null));
         service = new MultimodalIndexingService(new MarkdownStructParser(), downloader,
                 imageResources, attachments.toRepository(), storage,
                 new ProtectedBlockProtocol(512), testMultimodalProperties(),
                 new MultimodalMetrics(null));
     }
 
-    private static ExternalServicesProperties testProperties() {
-        return new ExternalServicesProperties(
-                new ExternalServicesProperties.ContentCenter("http://cc", "k", null, null,
-                        Duration.ofSeconds(5), Duration.ofSeconds(30)),
-                new ExternalServicesProperties.Elasticsearch(null, null, null),
-                new ExternalServicesProperties.AnswerLlm("http://l/v1", "k", "m",
-                        Duration.ofSeconds(10)),
-                new ExternalServicesProperties.QwenEmbedding("http://q/v1", "k", "m", 4,
-                        Duration.ofSeconds(10)),
-                new ExternalServicesProperties.VisionModel("http://v/v1", "vk", "qwen3.7-flash",
-                        Duration.ofSeconds(5), Duration.ofSeconds(30), 1, 2));
-    }
 
     private static MultimodalIndexingProperties testMultimodalProperties() {
         return new MultimodalIndexingProperties(true, "v1", 20, 64, 1_000_000, 1_000_000, 512,
@@ -286,7 +273,7 @@ class MultimodalIndexingServiceTest {
                 64, 1_000_000, 1_000_000, 512, 1_000_000, Duration.ofSeconds(20), 3,
                 java.util.Set.of(443));
         ImageResourceService imageResources = new ImageResourceService(
-                repos.assets, repos.summaries, storage, vision, testProperties(), limited,
+                repos.assets, repos.summaries, storage, vision, limited,
                 new MultimodalMetrics(null));
         MultimodalIndexingService limitedService = new MultimodalIndexingService(
                 new MarkdownStructParser(), downloader, imageResources,

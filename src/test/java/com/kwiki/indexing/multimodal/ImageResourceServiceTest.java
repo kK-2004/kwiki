@@ -1,6 +1,5 @@
 package com.kwiki.indexing.multimodal;
 
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import com.kwiki.indexing.config.MultimodalIndexingProperties;
 import com.kwiki.wiki.attach.AttachmentStorageException;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,21 +35,9 @@ class ImageResourceServiceTest {
         service = new ImageResourceService(
                 TestMultimodalRepos.assets(assetBacking),
                 TestMultimodalRepos.summaries(summaryBacking),
-                storage, vision, properties(), multimodal("v1"), new MultimodalMetrics(null));
+                storage, vision, multimodal("v1"), new MultimodalMetrics(null));
     }
 
-    private static ExternalServicesProperties properties() {
-        return new ExternalServicesProperties(
-                new ExternalServicesProperties.ContentCenter("http://cc", "k", null, null,
-                        Duration.ofSeconds(5), Duration.ofSeconds(30)),
-                new ExternalServicesProperties.Elasticsearch(null, null, null),
-                new ExternalServicesProperties.AnswerLlm("http://l/v1", "k", "m",
-                        Duration.ofSeconds(10)),
-                new ExternalServicesProperties.QwenEmbedding("http://q/v1", "k", "m", 4,
-                        Duration.ofSeconds(10)),
-                new ExternalServicesProperties.VisionModel("http://v/v1", "vision-secret-key",
-                        "qwen3.7-flash", Duration.ofSeconds(5), Duration.ofSeconds(30), 1, 2));
-    }
 
     private static MultimodalIndexingProperties multimodal(String promptVersion) {
         return new MultimodalIndexingProperties(true, promptVersion, 20, 64, 1_000_000,
@@ -140,7 +127,7 @@ class ImageResourceServiceTest {
         ImageResourceService bumpedService = new ImageResourceService(
                 TestMultimodalRepos.assets(assetBacking),
                 TestMultimodalRepos.summaries(summaryBacking),
-                storage, vision, properties(), multimodal("v2"), new MultimodalMetrics(null));
+                storage, vision, multimodal("v2"), new MultimodalMetrics(null));
         bumpedService.resolveSummary(asset); // 新提示词 → 新摘要身份 → 再次调用模型
         assertThat(vision.calls.get()).isEqualTo(2);
     }

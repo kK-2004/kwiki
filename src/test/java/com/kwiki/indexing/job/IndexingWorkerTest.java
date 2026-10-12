@@ -1,6 +1,5 @@
 package com.kwiki.indexing.job;
 
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.parse.DocumentParseService;
 import com.kwiki.indexing.pipeline.ChunkEmbeddingPort;
@@ -102,9 +101,7 @@ class IndexingWorkerTest {
                 emptyManifests(), properties(),
                 com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
-                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
-                StandardTestProperties.providerOf(embeddings),
-                StandardTestProperties.nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         SearchIndexVersion v2 = SearchIndexVersion.bootstrapped(
                 2, PHYSICAL, builtConfig(), "hash");
         lenient().when(versionRepository.findByVersionNumber(2)).thenReturn(Optional.of(v2));
@@ -122,15 +119,8 @@ class IndexingWorkerTest {
                 new IndexingProperties.Management(false));
     }
 
-    private static ExternalServicesProperties properties() {
-        return new ExternalServicesProperties(
-                new ExternalServicesProperties.ContentCenter("http://cc:8080", "kapp-test",
-                        null, null, Duration.ofSeconds(5), Duration.ofSeconds(30)),
-                new ExternalServicesProperties.Elasticsearch(null, null, null),
-                new ExternalServicesProperties.AnswerLlm("http://l/v1", "k", "m", Duration.ofSeconds(10)),
-                new ExternalServicesProperties.QwenEmbedding("http://q/v1", "k",
-                        "text-embedding-v4", 4, Duration.ofSeconds(10)),
-                ExternalServicesProperties.unusedVisionModel());
+    private com.kwiki.testutil.StubModelRegistry properties() {
+        return com.kwiki.testutil.StubModelRegistry.defaultEmbedding("text-embedding-v4", 4, embeddings);
     }
 
     @SuppressWarnings("unchecked")
@@ -204,7 +194,6 @@ class IndexingWorkerTest {
         var registry = new VersionedIndexingPipelineRegistry(emptyManifests(), properties(),
                 com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(List.of(chunker)),
-                StandardTestProperties.providerOf(embeddings), StandardTestProperties.nullProvider(),
                 com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         worker = new IndexingWorker(claimer, targets, registry, StandardTestProperties.providerOf(versionRepository),
                 index, null, pages, knowledgeBases, revisions, attachments, storage, new SimpleMeterRegistry(), 8, 30, 3600);

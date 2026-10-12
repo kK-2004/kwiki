@@ -1,7 +1,6 @@
 package com.kwiki.indexing.multimodal;
 
-import com.kwiki.infrastructure.ai.QwenVisionSummaryClient;
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import com.kwiki.indexing.config.MultimodalIndexingProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
@@ -10,7 +9,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.time.Duration;
 
 /**
  * 多模态索引装配：仅在 kwiki.multimodal.enabled=true 时创建
@@ -37,23 +35,12 @@ public class MultimodalConfiguration {
     @Bean
     public ImageSummaryPort qwenVisionSummaryClient(
             WebClient.Builder webClientBuilder,
-            ExternalServicesProperties properties,
+            ModelRegistry models,
             MultimodalIndexingProperties multimodalProperties,
             MultimodalMetrics metrics) {
-        ExternalServicesProperties.VisionModel vision = properties.visionModel();
-        if (vision == null || !vision.isConfigured()) {
-            // 管理端需要启动后展示缺失项；误入摘要路径仍须明确失败。
-            return cdnUrl -> {
-                throw new IllegalStateException("vision model configuration is unavailable");
-            };
-        }
-        WebClient webClient = webClientBuilder.clone()
-                .baseUrl(vision.baseUrl().replaceAll("/+$", "") + "/")
-                .defaultHeader("Authorization", "Bearer " + vision.apiKey())
-                .build();
-        return new QwenVisionSummaryClient(webClient, vision.model(),
-                vision.maxRetries(), vision.requestTimeout(), vision.concurrency(),
-                metrics, multimodalProperties.maxSummaryChars());
+        // 视觉模型来自模型目录的 VISION_SUMMARY 分配；未分配时调用明确失败
+        return new RegistryImageSummaryPort(models, webClientBuilder, metrics,
+                multimodalProperties.maxSummaryChars());
     }
 
     @Bean

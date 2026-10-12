@@ -9,7 +9,6 @@ import com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry;
 import com.kwiki.indexing.version.EditableIndexConfig;
 import com.kwiki.indexing.version.SearchIndexVersion;
 import com.kwiki.indexing.version.SearchIndexVersionRepository;
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import com.kwiki.testutil.StandardTestProperties;
 import com.kwiki.wiki.attach.AttachmentStorage;
 import com.kwiki.wiki.domain.WikiPage;
@@ -88,29 +87,21 @@ class VersionedMultiWriteTest {
     private IndexingWorker worker;
 
     private static EditableIndexConfig config(int dims) {
-        return new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", "default",
+        return new EditableIndexConfig("kwiki-parse-1", "kwiki-chunk-1", dims == 6 ? "alt-dims" : "default",
                 "text-embedding-v4", dims, "kwiki-schema-1");
     }
 
     @BeforeEach
     void setUp() {
-        ExternalServicesProperties external = new ExternalServicesProperties(
-                new ExternalServicesProperties.ContentCenter("http://cc", "t", null, null,
-                        Duration.ofSeconds(5), Duration.ofSeconds(30)),
-                new ExternalServicesProperties.Elasticsearch(null, null, null),
-                new ExternalServicesProperties.AnswerLlm("http://l/v1", "k", "m",
-                        Duration.ofSeconds(10)),
-                new ExternalServicesProperties.QwenEmbedding("http://q/v1", "k",
-                        "text-embedding-v4", 4, Duration.ofSeconds(10)),
-                ExternalServicesProperties.unusedVisionModel());
+        var external = com.kwiki.testutil.StubModelRegistry.defaultEmbedding("text-embedding-v4", 4, embeddings)
+                .withEmbedding("alt-dims", "text-embedding-v4", 6, embeddings);
         IndexingProperties indexing = new IndexingProperties(
                 List.of(
                         new IndexingProperties.Manifest("gen-4", "kwiki-parse-1", "kwiki-chunk-1",
                                 "default", "text-embedding-v4", 4, "kwiki-schema-1"),
                         new IndexingProperties.Manifest("gen-6", "kwiki-parse-1", "kwiki-chunk-1",
                                 "alt-dims", "text-embedding-v4", 6, "kwiki-schema-1")),
-                Map.of("alt-dims", new IndexingProperties.EmbeddingProfile(
-                        "https://alt-embed/v1", "sk-alt", Duration.ofSeconds(30))),
+                Map.of(),
                 new IndexingProperties.Rebuild(50, 2, 20),
                 new IndexingProperties.Catchup(100, Duration.ofSeconds(30)),
                 new IndexingProperties.Capacity(20, 8, Duration.ofSeconds(5)),
@@ -119,11 +110,8 @@ class VersionedMultiWriteTest {
                 indexing, external,
                 com.kwiki.indexing.parse.plugin.ParserTestFixtures.tika(DocumentParseService.forTests()),
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
-                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
-                StandardTestProperties.providerOf(embeddings),
-                StandardTestProperties.nullProvider(), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
 
-        registry.registerProfileClientForTests("alt-dims", embeddings);
         registerVersion(1, "kwiki-chunks-v1", config(4));
         registerVersion(2, "kwiki-chunks-v2", config(6));
 

@@ -1,12 +1,13 @@
 package com.kwiki.infrastructure.ai;
 
+import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import com.kwiki.rag.answer.ParentEvidence;
 import com.kwiki.rag.orchestration.*;
 import com.kwiki.rag.quality.*;
 import com.kwiki.rag.tool.ToolRegistry;
 
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.ChatModel;
 
 import org.springframework.stereotype.Component;
 
@@ -14,11 +15,11 @@ import java.util.*;
 
 @Component
 public class QualityAnalyzerAdapter implements QualityAnalyzerPort {
-    private final ChatModel model;
+    private final ModelRegistry models;
     private final ToolRegistry registry;
 
-    public QualityAnalyzerAdapter(ChatModel model, ToolRegistry registry) {
-        this.model = model;
+    public QualityAnalyzerAdapter(ModelRegistry models, ToolRegistry registry) {
+        this.models = models;
         this.registry = registry;
     }
 
@@ -35,7 +36,7 @@ public class QualityAnalyzerAdapter implements QualityAnalyzerPort {
                         .map(e -> Map.of("id", e.parentChunkKey(), "text", e.body()))
                         .toList();
         String output =
-                model.chat(
+                models.chat(ModelPurpose.QUALITY_ANALYZER).chat(
                                 List.of(
                                         SystemMessage.from(
                                                 "Evaluate evidence relevance, coverage of EVERY"

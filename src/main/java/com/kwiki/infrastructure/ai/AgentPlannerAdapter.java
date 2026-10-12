@@ -1,5 +1,8 @@
 package com.kwiki.infrastructure.ai;
 
+import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
+
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.kwiki.rag.orchestration.RunContext;
 import com.kwiki.rag.orchestration.RunFailure;
@@ -15,7 +18,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -35,12 +37,12 @@ import java.util.UUID;
  */
 @Component
 public class AgentPlannerAdapter implements AgentPlannerPort {
-    private final ChatModel model;
+    private final ModelRegistry models;
     private final String mode;
 
-    public AgentPlannerAdapter(ChatModel model, @Value("${kwiki.agentic.tool-mode:native}") String mode) {
+    public AgentPlannerAdapter(ModelRegistry models, @Value("${kwiki.agentic.tool-mode:native}") String mode) {
         if (!Set.of("native", "json").contains(mode)) throw new IllegalArgumentException("invalid tool-mode");
-        this.model = model;
+        this.models = models;
         this.mode = mode;
     }
 
@@ -90,7 +92,7 @@ public class AgentPlannerAdapter implements AgentPlannerPort {
         if (mode.equals("native")) {
             builder.toolSpecifications(request.tools().stream().map(AgentPlannerAdapter::specification).toList());
         }
-        var response = model.chat(builder.build()).aiMessage();
+        var response = models.chat(ModelPurpose.AGENT_PLANNER).chat(builder.build()).aiMessage();
         String turnId = UUID.randomUUID().toString();
         if (mode.equals("native")) {
             return response.toolExecutionRequests().stream()

@@ -21,7 +21,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestComponent;
@@ -32,7 +31,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.IOException;
 import java.net.URI;
@@ -69,7 +67,6 @@ class TracePropagationIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         StandardTestProperties.register(registry);
         registry.add("kwiki.answer-llm.base-url", () -> UPSTREAM.url("/").toString());
-        registry.add("kwiki.qwen-embedding.base-url", () -> UPSTREAM.url("/").toString());
     }
 
     @AfterAll
@@ -101,7 +98,7 @@ class TracePropagationIntegrationTest {
                         .setBody(
                                 provider.equals("answer")
                                         ? "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}"
-                                        : "ok"));
+                                        : "{\"data\":[]}"));
         // 普通 JDK 客户端会保持传入的 parent 不被客户端埋点修改。
         try (HttpClient client = HttpClient.newHttpClient()) {
             HttpResponse<String> response =
@@ -139,7 +136,7 @@ class TracePropagationIntegrationTest {
             RecordedRequest outgoing = UPSTREAM.takeRequest(5, TimeUnit.SECONDS);
             assertThat(outgoing).isNotNull();
             assertThat(outgoing.getPath())
-                    .isEqualTo(provider.equals("answer") ? "/chat/completions" : "/trace-probe");
+                    .isEqualTo(provider.equals("answer") ? "/chat/completions" : "/models");
             String traceparent = outgoing.getHeader("traceparent");
             assertThat(traceparent).matches("00-" + TRACE_ID + "-[0-9a-f]{16}-01");
             assertThat(traceparent.split("-")[2])
@@ -148,20 +145,21 @@ class TracePropagationIntegrationTest {
         }
     }
 
+    /** 通过模型目录的客户端工厂构建出站客户端，验证生产路径上的 traceparent 传播。 */
     @TestComponent
     @RestController
     static class ProbeEndpoint {
-        private final dev.langchain4j.model.chat.ChatModel answer;
-        private final WebClient embedding;
+        private final com.kwiki.infrastructure.ai.registry.OpenAiModelClientFactory factory;
+        private final String upstream;
         private final Tracer tracer;
 
         @Autowired
         ProbeEndpoint(
-                dev.langchain4j.model.chat.ChatModel answer,
-                @Qualifier("kwikiEmbeddingWebClient") WebClient embedding,
+                com.kwiki.infrastructure.ai.registry.OpenAiModelClientFactory factory,
+                @org.springframework.beans.factory.annotation.Value("${kwiki.answer-llm.base-url}") String upstream,
                 Tracer tracer) {
-            this.answer = answer;
-            this.embedding = embedding;
+            this.factory = factory;
+            this.upstream = upstream;
             this.tracer = tracer;
         }
 
@@ -173,14 +171,12 @@ class TracePropagationIntegrationTest {
                             + MDC.get("traceId")
                             + ":"
                             + tracer.currentSpan().context().spanId();
-            if (provider.equals("answer")) answer.chat("trace probe");
-            else
-                embedding
-                        .get()
-                        .uri("/trace-probe")
-                        .retrieve()
-                        .bodyToMono(String.class)
-                        .block(Duration.ofSeconds(5));
+            if (provider.equals("answer")) {
+                factory.chat(new com.kwiki.infrastructure.ai.registry.ClientSpec(upstream, "test",
+                        Duration.ofSeconds(5), "test-model", 0.0, null, null)).chat("trace probe");
+            } else {
+                factory.listModels(upstream, "test", Duration.ofSeconds(5));
+            }
             return context;
         }
     }

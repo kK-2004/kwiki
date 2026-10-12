@@ -117,27 +117,9 @@ class ExtractionStageTest {
     }
 
     private static GraphModelClients modelClients() {
-        ExternalServicesHolder holder = ExternalServicesHolder.INSTANCE;
-        return new GraphModelClients(
-                new com.kwiki.graph.config.GraphModelProperties(null, null), holder.external);
-    }
-
-    /** 共享的问答模型配置，保证端点可用且不重复构造。 */
-    private enum ExternalServicesHolder {
-        INSTANCE;
-        final com.kwiki.infrastructure.config.ExternalServicesProperties external =
-                new com.kwiki.infrastructure.config.ExternalServicesProperties(
-                        new com.kwiki.infrastructure.config.ExternalServicesProperties.ContentCenter(
-                                "https://files.example.com", "t", null, null,
-                                Duration.ofSeconds(5), Duration.ofSeconds(60)),
-                        new com.kwiki.infrastructure.config.ExternalServicesProperties.Elasticsearch(
-                                null, null, null),
-                        new com.kwiki.infrastructure.config.ExternalServicesProperties.AnswerLlm(
-                                "https://llm.example.com/v1", "key", "answer-model",
-                                Duration.ofSeconds(30)),
-                        new com.kwiki.infrastructure.config.ExternalServicesProperties.QwenEmbedding(
-                                "https://e.example.com", "k", "m", 1024, Duration.ofSeconds(30)),
-                        com.kwiki.infrastructure.config.ExternalServicesProperties.unusedVisionModel());
+        return new GraphModelClients(com.kwiki.testutil.StubModelRegistry.empty().withPurpose(
+                com.kwiki.infrastructure.ai.registry.ModelPurpose.GRAPH_EXTRACTION, "answer-model",
+                mock(dev.langchain4j.model.chat.ChatModel.class)));
     }
 
     @Test

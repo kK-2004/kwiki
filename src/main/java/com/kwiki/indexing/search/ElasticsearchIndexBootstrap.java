@@ -8,7 +8,9 @@ import com.kwiki.indexing.version.BootstrapMigrationRecorder;
 import com.kwiki.indexing.version.EditableIndexConfig;
 import com.kwiki.indexing.version.SearchIndexVersion;
 import com.kwiki.indexing.version.SearchIndexVersionRepository;
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
+import com.kwiki.indexing.pipeline.SelectedIndexEmbeddingPort;
+import com.kwiki.infrastructure.ai.registry.EmbeddingBinding;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -55,7 +57,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
     private final ElasticsearchIndexManager indexes;
     private final ObjectProvider<SearchIndexVersionRepository> versions;
     private final ChunkMappingBuilder mappingBuilder;
-    private final ExternalServicesProperties properties;
+    private final ModelRegistry models;
     private final int bootstrapVersion;
     private final IndexingDefaultsProperties defaults;
     private volatile boolean ready;
@@ -64,7 +66,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
             ElasticsearchIndexManager indexes,
             ObjectProvider<SearchIndexVersionRepository> versions,
             ChunkMappingBuilder mappingBuilder,
-            ExternalServicesProperties properties,
+            ModelRegistry models,
             @Value("${kwiki.indexing.bootstrap.version:1}") int bootstrapVersion,
             IndexingDefaultsProperties defaults) {
         if (bootstrapVersion < 1) {
@@ -73,7 +75,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
         this.indexes = indexes;
         this.versions = versions;
         this.mappingBuilder = mappingBuilder;
-        this.properties = properties;
+        this.models = models;
         this.bootstrapVersion = bootstrapVersion;
         this.defaults = defaults;
     }
@@ -122,14 +124,17 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
         return ready;
     }
 
-    /** 当前部署实际生效的结构配置（隐式默认代，见任务 1.4 注记）。 */
+    /** 当前部署实际生效的结构配置（隐式默认代，见任务 1.4 注记）；embedding 取模型目录的默认模型。 */
     private EditableIndexConfig deployedConfig() {
+        EmbeddingBinding embedding = SelectedIndexEmbeddingPort.defaultBinding(models)
+                .orElseThrow(() -> new IllegalStateException(
+                        "模型目录中没有可用的 embedding 模型，无法引导首次索引部署"));
         return new EditableIndexConfig(
                 defaults.parsers().get(defaults.parsers().size() - 1),
                 defaults.chunker(),
-                IndexingProperties.DEFAULT_EMBEDDING_PROFILE,
-                properties.qwenEmbedding().model(),
-                properties.qwenEmbedding().dimensions(),
+                embedding.providerName(),
+                embedding.modelName(),
+                embedding.dimensions(),
                 defaults.indexSchema());
     }
 

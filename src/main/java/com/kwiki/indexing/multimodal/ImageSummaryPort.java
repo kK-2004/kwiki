@@ -8,4 +8,9 @@ package com.kwiki.indexing.multimodal;
 public interface ImageSummaryPort {
 
     String summarize(String cdnUrl);
+
+    /** 当前生效的视觉模型名；参与派生摘要的持久身份（模型变化即重新摘要）。 */
+    default String modelName() {
+        return "vision";
+    }
 }

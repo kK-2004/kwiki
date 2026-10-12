@@ -11,7 +11,6 @@ import com.kwiki.indexing.parse.MarkdownStructParser;
 import com.kwiki.indexing.parse.StructuredDocument;
 import com.kwiki.indexing.parse.UnsupportedInputException;
 import com.kwiki.indexing.search.ChunkDocument;
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.wiki.attach.AttachmentStorage;
 import com.kwiki.wiki.attach.AttachmentUpload;
@@ -78,7 +77,7 @@ class MultimodalEndToEndTest {
         ImageResourceService imageResources = new ImageResourceService(
                 TestMultimodalRepos.assets(assetBacking),
                 TestMultimodalRepos.summaries(summaryBacking),
-                storage, vision, properties(), multimodal(), new MultimodalMetrics(null));
+                storage, vision, multimodal(), new MultimodalMetrics(null));
         service = new MultimodalIndexingService(new MarkdownStructParser(), downloader,
                 imageResources, attachments.toRepository(), storage,
                 new ProtectedBlockProtocol(512), multimodal(), new MultimodalMetrics(null));
@@ -91,18 +90,6 @@ class MultimodalEndToEndTest {
                 com.kwiki.testutil.StandardTestProperties.providerOf(pdfParser));
     }
 
-    private static ExternalServicesProperties properties() {
-        return new ExternalServicesProperties(
-                new ExternalServicesProperties.ContentCenter("http://cc", "k", null, null,
-                        Duration.ofSeconds(5), Duration.ofSeconds(30)),
-                new ExternalServicesProperties.Elasticsearch(null, null, null),
-                new ExternalServicesProperties.AnswerLlm("http://l/v1", "k", "m",
-                        Duration.ofSeconds(10)),
-                new ExternalServicesProperties.QwenEmbedding("http://q/v1", "k", "m", 4,
-                        Duration.ofSeconds(10)),
-                new ExternalServicesProperties.VisionModel("http://v/v1", "vision-key",
-                        "qwen3.7-flash", Duration.ofSeconds(5), Duration.ofSeconds(30), 1, 2));
-    }
 
     private static MultimodalIndexingProperties multimodal() {
         return new MultimodalIndexingProperties(true, "v1", 20, 64, 1_000_000, 1_000_000, 512,

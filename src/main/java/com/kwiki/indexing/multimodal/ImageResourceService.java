@@ -1,6 +1,5 @@
 package com.kwiki.indexing.multimodal;
 
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import com.kwiki.indexing.config.MultimodalIndexingProperties;
 import com.kwiki.wiki.attach.AttachmentStorage;
 import com.kwiki.wiki.attach.AttachmentStorageException;
@@ -48,14 +47,12 @@ public class ImageResourceService {
     private final AttachmentStorage storage;
     private final ImageSummaryPort vision;
     private final MultimodalMetrics metrics;
-    private final String visionModel;
     private final String promptVersion;
 
     public ImageResourceService(DerivedImageAssetRepository assets,
                                 DerivedImageSummaryRepository summaries,
                                 AttachmentStorage storage,
                                 ImageSummaryPort vision,
-                                ExternalServicesProperties externalProperties,
                                 MultimodalIndexingProperties multimodalProperties,
                                 MultimodalMetrics metrics) {
         this.assets = assets;
@@ -63,7 +60,6 @@ public class ImageResourceService {
         this.storage = storage;
         this.vision = vision;
         this.metrics = metrics;
-        this.visionModel = externalProperties.visionModel().model();
         this.promptVersion = multimodalProperties.promptVersion();
     }
 
@@ -171,6 +167,7 @@ public class ImageResourceService {
         if (!asset.hasAuthoritativeContent()) {
             throw new IllegalStateException("cannot summarize an asset without content id");
         }
+        String visionModel = vision.modelName();
         Optional<DerivedImageSummary> existing = summaries
                 .findByAssetIdAndModelAndPromptVersion(asset.getId(), visionModel, promptVersion);
         DerivedImageSummary summary = existing.orElse(null);
@@ -210,7 +207,7 @@ public class ImageResourceService {
     }
 
     public String visionModel() {
-        return visionModel;
+        return vision.modelName();
     }
 
     public String promptVersion() {

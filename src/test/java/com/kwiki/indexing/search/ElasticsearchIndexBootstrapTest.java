@@ -3,7 +3,6 @@ package com.kwiki.indexing.search;
 import com.kwiki.indexing.version.EditableIndexConfig;
 import com.kwiki.indexing.version.SearchIndexVersion;
 import com.kwiki.indexing.version.SearchIndexVersionRepository;
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.ObjectProvider;
@@ -27,18 +26,10 @@ import static org.mockito.Mockito.when;
  */
 class ElasticsearchIndexBootstrapTest {
 
-    private static ExternalServicesProperties properties() {
-        return new ExternalServicesProperties(
-                new ExternalServicesProperties.ContentCenter(
-                        "https://content-center.internal", "token", null, null,
-                        Duration.ofSeconds(10), Duration.ofSeconds(600)),
-                new ExternalServicesProperties.Elasticsearch(null, null, null),
-                new ExternalServicesProperties.AnswerLlm(
-                        "https://llm.internal/v1", "key", "model", Duration.ofSeconds(10)),
-                new ExternalServicesProperties.QwenEmbedding(
-                        "https://embed.internal/v1", "key", "text-embedding-v4", 1024,
-                        Duration.ofSeconds(30)),
-                ExternalServicesProperties.unusedVisionModel());
+    /** 模型目录只有 default provider 的 text-embedding-v4（1024 维），对应迁移前的部署形态。 */
+    private static com.kwiki.testutil.StubModelRegistry properties() {
+        return com.kwiki.testutil.StubModelRegistry.defaultEmbedding("text-embedding-v4", 1024,
+                Mockito.mock(com.kwiki.indexing.pipeline.ChunkEmbeddingPort.class));
     }
 
     private static EditableIndexConfig deployedConfig() {
@@ -119,9 +110,7 @@ class ElasticsearchIndexBootstrapTest {
         when(custom.availability()).thenReturn(com.kwiki.indexing.plugin.PluginAvailability.ok());
         var pipelines = new com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry(configured, properties(), registry,
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(List.of(custom, new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
-                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
-                providerOf(Mockito.mock(com.kwiki.indexing.pipeline.ChunkEmbeddingPort.class)),
-                providerOf(org.springframework.web.reactive.function.client.WebClient.builder()), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))), com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         var bootstrap = new ElasticsearchIndexBootstrap(new FakeIndexManager(false, List.of(), null), providerOf(new InMemoryRegistry().proxy),
                 new ChunkMappingBuilder(com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), properties(), 1, defaults);
         bootstrap.setFirstDeploymentSupport(new com.kwiki.indexing.gray.ParserCatalog(registry, pipelines, null, defaults), configured,
@@ -145,8 +134,6 @@ class ElasticsearchIndexBootstrapTest {
         var pipelines = new com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry(configured, properties(), registry,
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
                         new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
-                providerOf(Mockito.mock(com.kwiki.indexing.pipeline.ChunkEmbeddingPort.class)),
-                providerOf(org.springframework.web.reactive.function.client.WebClient.builder()),
                 com.kwiki.indexing.schema.SchemaTestFixtures.schemas());
         var catalog = new com.kwiki.indexing.gray.ParserCatalog(registry, pipelines, null, defaults);
         var bootstrap = new ElasticsearchIndexBootstrap(new FakeIndexManager(false, List.of(), null),

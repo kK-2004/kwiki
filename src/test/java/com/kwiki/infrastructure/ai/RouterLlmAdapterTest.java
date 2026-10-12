@@ -42,7 +42,7 @@ class RouterLlmAdapterTest {
                         .clientConnector(new ReactorClientHttpConnector(HttpClient.create()))
                         .build();
         adapter =
-                new RouterLlmAdapter(
+                new RouterLlmAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(
                         dev.langchain4j.model.openai.OpenAiChatModel.builder()
                                 .baseUrl(server.url("/v1").toString())
                                 .apiKey("test-answer-key")
@@ -50,7 +50,7 @@ class RouterLlmAdapterTest {
                                 .maxRetries(0)
                                 .timeout(Duration.ofSeconds(2))
                                 .httpClientBuilder(new CancellableModelHttpClient.Builder())
-                                .build());
+                                .build()));
     }
 
     @AfterEach

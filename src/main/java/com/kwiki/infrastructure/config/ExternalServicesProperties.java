@@ -27,9 +27,11 @@ import java.util.List;
 public record ExternalServicesProperties(
         @Valid @NotNull ContentCenter contentCenter,
         @Valid @NotNull Elasticsearch elasticsearch,
-        @Valid @NotNull AnswerLlm answerLlm,
-        @Valid @NotNull QwenEmbedding qwenEmbedding,
-        /** 缺省绑定（空 vision-model 键）时以全默认值构造；启用多模态时再校验凭据。 */
+        /** 已迁入模型目录：仅供首次启动导入（ModelConfigBootstrapImporter）读取，可缺省。 */
+        @Valid AnswerLlm answerLlm,
+        /** 已迁入模型目录：仅供首次启动导入读取，可缺省。 */
+        @Valid QwenEmbedding qwenEmbedding,
+        /** 已迁入模型目录：仅供首次启动导入读取；缺省绑定时以全默认值构造。 */
         @Valid @NotNull @DefaultValue VisionModel visionModel) {
 
     /** 测试/装配辅助：视觉模型取未配置但校验可通过的默认形态。 */

@@ -31,7 +31,7 @@ class StreamingAnswerLlmAdapterTest {
                     .aiMessage(AiMessage.from(complete)).finishReason(reason).build());
             return null;
         }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
-        return new StreamingAnswerLlmAdapter(model);
+        return new StreamingAnswerLlmAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model));
     }
 
     @Test

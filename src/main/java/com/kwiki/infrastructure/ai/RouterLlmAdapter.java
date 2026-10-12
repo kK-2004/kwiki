@@ -1,5 +1,7 @@
 package com.kwiki.infrastructure.ai;
 
+import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import com.kwiki.rag.orchestration.RunContext;
 import com.kwiki.rag.routing.PriorRoute;
 import com.kwiki.rag.routing.RouteContext;
@@ -7,7 +9,6 @@ import com.kwiki.rag.routing.RouterLlmPort;
 import com.kwiki.rag.tool.ToolRegistry;
 
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.ChatModel;
 
 import org.springframework.stereotype.Component;
 
@@ -15,10 +16,10 @@ import java.util.*;
 
 @Component
 public class RouterLlmAdapter implements RouterLlmPort {
-    private final ChatModel model;
+    private final ModelRegistry models;
 
-    public RouterLlmAdapter(ChatModel model) {
-        this.model = model;
+    public RouterLlmAdapter(ModelRegistry models) {
+        this.models = models;
     }
 
     @Override
@@ -31,7 +32,7 @@ public class RouterLlmAdapter implements RouterLlmPort {
         try {
             if (RunContext.current() != null) RunContext.current().modelCall();
             String text =
-                    model.chat(
+                    models.chat(ModelPurpose.ROUTER).chat(
                                     List.of(
                                             SystemMessage.from(systemPrompt()),
                                             UserMessage.from(userPrompt(query, trace, context))))

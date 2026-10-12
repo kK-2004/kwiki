@@ -39,19 +39,21 @@ public class LlmGraphExtractorV1 implements GraphExtractorPlugin {
     private static final String SYSTEM_PROMPT = GraphExtractionPrompt.TEXT + FORMAT_INSTRUCTIONS;
 
     private final GraphModelClients clients;
-    private final ModelEndpoint endpoint;
+    /** 每次使用时解析，使后台修改模型配置后无需重建插件即可生效。 */
+    private final java.util.function.Supplier<java.util.Optional<ModelEndpoint>> endpoint;
     private final com.fasterxml.jackson.databind.ObjectMapper mapper =
             new com.fasterxml.jackson.databind.ObjectMapper();
 
     /** 运行时注入入口；另一个包内构造器仅供测试注入模型端点。 */
     @org.springframework.beans.factory.annotation.Autowired
     public LlmGraphExtractorV1(GraphModelClients clients) {
-        this(clients, clients.extraction().orElse(null));
+        this.clients = clients;
+        this.endpoint = clients::extraction;
     }
 
     LlmGraphExtractorV1(GraphModelClients clients, ModelEndpoint endpoint) {
         this.clients = clients;
-        this.endpoint = endpoint;
+        this.endpoint = () -> java.util.Optional.ofNullable(endpoint);
     }
 
     @Override
@@ -71,7 +73,7 @@ public class LlmGraphExtractorV1 implements GraphExtractorPlugin {
 
     @Override
     public PluginAvailability availability() {
-        if (endpoint == null) {
+        if (endpoint.get().isEmpty()) {
             return PluginAvailability.unavailable(
                     "缺少配置：" + String.join("、", clients.missing("extraction")));
         }
@@ -80,12 +82,13 @@ public class LlmGraphExtractorV1 implements GraphExtractorPlugin {
 
     @Override
     public GraphExtractionResult extract(GraphExtractionInput input) {
-        if (endpoint == null) {
+        ModelEndpoint current = endpoint.get().orElse(null);
+        if (current == null) {
             throw GraphBuildFailure.retryable("MODEL_UNAVAILABLE", "抽取模型未配置");
         }
         String text;
         try {
-            text = LlmPluginSupport.complete(endpoint, SYSTEM_PROMPT, userPrompt(input));
+            text = LlmPluginSupport.complete(current, SYSTEM_PROMPT, userPrompt(input));
         } catch (Exception failure) {
             throw LlmPluginSupport.modelFailure(failure, "MODEL_UNAVAILABLE", "抽取模型暂不可用");
         }

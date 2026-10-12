@@ -97,10 +97,10 @@ class GrayReleaseServiceTest {
         when(schema.availability()).thenReturn(com.kwiki.indexing.plugin.PluginAvailability.ok());
         var realPipelines = new com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry(
                 mock(com.kwiki.indexing.config.IndexingProperties.class),
-                mock(com.kwiki.infrastructure.config.ExternalServicesProperties.class),
+                com.kwiki.testutil.StubModelRegistry.empty(),
                 new com.kwiki.indexing.parse.plugin.DocumentParserRegistry(List.of(parser)),
                 new com.kwiki.indexing.chunk.plugin.ChunkerRegistry(java.util.List.of(new com.kwiki.indexing.chunk.plugin.KwikiChunkV1(
-                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))), null, null,
+                        new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(com.kwiki.indexing.multimodal.MultimodalMetrics.class)))),
                 new com.kwiki.indexing.schema.ChunkIndexSchemaRegistry(List.of(schema)));
         var realService = new GrayReleaseService(store, admin, versions, scope, writes, migrations,
                 validations, runs, parsers, null, realPipelines);

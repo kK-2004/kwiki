@@ -63,7 +63,7 @@ class AgentPlannerAdapterTest {
                 ToolExecutionRequest.builder().id("c2").name("rewrite_query")
                         .arguments("{\"mode\":\"EXPANSION\"}").build())));
 
-        List<ToolCall> calls = new AgentPlannerAdapter(model, "native").plan(request(List.of(), ""));
+        List<ToolCall> calls = new AgentPlannerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), "native").plan(request(List.of(), ""));
 
         assertThat(calls).extracting(ToolCall::callId).containsExactly("c1", "c2");
         assertThat(calls).extracting(ToolCall::name).containsExactly("search_chunks", "rewrite_query");
@@ -85,7 +85,7 @@ class AgentPlannerAdapterTest {
     void nativeModeWithNoToolRequestsMeansTheEvidenceSuffices() {
         var model = model(AiMessage.from("证据已足够"));
 
-        assertThat(new AgentPlannerAdapter(model, "native").plan(request(List.of(), ""))).isEmpty();
+        assertThat(new AgentPlannerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), "native").plan(request(List.of(), ""))).isEmpty();
     }
 
     @Test
@@ -97,7 +97,7 @@ class AgentPlannerAdapterTest {
                 new RetrievalPlannerPort.ToolExchange(new ToolCall("b", "expand_parents", "{}", "turn-1"),
                         new ToolResult("b", "ERROR", List.of(), List.of(), "parent-budget-exhausted", Map.of())));
 
-        new AgentPlannerAdapter(model, "native").plan(request(history, "invalid-tool-count"));
+        new AgentPlannerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), "native").plan(request(history, "invalid-tool-count"));
 
         var messages = captured(model).messages();
         assertThat(messages.get(2)).isInstanceOf(AiMessage.class);
@@ -113,7 +113,7 @@ class AgentPlannerAdapterTest {
         var model = model(AiMessage.from("""
                 {"toolCalls":[{"id":"x1","name":"graph_expand","arguments":{"query":"部署"}}]}"""));
 
-        List<ToolCall> calls = new AgentPlannerAdapter(model, "json").plan(request(List.of(), ""));
+        List<ToolCall> calls = new AgentPlannerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), "json").plan(request(List.of(), ""));
 
         assertThat(calls).hasSize(1);
         assertThat(calls.getFirst().name()).isEqualTo("graph_expand");
@@ -132,7 +132,7 @@ class AgentPlannerAdapterTest {
                 new ToolCall("a", "search_chunks", "{}", "turn-1"),
                 new ToolResult("a", "SUCCESS", List.of("C1"), List.of(), null, Map.of())));
 
-        assertThat(new AgentPlannerAdapter(model, "json").plan(request(history, ""))).isEmpty();
+        assertThat(new AgentPlannerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), "json").plan(request(history, ""))).isEmpty();
 
         var messages = captured(model).messages();
         assertThat(messages).noneMatch(m -> m instanceof ToolExecutionResultMessage);
@@ -149,7 +149,7 @@ class AgentPlannerAdapterTest {
                 "{\"toolCalls\":[{\"id\":\"1\",\"name\":\"search_chunks\",\"arguments\":[]}]}",
                 "{\"toolCalls\":[" + oneCall("1") + "," + oneCall("2") + "," + oneCall("3") + "," + oneCall("4") + "]}")) {
             var model = model(AiMessage.from(bad));
-            assertThatThrownBy(() -> new AgentPlannerAdapter(model, "json").plan(request(List.of(), "")))
+            assertThatThrownBy(() -> new AgentPlannerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), "json").plan(request(List.of(), "")))
                     .as(bad).isInstanceOf(RunFailure.class);
         }
     }
@@ -165,7 +165,7 @@ class AgentPlannerAdapterTest {
         var model = model(AiMessage.from("done"));
 
         try (var bound = run.bind()) {
-            new AgentPlannerAdapter(model, "native").plan(request(List.of(), ""));
+            new AgentPlannerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), "native").plan(request(List.of(), ""));
         }
 
         assertThat(run.stats().get("modelCalls")).isEqualTo(1);
@@ -173,7 +173,7 @@ class AgentPlannerAdapterTest {
 
     @Test
     void invalidToolModeIsRejectedAtConstruction() {
-        assertThatThrownBy(() -> new AgentPlannerAdapter(mock(ChatModel.class), "magic"))
+        assertThatThrownBy(() -> new AgentPlannerAdapter(com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed((ChatModel) mock(ChatModel.class)), "magic"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

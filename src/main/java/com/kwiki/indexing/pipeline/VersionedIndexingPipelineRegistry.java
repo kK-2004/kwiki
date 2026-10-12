@@ -8,16 +8,14 @@ import com.kwiki.indexing.config.IndexingProperties;
 import com.kwiki.indexing.parse.plugin.DocumentParserPlugin;
 import com.kwiki.indexing.parse.plugin.DocumentParserRegistry;
 import com.kwiki.indexing.version.EditableIndexConfig;
-import com.kwiki.infrastructure.config.ExternalServicesProperties;
-import org.springframework.beans.factory.ObjectProvider;
+import com.kwiki.infrastructure.ai.registry.EmbeddingBinding;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 按目标版本"成功构建的配置修订"解析流水线（任务 5.1）：把结构配置
@@ -26,10 +24,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * 所有可用字段格式和分块器，并按解析器声明的所需能力筛选兼容组合。
  *
  * <p>解析器与分块器均由注册表提供。
- * 匹配是全字段精确相等；embedding 档案必须解析出 baseUrl/apiKey。
- * default 档案复用应用装配的 embedding 客户端 bean；其它档案按配置
- * 惰性构建独立客户端。凭据只存在于配置与客户端实例，绝不进入返回值
- * 或数据库。</p>
+ * 匹配是全字段精确相等；embedding 的「档案」即模型目录中的 provider 名，
+ * 客户端由 {@link ModelRegistry} 按 provider 名 + 模型名提供，维度必须与目录登记一致。
+ * 隐式组合对目录中每个可用的 embedding 模型各生成一条。凭据只存在于目录与客户端实例，
+ * 绝不进入返回值。</p>
  */
 @Component
 public class VersionedIndexingPipelineRegistry {
@@ -52,20 +50,15 @@ public class VersionedIndexingPipelineRegistry {
 
     private final ChunkIndexSchemaRegistry schemaRegistry;
     private final IndexingProperties indexingProperties;
-    private final ExternalServicesProperties externalProperties;
+    private final ModelRegistry models;
     private final DocumentParserRegistry parserRegistry;
     private final ChunkerRegistry chunkerRegistry;
-    private final ObjectProvider<ChunkEmbeddingPort> defaultEmbeddings;
-    private final ObjectProvider<WebClient.Builder> webClientBuilder;
-    private final Map<String, ChunkEmbeddingPort> profileClients = new ConcurrentHashMap<>();
 
     public VersionedIndexingPipelineRegistry(
             IndexingProperties indexingProperties,
-            ExternalServicesProperties externalProperties,
+            ModelRegistry models,
             DocumentParserRegistry parserRegistry,
             ChunkerRegistry chunkerRegistry,
-            ObjectProvider<ChunkEmbeddingPort> defaultEmbeddings,
-            ObjectProvider<WebClient.Builder> webClientBuilder,
             ChunkIndexSchemaRegistry schemaRegistry) {
         this.schemaRegistry = schemaRegistry;
         if (indexingProperties.manifests() != null) {
@@ -76,11 +69,9 @@ public class VersionedIndexingPipelineRegistry {
             }
         }
         this.indexingProperties = indexingProperties;
-        this.externalProperties = externalProperties;
+        this.models = models;
         this.parserRegistry = parserRegistry;
         this.chunkerRegistry = chunkerRegistry;
-        this.defaultEmbeddings = defaultEmbeddings;
-        this.webClientBuilder = webClientBuilder;
     }
 
     /** 目标 built 配置能否由当前部署执行。 */
@@ -132,14 +123,21 @@ public class VersionedIndexingPipelineRegistry {
         if (chunker.isEmpty()) return Optional.of("分块器 " + config.chunkerVersion() + " 未注册");
         if (!chunker.get().availability().available()) return Optional.of("分块器 " + config.chunkerVersion() + " 不可用："
                 + chunker.get().availability().unavailableReason());
+        boolean providerKnown = models.embeddings().stream()
+                .anyMatch(binding -> binding.providerName().equals(config.embeddingProvider()));
+        if (!providerKnown) {
+            return Optional.of("embedding profile is not configured: " + config.embeddingProvider());
+        }
         boolean tupleKnown = effectiveManifests().stream()
                 .anyMatch(manifest -> tupleMatches(manifest, config));
         if (!tupleKnown) {
             return Optional.of("configuration does not match any supported manifest");
         }
-        return embeddingProfileOf(config).isPresent()
+        return embeddingFor(config.embeddingProvider(), config.embeddingModel(), config.embeddingDimensions())
+                .isPresent()
                 ? Optional.empty()
-                : Optional.of("embedding profile is not configured: " + config.embeddingProvider());
+                : Optional.of("embedding model is not configured: " + config.embeddingProvider()
+                        + "/" + config.embeddingModel() + " (" + config.embeddingDimensions() + "D)");
     }
 
     public Optional<ResolvedPipeline> resolve(EditableIndexConfig config) {
@@ -156,7 +154,8 @@ public class VersionedIndexingPipelineRegistry {
             if (!tupleMatches(manifest, config)) {
                 continue;
             }
-            ChunkEmbeddingPort embeddings = embeddingClient(manifest, config);
+            ChunkEmbeddingPort embeddings = embeddingFor(manifest.embeddingProfile(),
+                    manifest.embeddingModel(), manifest.dimensions()).map(EmbeddingBinding::port).orElse(null);
             if (embeddings == null) {
                 return Optional.empty();
             }
@@ -188,90 +187,37 @@ public class VersionedIndexingPipelineRegistry {
                         || !schema.capabilities().containsAll(plugin.requiredCapabilities())) continue;
                 for (var chunker : chunkerRegistry.all()) {
                     if (!chunker.availability().available()) continue;
-                    manifests.add(implicitManifest("implicit-" + plugin.id() + "-" + chunker.id() + "-" + schema.id(),
-                            plugin.id(), chunker.id(), schema.id()));
+                    String id = "implicit-" + plugin.id() + "-" + chunker.id() + "-" + schema.id();
+                    boolean primaryTaken = false;
+                    for (EmbeddingBinding binding : models.embeddings()) {
+                        // 第一个 default provider 的模型沿用历史 id，其余追加 @provider/model 以区分
+                        boolean primary = !primaryTaken
+                                && IndexingProperties.DEFAULT_EMBEDDING_PROFILE.equals(binding.providerName());
+                        primaryTaken |= primary;
+                        manifests.add(new IndexingProperties.Manifest(
+                                primary ? id : id + "@" + binding.providerName() + "/" + binding.modelName(),
+                                plugin.id(), chunker.id(), binding.providerName(), binding.modelName(),
+                                binding.dimensions(), schema.id()));
+                    }
                 }
             }
         }
         return List.copyOf(manifests);
     }
 
-    private IndexingProperties.Manifest implicitManifest(String id, String parserVersion,
-                                                         String chunkerVersion, String indexSchema) {
-        var qwen = externalProperties.qwenEmbedding();
-        return new IndexingProperties.Manifest(id, parserVersion, chunkerVersion,
-                IndexingProperties.DEFAULT_EMBEDDING_PROFILE, qwen.model(), qwen.dimensions(),
-                indexSchema);
-    }
-
     private static boolean tupleMatches(IndexingProperties.Manifest manifest,
                                         EditableIndexConfig config) {
         return manifest.parserVersion().equals(config.parserVersion())
                 && manifest.chunkerVersion().equals(config.chunkerVersion())
+                && manifest.embeddingProfile().equals(config.embeddingProvider())
                 && manifest.embeddingModel().equals(config.embeddingModel())
                 && manifest.dimensions().intValue() == config.embeddingDimensions().intValue()
                 && manifest.indexSchema().equals(config.indexSchema());
     }
 
-    private Optional<IndexingProperties.EmbeddingProfile> embeddingProfileOf(
-            EditableIndexConfig config) {
-        Map<String, IndexingProperties.EmbeddingProfile> profiles = indexingProperties.embeddings();
-        if (profiles != null && profiles.containsKey(config.embeddingProvider())) {
-            return Optional.of(profiles.get(config.embeddingProvider()));
-        }
-        if (IndexingProperties.DEFAULT_EMBEDDING_PROFILE.equals(config.embeddingProvider())) {
-            return Optional.of(new IndexingProperties.EmbeddingProfile(
-                    externalProperties.qwenEmbedding().baseUrl(),
-                    externalProperties.qwenEmbedding().apiKey(),
-                    externalProperties.qwenEmbedding().requestTimeout()));
-        }
-        return Optional.empty();
-    }
-
-    private ChunkEmbeddingPort embeddingClient(IndexingProperties.Manifest manifest,
-                                               EditableIndexConfig config) {
-        if (IndexingProperties.DEFAULT_EMBEDDING_PROFILE.equals(manifest.embeddingProfile())) {
-            var qwen = externalProperties.qwenEmbedding();
-            if (!qwen.model().equals(config.embeddingModel())
-                    || qwen.dimensions().intValue() != config.embeddingDimensions().intValue()) {
-                // default 档案的部署取值与请求代不一致：该代不受支持。
-                return null;
-            }
-            return defaultEmbeddings.getIfAvailable();
-        }
-        return embeddingProfileOf(config)
-                .map(profile -> profileClients.computeIfAbsent(
-                        manifest.embeddingProfile(), key -> buildClient(profile, manifest)))
-                .orElse(null);
-    }
-
-    private ChunkEmbeddingPort buildClient(IndexingProperties.EmbeddingProfile profile,
-                                           IndexingProperties.Manifest manifest) {
-        WebClient.Builder builder = webClientBuilder.getIfAvailable();
-        if (builder == null) {
-            throw new IllegalStateException(
-                    "no WebClient builder available for embedding profile");
-        }
-        WebClient client = builder
-                .baseUrl(profile.baseUrl())
-                .defaultHeader("Authorization", "Bearer " + profile.apiKey())
-                .build();
-        return new com.kwiki.infrastructure.ai.QwenEmbeddingClient(
-                client, manifest.embeddingModel(), manifest.dimensions(),
-                defaultEmbeddingBatchSize(), defaultEmbeddingMaxRetries());
-    }
-
-    private int defaultEmbeddingBatchSize() {
-        return 25;
-    }
-
-    private int defaultEmbeddingMaxRetries() {
-        return 2;
-    }
-
-    /** 供测试注入档案客户端。 */
-    public void registerProfileClientForTests(String profile, ChunkEmbeddingPort client) {
-        profileClients.put(profile, client);
+    private Optional<EmbeddingBinding> embeddingFor(String provider, String model, Integer dimensions) {
+        return models.embedding(provider, model)
+                .filter(binding -> dimensions != null && binding.dimensions() == dimensions);
     }
 
     /** 诊断用：每个受支持代的可执行性（脱敏）。 */
@@ -285,12 +231,8 @@ public class VersionedIndexingPipelineRegistry {
                                     && schema.capabilities().containsAll(plugin.requiredCapabilities())).isPresent()).isPresent()
                     && chunkerRegistry.find(manifest.chunkerVersion())
                             .filter(chunker -> chunker.availability().available()).isPresent()
-                    && (IndexingProperties.DEFAULT_EMBEDDING_PROFILE
-                            .equals(manifest.embeddingProfile())
-                        ? defaultEmbeddings.getIfAvailable() != null
-                        : indexingProperties.embeddings() != null
-                                && indexingProperties.embeddings()
-                                        .containsKey(manifest.embeddingProfile()));
+                    && embeddingFor(manifest.embeddingProfile(), manifest.embeddingModel(),
+                            manifest.dimensions()).isPresent();
             diagnostics.put(manifest.id(), runnable ? "supported" : "pipeline or profile unavailable");
         }
         return diagnostics;

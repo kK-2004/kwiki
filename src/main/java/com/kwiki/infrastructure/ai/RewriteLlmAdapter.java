@@ -1,10 +1,11 @@
 package com.kwiki.infrastructure.ai;
 
+import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import com.kwiki.rag.orchestration.RunContext;
 import com.kwiki.rag.rewrite.RewriteLlmPort;
 
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.ChatModel;
 
 import org.springframework.stereotype.Component;
 
@@ -12,17 +13,17 @@ import java.util.*;
 
 @Component
 public class RewriteLlmAdapter implements RewriteLlmPort {
-    private final ChatModel model;
+    private final ModelRegistry models;
 
-    public RewriteLlmAdapter(ChatModel model) {
-        this.model = model;
+    public RewriteLlmAdapter(ModelRegistry models) {
+        this.models = models;
     }
 
     public Optional<String> complete(String system, String user) {
         try {
             if (RunContext.current() != null) RunContext.current().modelCall();
             String text =
-                    model.chat(List.of(SystemMessage.from(system), UserMessage.from(user)))
+                    models.chat(ModelPurpose.REWRITE).chat(List.of(SystemMessage.from(system), UserMessage.from(user)))
                             .aiMessage()
                             .text();
             return text == null || text.isBlank() || text.length() > 3000
