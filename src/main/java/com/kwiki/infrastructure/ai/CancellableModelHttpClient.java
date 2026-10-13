@@ -215,12 +215,20 @@ public final class CancellableModelHttpClient implements HttpClient {
             message = message.substring(0, 500) + "…[truncated]";
         }
         String path;
+        String host;
         try {
-            path = URI.create(request.url()).getPath();
+            URI uri = URI.create(request.url());
+            path = uri.getPath();
+            host = uri.getHost();
         } catch (Exception ignored) {
             path = "unknown";
+            host = "unknown";
         }
         String requestBody = request.body();
+        // 模型名取自请求体，便于区分各用途分配到的 provider / 模型
+        java.util.regex.Matcher modelMatch = requestBody == null ? null
+                : MODEL_FIELD.matcher(requestBody);
+        String model = modelMatch != null && modelMatch.find() ? modelMatch.group(1) : "-";
         boolean structuredOutput = requestBody != null && requestBody.contains("response_format");
         String structuredOutputMode = requestBody != null && requestBody.contains("json_schema")
                 ? "json-schema" : structuredOutput ? "json-object" : "none";
@@ -230,14 +238,14 @@ public final class CancellableModelHttpClient implements HttpClient {
                         "(?s).*\\\"enable_thinking\\\"\\s*:\\s*true.*")
                         ? "enabled" : "provider-default";
         Object[] fields = {
-                operation, run == null ? "-" : run.requestId, request.method(), path,
+                operation, run == null ? "-" : run.requestId, request.method(), host, path, model,
                 statusCode == null ? "-" : statusCode,
                 structuredOutput, structuredOutputMode, thinkingMode,
                 terminationReason == null ? "-" : terminationReason,
                 error == null ? "unknown" : error.getClass().getSimpleName(),
                 message == null ? "-" : message
         };
-        String template = "model transport failed operation={} requestId={} method={} path={} "
+        String template = "model transport failed operation={} requestId={} method={} host={} path={} model={} "
                 + "statusCode={} structuredOutput={} structuredOutputMode={} thinkingMode={} "
                 + "terminationReason={} errorClass={} error={}";
         if ("cancelled".equals(terminationReason)) {
@@ -246,6 +254,9 @@ public final class CancellableModelHttpClient implements HttpClient {
             log.warn(template, fields);
         }
     }
+
+    private static final java.util.regex.Pattern MODEL_FIELD =
+            java.util.regex.Pattern.compile("\"model\"\\s*:\\s*\"([^\"]{1,200})\"");
 
     public static final class Builder implements HttpClientBuilder {
         private Duration connect = Duration.ofSeconds(5), read = Duration.ofSeconds(120);
