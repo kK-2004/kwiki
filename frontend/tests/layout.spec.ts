@@ -49,6 +49,23 @@ describe('workspace navigation', () => {
     expect(screen.queryByRole('dialog', { name: '导入文档' })).toBeNull();
     expect(screen.getByText('2 项')).toBeTruthy();
   });
+  it('shows a missing-source hint with delete instead of retry, and deletes the failed import', async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      const data = url.endsWith('/tree') ? tree : url.endsWith('/knowledge-bases/12') ? kb
+        : url.includes('/imports?limit=100') ? [{ jobId: 43, state: 'FAILED', fileName: '旧手册.pdf', error: '源文件已丢失，请删除后重新上传', sourceMissing: true }]
+          : url.endsWith('/imports/43') ? true : url.endsWith('/unread-count') ? 0 : [];
+      return new Response(JSON.stringify({ success: true, code: 200, data }));
+    });
+    const screen = await mountWorkspace('/knowledge-bases/12');
+    expect(screen.getByText('文件已丢失，请删除后重新上传')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '删除导入任务 旧手册.pdf' }));
+    await flushPromises();
+    const deleted = vi.mocked(fetch).mock.calls.find(([input, init]) => String(input).endsWith('/knowledge-bases/12/imports/43') && init?.method === 'DELETE');
+    expect(deleted).toBeTruthy();
+    expect(screen.queryByText('旧手册.pdf')).toBeNull();
+  });
   it('publishes an initial revision when creating a page', async () => {
     vi.mocked(fetch).mockImplementation(async (input) => {
       const url = String(input);

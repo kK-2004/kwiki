@@ -413,6 +413,14 @@ public class RecycleBinCleanupService {
         jdbc.update("DELETE FROM wiki_page WHERE id = ?", pageId);
     }
 
+    /** 删除失败导入的源附件：与回收站清理使用同一套引用检查。 */
+    public void purgeImportSource(long attachmentId) {
+        transactions.inTransactionReturning(() -> {
+            if (jdbc != null) deleteAttachmentIfUnreferenced(attachmentId);
+            return null;
+        });
+    }
+
     /** 只物理删除没有任何其他对象仍引用的附件及其内容中心文件。 */
     private void deleteAttachmentIfUnreferenced(long attachmentId) {
         Integer sources = jdbc.queryForObject(
@@ -449,7 +457,11 @@ public class RecycleBinCleanupService {
                                    attachment.content_center_file_id) = ?
                       AND attachment.id <> ?
                     """, Integer.class, fileId, attachmentId);
-            if (otherReferences == null || otherReferences == 0) {
+            Boolean contentMissing = jdbc.queryForObject(
+                    "SELECT content_missing_at IS NOT NULL FROM attachment WHERE id = ?",
+                    Boolean.class, attachmentId);
+            // 内容中心已确认文件不存在：无需（也无法）再删除远端文件
+            if ((otherReferences == null || otherReferences == 0) && !Boolean.TRUE.equals(contentMissing)) {
                 if (attachmentStorage == null) {
                     throw new IllegalStateException("content-center attachment storage is unavailable");
                 }

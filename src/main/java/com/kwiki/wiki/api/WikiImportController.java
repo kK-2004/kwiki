@@ -51,6 +51,12 @@ public class WikiImportController {
         return TransDTO.success(imports.retry(user, jobId));
     }
 
+    @org.springframework.web.bind.annotation.DeleteMapping("/{jobId}")
+    TransDTO<Boolean> delete(@AuthenticationPrincipal CurrentUser user, @PathVariable long jobId) {
+        imports.delete(user, jobId);
+        return TransDTO.success(true);
+    }
+
     private List<ResourceAudienceService.Member> parseAudienceMembers(String value) {
         if (value == null || value.isBlank()) return List.of();
         List<ResourceAudienceService.Member> members = new ArrayList<>();

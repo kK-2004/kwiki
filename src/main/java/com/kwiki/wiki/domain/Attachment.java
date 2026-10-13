@@ -40,6 +40,9 @@ public class Attachment {
     // 规范的内容中心文件 id；上传处于 PENDING 时为 null。存储密钥/来源
     // 保留在内容中心内部，blobId 仅连接本地共享物理文件元数据。
     private Long contentCenterFileId;
+    /** 内容中心返回的对象键与数据源（V41）；历史附件为 null，读取时回退到按 fileId 查找。 */
+    private String storageKey;
+    private String storageSource;
     private String status = STATUS_PENDING;
     private String purpose = PURPOSE_GENERAL;
 
@@ -129,6 +132,23 @@ public class Attachment {
         }
         this.contentCenterFileId = contentCenterFileId;
         this.status = STATUS_STORED;
+    }
+
+    /** 记录文件在内容中心的真实位置；任一值缺失时整体忽略，避免写入半截定位信息。 */
+    public void recordStorageLocation(String storageKey, String storageSource) {
+        if (storageKey == null || storageKey.isBlank() || storageSource == null || storageSource.isBlank()) {
+            return;
+        }
+        this.storageKey = storageKey;
+        this.storageSource = storageSource;
+    }
+
+    public String getStorageKey() {
+        return storageKey;
+    }
+
+    public String getStorageSource() {
+        return storageSource;
     }
 
     /*把这个对用户可见的记录挂接到已验证的共享物理 blob 上。 */

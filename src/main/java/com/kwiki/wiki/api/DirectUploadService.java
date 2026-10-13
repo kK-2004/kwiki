@@ -53,7 +53,7 @@ public class DirectUploadService {
     }
     public record PrefixLookup(int candidates) {}
     private record Session(String storageKey, String source, Instant expiresAt, Long fileId, Long blobId) {}
-    private record Blob(long id, String status, Long fileId) {}
+    private record Blob(long id, String status, Long fileId, String storageKey, String storageSource) {}
 
     public PrefixLookup lookupPrefix(CurrentUser user, long kbId, String hashVersion,
                                      String prefixSha256, long byteSize) {
@@ -81,39 +81,27 @@ public class DirectUploadService {
         boolean fingerprinted = request.hashVersion() != null || request.prefixSha256() != null || request.fullSha256() != null;
         if (fingerprinted) validateHash(request.hashVersion(), request.prefixSha256(), request.fullSha256(), request.byteSize(), true);
 
-        if (fingerprinted) {
-            Blob exact = findBlob(request.hashVersion(), request.fullSha256(), request.byteSize());
-            if (exact != null && "STORED".equals(exact.status()) && exact.fileId() != null) {
-                Attachment reference = new Attachment(UUID.randomUUID().toString(), kbId, user.id(), name, type, request.byteSize());
-                if (Attachment.PURPOSE_WIKI_IMPORT_SOURCE.equals(purpose)) reference.markWikiImportSource();
-                reference.markStoredFromBlob(exact.id(), exact.fileId());
-                reference = attachments.saveAndFlush(reference);
-                attachmentService.enqueueDirectAttachment(reference);
-                return new Ticket("REUSED", reference.getUuid(), Map.of(), 0, "");
-            }
-            if (exact != null && "PENDING".equals(exact.status())) {
-                return new Ticket("PENDING", "", Map.of(), 0, "");
-            }
-        }
-
         Long blobId = null;
         if (fingerprinted) {
-            try {
-                jdbc.update("INSERT INTO attachment_blob (hash_version, prefix_sha256, full_sha256, byte_size, content_type) VALUES (?, UNHEX(?), UNHEX(?), ?, ?)",
-                        request.hashVersion(), request.prefixSha256(), request.fullSha256(), request.byteSize(), type);
-                blobId = jdbc.queryForObject("SELECT id FROM attachment_blob WHERE hash_version = ? AND full_sha256 = UNHEX(?) AND byte_size = ?",
-                        Long.class, request.hashVersion(), request.fullSha256(), request.byteSize());
-            } catch (org.springframework.dao.DuplicateKeyException duplicate) {
-                Blob exact = findBlob(request.hashVersion(), request.fullSha256(), request.byteSize());
-                if (exact != null && "STORED".equals(exact.status()) && exact.fileId() != null) {
-                    Attachment reference = new Attachment(UUID.randomUUID().toString(), kbId, user.id(), name, type, request.byteSize());
-                    if (Attachment.PURPOSE_WIKI_IMPORT_SOURCE.equals(purpose)) reference.markWikiImportSource();
-                    reference.markStoredFromBlob(exact.id(), exact.fileId());
-                    reference = attachments.saveAndFlush(reference);
-                    attachmentService.enqueueDirectAttachment(reference);
-                    return new Ticket("REUSED", reference.getUuid(), Map.of(), 0, "");
+            Blob exact = findBlob(request.hashVersion(), request.fullSha256(), request.byteSize());
+            if (reusable(exact)) {
+                return reuse(exact, kbId, user, name, type, request.byteSize(), purpose);
+            }
+            if (exact != null) {
+                // 已丢失或被放弃的去重记录由本次上传接管，真正重新上传内容
+                if (!takeOver(exact)) return new Ticket("PENDING", "", Map.of(), 0, "");
+                blobId = exact.id();
+            } else {
+                try {
+                    jdbc.update("INSERT INTO attachment_blob (hash_version, prefix_sha256, full_sha256, byte_size, content_type) VALUES (?, UNHEX(?), UNHEX(?), ?, ?)",
+                            request.hashVersion(), request.prefixSha256(), request.fullSha256(), request.byteSize(), type);
+                    blobId = jdbc.queryForObject("SELECT id FROM attachment_blob WHERE hash_version = ? AND full_sha256 = UNHEX(?) AND byte_size = ?",
+                            Long.class, request.hashVersion(), request.fullSha256(), request.byteSize());
+                } catch (org.springframework.dao.DuplicateKeyException duplicate) {
+                    Blob raced = findBlob(request.hashVersion(), request.fullSha256(), request.byteSize());
+                    if (reusable(raced)) return reuse(raced, kbId, user, name, type, request.byteSize(), purpose);
+                    return new Ticket("PENDING", "", Map.of(), 0, "");
                 }
-                return new Ticket("PENDING", "", Map.of(), 0, "");
             }
         }
         var attachment = new Attachment(UUID.randomUUID().toString(), kbId, user.id(), name, type, request.byteSize());
@@ -159,15 +147,17 @@ public class DirectUploadService {
             throw new IllegalArgumentException("文件内容与声明的媒体类型不符");
         }
         if (session.blobId() != null) {
-            jdbc.update("UPDATE attachment_blob SET content_center_file_id = ?, status = 'STORED' WHERE id = ? AND status = 'PENDING'",
-                    stored.contentCenterFileId(), session.blobId());
-            Blob blob = jdbc.query("SELECT id, status, content_center_file_id FROM attachment_blob WHERE id = ?",
-                    (rs, n) -> new Blob(rs.getLong(1), rs.getString(2), rs.getObject(3, Long.class)), session.blobId())
+            jdbc.update("UPDATE attachment_blob SET content_center_file_id = ?, storage_key = ?, storage_source = ?, status = 'STORED' WHERE id = ? AND status = 'PENDING'",
+                    stored.contentCenterFileId(), session.storageKey(), session.source(), session.blobId());
+            Blob blob = jdbc.query(SELECT_BLOB + " WHERE id = ?", BLOB_MAPPER, session.blobId())
                     .stream().findFirst().orElseThrow(() -> new IllegalStateException("attachment blob disappeared"));
             if (blob.fileId() == null || !"STORED".equals(blob.status())) throw new IllegalStateException("attachment blob is not stored");
             attachment.markStoredFromBlob(blob.id(), blob.fileId());
+            attachment.recordStorageLocation(blob.storageKey(), blob.storageSource());
         } else {
             attachment.markStored(stored.contentCenterFileId());
+            // 直传会话里的对象键与数据源就是文件的真实位置
+            attachment.recordStorageLocation(session.storageKey(), session.source());
         }
         attachments.saveAndFlush(attachment);
         attachmentService.enqueueDirectAttachment(attachment);
@@ -194,9 +184,46 @@ public class DirectUploadService {
         if (jdbc == null) throw new IllegalStateException("database is unavailable");
     }
 
+    private static final String SELECT_BLOB =
+            "SELECT id, status, content_center_file_id, storage_key, storage_source FROM attachment_blob";
+    private static final org.springframework.jdbc.core.RowMapper<Blob> BLOB_MAPPER = (rs, n) ->
+            new Blob(rs.getLong(1), rs.getString(2), rs.getObject(3, Long.class), rs.getString(4), rs.getString(5));
+
+    private static boolean reusable(Blob blob) {
+        return blob != null && "STORED".equals(blob.status()) && blob.fileId() != null;
+    }
+
+    /** 引用同一份已存储内容，不再上传。 */
+    private Ticket reuse(Blob blob, long kbId, CurrentUser user, String name, String type, long byteSize, String purpose) {
+        Attachment reference = new Attachment(UUID.randomUUID().toString(), kbId, user.id(), name, type, byteSize);
+        if (Attachment.PURPOSE_WIKI_IMPORT_SOURCE.equals(purpose)) reference.markWikiImportSource();
+        reference.markStoredFromBlob(blob.id(), blob.fileId());
+        reference.recordStorageLocation(blob.storageKey(), blob.storageSource());
+        reference = attachments.saveAndFlush(reference);
+        attachmentService.enqueueDirectAttachment(reference);
+        return new Ticket("REUSED", reference.getUuid(), Map.of(), 0, "");
+    }
+
+    /**
+     * 接管不可复用的去重记录：内容已丢失（MISSING），或处于 PENDING 但已没有未过期的上传会话
+     * （上一次上传中途失败被放弃）。条件更新保证并发时只按记录当时的状态接管。
+     */
+    private boolean takeOver(Blob blob) {
+        if ("MISSING".equals(blob.status())) {
+            return jdbc.update("UPDATE attachment_blob SET status = 'PENDING', content_center_file_id = NULL, storage_key = NULL, storage_source = NULL WHERE id = ? AND status = 'MISSING'",
+                    blob.id()) == 1;
+        }
+        if ("PENDING".equals(blob.status())) {
+            Integer live = jdbc.queryForObject("SELECT COUNT(*) FROM attachment_upload_session s JOIN attachment a ON a.id = s.attachment_id WHERE a.blob_id = ? AND s.expires_at > CURRENT_TIMESTAMP(6)",
+                    Integer.class, blob.id());
+            return live != null && live == 0;
+        }
+        return false;
+    }
+
     private Blob findBlob(String hashVersion, String fullSha256, long byteSize) {
-        return jdbc.query("SELECT id, status, content_center_file_id FROM attachment_blob WHERE hash_version = ? AND full_sha256 = UNHEX(?) AND byte_size = ?",
-                (rs, n) -> new Blob(rs.getLong(1), rs.getString(2), rs.getObject(3, Long.class)), hashVersion, fullSha256, byteSize)
+        return jdbc.query(SELECT_BLOB + " WHERE hash_version = ? AND full_sha256 = UNHEX(?) AND byte_size = ?",
+                BLOB_MAPPER, hashVersion, fullSha256, byteSize)
                 .stream().findFirst().orElse(null);
     }
 

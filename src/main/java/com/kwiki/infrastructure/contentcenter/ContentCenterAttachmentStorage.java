@@ -4,6 +4,7 @@ import com.kk.sdk.ContentCenterClient;
 import com.kk.sdk.ContentCenterException;
 import com.kwiki.infrastructure.config.ExternalServicesProperties;
 import com.kwiki.wiki.attach.AttachmentStorage;
+import com.kwiki.wiki.attach.AttachmentLocations;
 import com.kwiki.wiki.attach.AttachmentStorageException;
 import com.kwiki.wiki.attach.AttachmentUpload;
 import com.kwiki.wiki.attach.DirectUpload;
@@ -43,6 +44,14 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
     private final HttpClient fetchClient;
     private final long maxBytes;
     private final Duration presignTtl;
+
+    private AttachmentLocations locations;
+
+    /** 附件位置端口；未装配（离线测试）时始终按 fileId 读取。 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAttachmentLocations(AttachmentLocations locations) {
+        this.locations = locations;
+    }
 
     public ContentCenterAttachmentStorage(ContentCenterClient kwikiContentCenterClient,
                                           ExternalServicesProperties properties,
@@ -204,23 +213,52 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
             throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
                     "attachment has no content-center file id");
         }
+        AttachmentLocations.Location location = locations == null ? null
+                : locations.locate(contentCenterFileId).orElse(null);
+        if (location != null) {
+            try {
+                // 按上传时记录的真实数据源读取：内容中心切换默认数据源后旧文件仍可访问
+                return validLink(client.getDownloadLink(
+                        ContentCenterClient.DownloadLinkRequest.ofKey(location.storageKey(), location.source())
+                                .filename(downloadFileName)
+                                .expiresIn(ttl.toSeconds())));
+            } catch (ContentCenterException e) {
+                if (e.getStatus() != 404) throw translate("download link", e);
+                log.info("内容中心按记录的数据源未找到文件，改按 fileId 查找：fileId={}，source={}",
+                        contentCenterFileId, location.source());
+            }
+        }
         try {
-            ContentCenterClient.DownloadLink link = client.getDownloadLink(
+            return validLink(client.getDownloadLink(
                     ContentCenterClient.DownloadLinkRequest.ofFileId(contentCenterFileId)
                             .filename(downloadFileName)
-                            .expiresIn(ttl.toSeconds()));
-            if (link == null || link.url() == null || link.url().isBlank()) {
-                throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
-                        "content-center download link was empty");
-            }
-            if (link.expiresIn() <= 0) {
-                throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
-                        "content-center download link expires immediately");
-            }
-            return link.url();
+                            .expiresIn(ttl.toSeconds())));
         } catch (ContentCenterException e) {
+            if (e.getStatus() == 404) {
+                log.warn("内容中心文件已丢失：fileId={}", contentCenterFileId);
+                if (locations != null) {
+                    try {
+                        locations.markMissing(contentCenterFileId);
+                    } catch (RuntimeException markFailure) {
+                        log.warn("登记附件内容丢失失败：fileId={}", contentCenterFileId);
+                    }
+                }
+                throw AttachmentStorageException.contentMissing("content-center file is missing (HTTP 404)", e);
+            }
             throw translate("download link", e);
         }
+    }
+
+    private static String validLink(ContentCenterClient.DownloadLink link) {
+        if (link == null || link.url() == null || link.url().isBlank()) {
+            throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                    "content-center download link was empty");
+        }
+        if (link.expiresIn() <= 0) {
+            throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
+                    "content-center download link expires immediately");
+        }
+        return link.url();
     }
 
     @Override
@@ -365,7 +403,8 @@ public class ContentCenterAttachmentStorage implements AttachmentStorage {
             throw new AttachmentStorageException(AttachmentStorageException.Category.PERMANENT,
                     "content-center upload content type disagrees with the request");
         }
-        return new StoredAttachment(result.fileId(), result.size(), verifiedType);
+        return new StoredAttachment(result.fileId(), result.size(), verifiedType,
+                result.storageKey(), result.source());
     }
 
     /** 将 SDK 失败映射为已净化的异常；消息绝不回显 SDK 原文，日志同样只记状态码。 */

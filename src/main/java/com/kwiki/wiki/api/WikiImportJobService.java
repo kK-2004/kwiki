@@ -26,6 +26,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 @Service
 public class WikiImportJobService {
     private static final Logger log = LoggerFactory.getLogger(WikiImportJobService.class);
+    /** 内容中心确认源文件不存在时的固定失败原因；前端据此提示删除后重新上传。 */
+    public static final String SOURCE_MISSING_MESSAGE = "源文件已丢失，请删除后重新上传";
 
     private final JdbcOperations jdbc;
     private final AttachmentRepository attachments;
@@ -43,6 +45,13 @@ public class WikiImportJobService {
         this.storage = storage;
         this.authorization = authorization;
         this.importer = importer;
+    }
+
+    private ObjectProvider<com.kwiki.wiki.archive.RecycleBinCleanupService> cleanup;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setCleanup(ObjectProvider<com.kwiki.wiki.archive.RecycleBinCleanupService> cleanup) {
+        this.cleanup = cleanup;
     }
 
     /*把已完成的浏览器上传加入队列。解析在现有的持久化工作线程中执行。 */
@@ -104,9 +113,28 @@ public class WikiImportJobService {
         if (row.createdBy() != user.id() && !user.admin()) throw new AccessDeniedException("import job is unavailable");
         if (!"FAILED".equals(row.state())) throw new IllegalArgumentException("only failed imports can be retried");
         if (row.attachmentId() == null) throw new IllegalArgumentException("import has no stored attachment");
+        if (sourceMissing(row)) throw new IllegalArgumentException(SOURCE_MISSING_MESSAGE);
         authorization.require(user, row.kbId(), WikiAction.UPLOAD_ATTACHMENT);
         jdbc.update("UPDATE wiki_import_job SET state = 'STORED', last_error = NULL, lease_owner = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP(6) WHERE id = ? AND state = 'FAILED'", jobId);
         return detail(user, jobId);
+    }
+
+    /**
+     * 删除失败的导入任务及其源附件。源附件仍被其他对象引用时只删除任务；
+     * 内容已丢失的文件不再请求内容中心删除。
+     */
+    public void delete(CurrentUser user, long jobId) {
+        requireDb();
+        ImportRow row = row(jobId);
+        if (row.createdBy() != user.id() && !user.admin()) throw new AccessDeniedException("import job is unavailable");
+        if (!"FAILED".equals(row.state())) throw new IllegalArgumentException("只能删除失败的导入任务");
+        authorization.require(user, row.kbId(), WikiAction.UPLOAD_ATTACHMENT);
+        jdbc.update("DELETE FROM wiki_import_job WHERE id = ? AND state = 'FAILED'", jobId);
+        var purger = cleanup == null ? null : cleanup.getIfAvailable();
+        if (row.attachmentId() != null && purger != null) {
+            purger.purgeImportSource(row.attachmentId());
+        }
+        log.info("Wiki import job {} deleted by user {}", jobId, user.id());
     }
 
     /** 恢复进程重启后滞留在 STORED/PARSING 的上传。租约
@@ -160,7 +188,8 @@ public class WikiImportJobService {
     private void fail(long jobId, RuntimeException failure) {
         String raw = failure.getMessage() == null ? "" : failure.getMessage();
         String message;
-        if (failure instanceof org.springframework.security.access.AccessDeniedException) message = "没有导入或发布到此知识库的权限";
+        if (com.kwiki.wiki.attach.AttachmentStorageException.isContentMissing(failure)) message = SOURCE_MISSING_MESSAGE;
+        else if (failure instanceof org.springframework.security.access.AccessDeniedException) message = "没有导入或发布到此知识库的权限";
         else if (failure instanceof WikiImportValidationException) message = raw;
         else if (raw.contains("no extractable text")) message = "文档中没有可提取的文字，暂不支持扫描件或纯图片文档";
         else if (failure instanceof com.kwiki.indexing.parse.UnsupportedInputException) message = "文档无法解析，请确认文件未损坏、未加密，并重新导出为可编辑的 PDF 或 DOCX 后导入";
@@ -187,7 +216,11 @@ public class WikiImportJobService {
     }
 
     private ImportJobView view(ImportRow row) {
-        return new ImportJobView(row.id(), row.uuid(), row.state(), row.pageId(), row.revisionId(), row.fileName(), row.audienceMode(), parseWarnings(row.warningsJson()), row.attempts(), row.lastError(), row.createdAt(), row.updatedAt());
+        return new ImportJobView(row.id(), row.uuid(), row.state(), row.pageId(), row.revisionId(), row.fileName(), row.audienceMode(), parseWarnings(row.warningsJson()), row.attempts(), row.lastError(), row.createdAt(), row.updatedAt(), sourceMissing(row));
+    }
+
+    private static boolean sourceMissing(ImportRow row) {
+        return "FAILED".equals(row.state()) && SOURCE_MISSING_MESSAGE.equals(row.lastError());
     }
 
     private void requireDb() { if (jdbc == null) throw new IllegalStateException("database is unavailable"); }
@@ -199,5 +232,5 @@ public class WikiImportJobService {
     private static Long nullableLong(Object value) { return value == null ? null : ((Number) value).longValue(); }
 
     private record ImportRow(long id, String uuid, long createdBy, long kbId, Long parentId, Long attachmentId, String idempotencyKey, String fileName, String contentType, String audienceMode, String state, Long pageId, Long revisionId, int attempts, String lastError, String warningsJson, Instant createdAt, Instant updatedAt) {}
-    public record ImportJobView(long jobId, String uuid, String state, Long pageId, Long revisionId, String fileName, String audienceMode, List<String> warnings, int attempts, String error, Instant createdAt, Instant updatedAt) {}
+    public record ImportJobView(long jobId, String uuid, String state, Long pageId, Long revisionId, String fileName, String audienceMode, List<String> warnings, int attempts, String error, Instant createdAt, Instant updatedAt, boolean sourceMissing) {}
 }

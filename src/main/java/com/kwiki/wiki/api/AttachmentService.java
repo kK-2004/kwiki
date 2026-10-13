@@ -153,6 +153,7 @@ public class AttachmentService {
             throw new IllegalStateException("attachment storage returned inconsistent content type");
         }
         attachment.markStored(stored.contentCenterFileId());
+        attachment.recordStorageLocation(stored.storageKey(), stored.storageSource());
         attachments.save(attachment);
         // 索引资格：图片始终可索引；多模态开启时 PDF 也进入
         // （由目标索引版本的解析代决定实际处理方式）。

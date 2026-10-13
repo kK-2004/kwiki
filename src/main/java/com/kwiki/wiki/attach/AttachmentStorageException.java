@@ -15,15 +15,43 @@ public class AttachmentStorageException extends RuntimeException {
     }
 
     private final Category category;
+    private final boolean contentMissing;
 
     public AttachmentStorageException(Category category, String message) {
         super(message);
         this.category = category;
+        this.contentMissing = false;
     }
 
     public AttachmentStorageException(Category category, String message, Throwable cause) {
         super(message, cause);
         this.category = category;
+        this.contentMissing = false;
+    }
+
+    private AttachmentStorageException(String message, Throwable cause, boolean contentMissing) {
+        super(message, cause);
+        this.category = Category.PERMANENT;
+        this.contentMissing = contentMissing;
+    }
+
+    /** 内容中心确认文件不存在：永久失败，需删除后重新上传。 */
+    public static AttachmentStorageException contentMissing(String message, Throwable cause) {
+        return new AttachmentStorageException(message, cause, true);
+    }
+
+    public boolean isContentMissing() {
+        return contentMissing;
+    }
+
+    /** 沿异常链查找「内容已丢失」。 */
+    public static boolean isContentMissing(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            if (current instanceof AttachmentStorageException storage && storage.isContentMissing()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Category getCategory() {

@@ -90,4 +90,62 @@ class DirectImportJobTest {
         if (stored) a.markStored(42);
         return a;
     }
+
+    @SuppressWarnings("unchecked")
+    private void stubJob(long jobId, String state, String lastError, Long attachmentId) throws Exception {
+        ResultSet row = mock(ResultSet.class);
+        when(row.getLong(1)).thenReturn(jobId);
+        when(row.getLong(3)).thenReturn(7L);
+        when(row.getLong(4)).thenReturn(1L);
+        when(row.getObject(6)).thenReturn(attachmentId);
+        when(row.getString(11)).thenReturn(state);
+        when(row.getString(15)).thenReturn(lastError);
+        when(row.getTimestamp(17)).thenReturn(Timestamp.from(Instant.now()));
+        when(row.getTimestamp(18)).thenReturn(Timestamp.from(Instant.now()));
+        doAnswer(inv -> ((RowMapper<?>) inv.getArgument(1)).mapRow(row, 0))
+                .when(jdbc).queryForObject(startsWith("SELECT id, uuid,"), any(RowMapper.class), eq(jobId));
+    }
+
+    @Test
+    void 源文件丢失的任务标记为丢失且不允许重试() throws Exception {
+        stubJob(41L, "FAILED", WikiImportJobService.SOURCE_MISSING_MESSAGE, 11L);
+        var service = service();
+
+        assertThat(service.detail(user, 41L).sourceMissing()).isTrue();
+        assertThatThrownBy(() -> service.retry(user, 41L)).hasMessage(WikiImportJobService.SOURCE_MISSING_MESSAGE);
+        verify(jdbc, never()).update(startsWith("UPDATE wiki_import_job SET state = 'STORED'"), anyLong());
+    }
+
+    @Test
+    void 其他失败原因不视为丢失() throws Exception {
+        stubJob(42L, "FAILED", "导入处理失败，请重试", 11L);
+        assertThat(service().detail(user, 42L).sourceMissing()).isFalse();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 删除失败任务时清理源附件() throws Exception {
+        stubJob(43L, "FAILED", WikiImportJobService.SOURCE_MISSING_MESSAGE, 11L);
+        var cleanup = mock(com.kwiki.wiki.archive.RecycleBinCleanupService.class);
+        ObjectProvider<com.kwiki.wiki.archive.RecycleBinCleanupService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(cleanup);
+        var service = service();
+        service.setCleanup(provider);
+
+        service.delete(user, 43L);
+
+        verify(jdbc).update("DELETE FROM wiki_import_job WHERE id = ? AND state = 'FAILED'", 43L);
+        verify(cleanup).purgeImportSource(11L);
+        verify(authorization).require(user, 1L, WikiAction.UPLOAD_ATTACHMENT);
+    }
+
+    @Test
+    void 只能删除自己失败的任务() throws Exception {
+        stubJob(44L, "PARSING", null, 11L);
+        assertThatThrownBy(() -> service().delete(user, 44L)).hasMessageContaining("只能删除失败的导入任务");
+        stubJob(45L, "FAILED", null, 11L);
+        assertThatThrownBy(() -> service().delete(new CurrentUser(9L, "x", false), 45L))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        verify(jdbc, never()).update(startsWith("DELETE FROM wiki_import_job"), anyLong());
+    }
 }

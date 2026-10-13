@@ -268,6 +268,75 @@ class ContentCenterAttachmentStorageTest {
                 "\"expiresin\":120");
     }
 
+    /** 记录调用的附件位置端口替身。 */
+    private static final class RecordingLocations implements com.kwiki.wiki.attach.AttachmentLocations {
+        java.util.Optional<Location> location = java.util.Optional.empty();
+        final java.util.List<Long> missing = new java.util.ArrayList<>();
+
+        @Override
+        public java.util.Optional<Location> locate(long contentCenterFileId) {
+            return location;
+        }
+
+        @Override
+        public void markMissing(long contentCenterFileId) {
+            missing.add(contentCenterFileId);
+        }
+    }
+
+    @Test
+    void downloadLinkUsesTheRecordedStorageKeyAndSource() throws Exception {
+        RecordingLocations locations = new RecordingLocations();
+        locations.location = java.util.Optional.of(new com.kwiki.wiki.attach.AttachmentLocations.Location("kwiki/a.docx", "oss"));
+        storage.setAttachmentLocations(locations);
+        server.enqueue(new MockResponse().setBody("{\"url\":\"" + server.url("/signed") + "\",\"expiresIn\":120}")
+                .addHeader("Content-Type", "application/json"));
+
+        storage.downloadLink(42L, null, Duration.ofSeconds(120));
+
+        String body = server.takeRequest().getBody().readUtf8();
+        assertThat(body).contains("\"key\":\"kwiki/a.docx\"", "\"source\":\"oss\"").doesNotContain("\"fileId\":42");
+    }
+
+    @Test
+    void recordedLocationNotFoundFallsBackToFileId() throws Exception {
+        RecordingLocations locations = new RecordingLocations();
+        locations.location = java.util.Optional.of(new com.kwiki.wiki.attach.AttachmentLocations.Location("kwiki/a.docx", "oss"));
+        storage.setAttachmentLocations(locations);
+        server.enqueue(new MockResponse().setResponseCode(404).setBody("{\"message\":\"not found\"}")
+                .addHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse().setBody("{\"url\":\"" + server.url("/signed") + "\",\"expiresIn\":120}")
+                .addHeader("Content-Type", "application/json"));
+
+        assertThat(storage.downloadLink(42L, null, Duration.ofSeconds(120))).contains("/signed");
+        server.takeRequest();
+        assertThat(server.takeRequest().getBody().readUtf8()).contains("\"fileId\":42");
+        assertThat(locations.missing).isEmpty();
+    }
+
+    @Test
+    void missingFileIsMarkedAndReportedAsNotFound() {
+        RecordingLocations locations = new RecordingLocations();
+        storage.setAttachmentLocations(locations);
+        server.enqueue(new MockResponse().setResponseCode(404).setBody("{\"message\":\"not found\"}")
+                .addHeader("Content-Type", "application/json"));
+
+        assertThatThrownBy(() -> storage.downloadLink(42L, null, Duration.ofSeconds(120)))
+                .isInstanceOfSatisfying(AttachmentStorageException.class, e -> {
+                    assertThat(e.isContentMissing()).isTrue();
+                    assertThat(e.getCategory()).isEqualTo(AttachmentStorageException.Category.PERMANENT);
+                });
+        assertThat(locations.missing).containsExactly(42L);
+    }
+
+    @Test
+    void uploadResultCarriesTheProviderStorageLocation() throws Exception {
+        enqueueInitPutComplete(77L, 16);
+        StoredAttachment stored = storage.store(uploadOf(16));
+        assertThat(stored.storageKey()).isNotBlank();
+        assertThat(stored.storageSource()).isNotBlank();
+    }
+
     @Test
     void deleteRemovesTheContentCenterFileByItsId() throws Exception {
         server.enqueue(new MockResponse().setBody("""
