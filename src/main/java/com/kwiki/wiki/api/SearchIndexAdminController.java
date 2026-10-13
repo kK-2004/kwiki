@@ -77,6 +77,21 @@ public class SearchIndexAdminController {
     @GetMapping("/audits") public TransDTO<List<SearchIndexAdminQueryService.AuditView>> audits(){return TransDTO.success(queries.audits());}
     @GetMapping("/write-statistics") public TransDTO<List<Map<String,Object>>> statistics(){return TransDTO.success(queries.writeStatistics());}
 
+    private IndexForceResetService forceReset;
+
+    @Autowired(required=false)
+    void setForceReset(IndexForceResetService forceReset){this.forceReset=forceReset;}
+
+    public record ForceResetRequest(String confirmation){}
+
+    /** 强制重置全部索引并按默认配置重建 v1、发起全量迁移；需输入确认词。 */
+    @PostMapping("/force-reset")
+    public TransDTO<IndexForceResetService.Result> forceReset(@AuthenticationPrincipal CurrentUser user,
+            @RequestBody ForceResetRequest request){
+        if(forceReset==null)throw new ConflictException("索引强制重置不可用");
+        return TransDTO.success(forceReset.reset(request==null?null:request.confirmation(),user.username()));
+    }
+
     @PostMapping("/versions")
     public TransDTO<Map<String,Object>> create(@AuthenticationPrincipal CurrentUser user,
             @RequestHeader("Idempotency-Key") String key,

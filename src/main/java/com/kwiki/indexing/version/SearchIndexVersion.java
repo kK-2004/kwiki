@@ -94,6 +94,24 @@ public class SearchIndexVersion {
         return entity;
     }
 
+    /**
+     * 强制重置后的 v1：别名已指向它、写入已开启（双写起点为 writeSessionStart），
+     * 但内容尚未构建，需立即发起存量迁移。与首次部署不同，库中已有内容，不能记为空库基线。
+     */
+    public static SearchIndexVersion resetInitial(int versionNumber, String physicalName,
+                                                  EditableIndexConfig config, String mappingHash,
+                                                  long writeSessionStart) {
+        SearchIndexVersion entity = new SearchIndexVersion(versionNumber, physicalName, config, mappingHash);
+        entity.configRevision = 1;
+        entity.builtConfigRevision = null;
+        entity.buildState = IndexBuildState.NEW.name();
+        entity.catchupStatus = IndexCatchupStatus.BEHIND.name();
+        entity.writeEnabled = true;
+        entity.writeEnabledEventId = writeSessionStart;
+        entity.selected = true;
+        return entity;
+    }
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();

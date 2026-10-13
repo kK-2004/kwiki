@@ -139,7 +139,7 @@ public class ElasticsearchIndexBootstrap implements ApplicationRunner {
     }
 
     /** 首次部署按配置偏好选择可执行解析器，字段格式保持部署默认值。 */
-    EditableIndexConfig firstDeploymentConfig() {
+    public EditableIndexConfig firstDeploymentConfig() {
         EditableIndexConfig base = deployedConfig();
         if (parsers == null || indexingProperties == null
                 || !Boolean.TRUE.equals(indexingProperties.management().mutationsEnabled())) {

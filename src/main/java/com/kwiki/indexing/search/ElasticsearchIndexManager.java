@@ -138,6 +138,40 @@ public class ElasticsearchIndexManager {
         return true;
     }
 
+    /** kwiki 托管的全部物理索引：分块索引 kwiki-chunks-v{n} 与社区索引 kwiki-communities-v{n}-kb{id}。 */
+    public List<String> listManagedIndices() throws Exception {
+        if (client == null) return List.of();
+        var response = client.indices().get(request -> request
+                .index("kwiki-chunks-v*", "kwiki-communities-v*")
+                .ignoreUnavailable(true)
+                .allowNoIndices(true));
+        return response.result().keySet().stream()
+                .filter(ElasticsearchIndexManager::isManagedIndex)
+                .sorted()
+                .toList();
+    }
+
+    public static boolean isManagedIndex(String name) {
+        return name != null && (name.matches(PHYSICAL_NAME_PATTERN)
+                || com.kwiki.infrastructure.elasticsearch.CommunityIndexNaming.isManaged(name));
+    }
+
+    /**
+     * 强制重置专用：无条件删除一个托管索引（包括别名当前指向的索引，别名随之消失）。
+     * 名称必须是托管命名，绝不删除其他索引。
+     */
+    public void forceDeleteManagedIndex(String indexName) throws Exception {
+        if (!isManagedIndex(indexName)) {
+            throw new IllegalArgumentException("refusing to delete unmanaged index: " + indexName);
+        }
+        if (client == null) return;
+        if (!client.indices().exists(request -> request.index(indexName)).value()) return;
+        var response = client.indices().delete(request -> request.index(indexName));
+        if (!response.acknowledged()) {
+            throw new IllegalStateException("index deletion not acknowledged: " + indexName);
+        }
+    }
+
     /** 物理创建请求；拆出以便离线测试替换。 */
     void doCreateIndex(String indexName, String mappingJson) throws Exception {
         client.indices().create(CreateIndexRequest.of(request -> request

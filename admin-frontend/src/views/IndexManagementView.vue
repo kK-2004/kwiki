@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { api, ApiError, type Audit, type Config, type CommunityVersion, type MultimodalReadiness, type ProviderView, type Run, type PluginCatalog, type Version } from "../api";
+import { api, ApiError, FORCE_RESET_CONFIRMATION, type Audit, type Config, type CommunityVersion, type MultimodalReadiness, type ProviderView, type Run, type PluginCatalog, type Version } from "../api";
 import { embeddingOptions } from "../modelConfig";
 import { statusLabel, statusType } from "../status";
 import { auditActionLabel, auditOutcomeLabel, auditResultLabel, runKindLabel, runStateLabel, validationText } from "../labels";
@@ -127,6 +127,31 @@ async function save() {
     await load();
   } catch (error) {
     showError(error);
+  }
+}
+
+const reset = reactive({ open: false, confirmation: "", running: false });
+
+function openReset() {
+  reset.confirmation = "";
+  reset.open = true;
+}
+
+async function forceReset() {
+  if (reset.confirmation.trim() !== FORCE_RESET_CONFIRMATION || reset.running) return;
+  reset.running = true;
+  try {
+    const result = await api.forceReset(reset.confirmation.trim());
+    reset.open = false;
+    const rows = Object.values(result.clearedRows).reduce((sum, n) => sum + n, 0);
+    const summary = `已删除 ${result.deletedIndices.length} 个 ES 索引、清空 ${rows} 条记录，并重建 ${result.physicalName}`;
+    if (result.migrationError) ElMessage.warning(`${summary}；但存量迁移未能自动发起（${result.migrationError}），请在 v1 上手动开始迁移`);
+    else ElMessage.success(`${summary}，存量迁移已开始（任务 #${result.migrationRunId}）`);
+    await load();
+  } catch (error) {
+    showError(error);
+  } finally {
+    reset.running = false;
   }
 }
 
@@ -307,6 +332,7 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
             <el-button type="primary" :disabled="!plugins" @click="edit()">创建版本</el-button>
             <span class="hint self-center">版本号由服务端自动分配；新版本只有完成构建并通过校验后才能切换上线。</span>
           </div>
+          <el-button type="danger" plain @click="openReset">强制重置</el-button>
         </section>
         <section class="cards">
           <div class="metric">
@@ -502,6 +528,23 @@ const displayLabel = (value: string) => statusLabel[value as Version["displaySta
           <el-button @click="dialog.config = false">取消</el-button>
           <el-button type="primary" :disabled="Boolean(selectionError)" @click="save">保存</el-button>
         </div>
+      </template>
+    </el-dialog>
+    <el-dialog v-model="reset.open" title="强制重置全部索引" width="600">
+      <el-alert type="error" :closable="false" title="此操作不可撤销，执行期间及迁移完成前检索结果为空或不完整" class="dialog-alert"/>
+      <p>将执行：</p>
+      <ul style="margin:0 0 8px;padding-left:20px;line-height:1.8">
+        <li>删除全部 CHUNK 索引（kwiki-chunks-v*）、读别名，以及全部 COMMUNITY 社区索引</li>
+        <li>清空索引版本、重建任务、校验报告、索引审计、变更事件与索引任务记录</li>
+        <li>清空全部灰度发布，以及知识图谱的构建、快照、发布记录和图数据</li>
+        <li>按默认配置重建 v1 并挂上读别名，随后自动对全部 Wiki 内容发起存量迁移</li>
+      </ul>
+      <p class="muted">不会改动解析器、分块器、字段格式等插件，模型配置，以及 Wiki 内容和附件。存在运行中的重建或图谱构建任务时会被拒绝。</p>
+      <p>请输入 <strong>{{ FORCE_RESET_CONFIRMATION }}</strong> 确认</p>
+      <el-input v-model="reset.confirmation" aria-label="强制重置确认词"/>
+      <template #footer>
+        <el-button @click="reset.open = false">取消</el-button>
+        <el-button type="danger" :loading="reset.running" :disabled="reset.confirmation.trim() !== FORCE_RESET_CONFIRMATION" @click="forceReset">强制重置</el-button>
       </template>
     </el-dialog>
     <el-dialog v-model="dialog.select" title="原子切换读别名" width="560">

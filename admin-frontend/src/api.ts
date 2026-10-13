@@ -40,6 +40,8 @@ export interface SchemaOption extends PluginOption{capabilities:string[]}
 export interface PluginCatalog{schemas:SchemaOption[];parsers:ParserOption[];chunkers:PluginOption[];defaults:{indexSchema:string;parsers?:string[];chunker?:string}}
 export interface GrayProgress{runId:number|null;runState:string|null;switchState:string|null;scanned:number;succeeded:number;failed:number;migrationPending:number;pendingTargets:number}
 export interface GrayRelease{id:number;name:string;parserVersion:string;parserLabel:string;indexVersionNumber:number;physicalName:string;status:"CREATED"|"SYNCING"|"SYNCED"|"SWITCHED"|"ENDED";lastError:string|null;createdBy:string;createdAt:string;switchedAt:string|null;endedAt:string|null;kbs:{kbId:number;name:string}[];progress:GrayProgress;allowedActions:{sync:boolean;switch:boolean;switchBack:boolean;end:boolean}}
+export interface ForceResetResult{deletedIndices:string[];purgedGraphTypes:string[];clearedRows:Record<string,number>;versionNumber:number;physicalName:string;migrationRunId:number|null;migrationError:string|null}
+export const FORCE_RESET_CONFIRMATION="RESET kwiki-chunks";
 export const api={
   login:(username:string,password:string)=>request<{token:string;tokenType:string;expiresInSeconds:number;user:{id:number;username:string;admin:boolean}}>("/auth/login",{method:"POST",body:JSON.stringify({username,password})}),
   me:()=>request<{id:number;username:string;admin:boolean}>("/auth/me"),
@@ -50,6 +52,7 @@ export const api={
   command:<T>(path:string,method="POST",body?:unknown)=>request<T>(`/admin/search-indexes${path}`,{method,headers:{"Idempotency-Key":key()},body:body===undefined?undefined:JSON.stringify(body)}),
   deleteVersion:(version:number,name:string)=>request<{outcome:string}>(`/admin/search-indexes/versions/${version}`,{method:"DELETE",headers:{"Idempotency-Key":key()},body:JSON.stringify({confirmPhysicalName:name})}),
   plugins:()=>request<PluginCatalog>("/admin/search-indexes/plugins"),
+  forceReset:(confirmation:string)=>request<ForceResetResult>("/admin/search-indexes/force-reset",{method:"POST",body:JSON.stringify({confirmation})}),
   parsers:()=>request<ParserOption[]>("/admin/search-indexes/parsers"),
   grayReleases:()=>request<GrayRelease[]>("/admin/search-indexes/gray-releases"),
   createGrayRelease:(body:{name?:string;parserVersion:string;indexSchema?:string;chunkerVersion?:string;kbIds:number[]})=>request<{id:number;status:string}>("/admin/search-indexes/gray-releases",{method:"POST",headers:{"Idempotency-Key":key()},body:JSON.stringify(body)}),
