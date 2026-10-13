@@ -6,6 +6,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -65,7 +66,7 @@ public interface ModelRegistry {
             @Override
             public ResolvedModel resolve(ModelPurpose purpose) {
                 return new ResolvedModel(purpose, 0, "fixed", "http://localhost", "fixed", "fixed",
-                        purpose.defaultTemperature(), null, null, 0, Duration.ofSeconds(120), null, null);
+                        purpose.defaultTemperature(), null, null, 0, Duration.ofSeconds(120), null, null, Map.of());
             }
 
             @Override

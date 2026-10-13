@@ -138,4 +138,25 @@ class QwenEmbeddingClientTest {
                 .hasMessageContaining("rejected");
         assertThat(server.getRequestCount()).isEqualTo(1);
     }
+
+    @Test
+    void 透传额外参数且400时带上provider原因() throws Exception {
+        WebClient webClient = WebClient.builder()
+                .baseUrl(server.url("/compatible-mode/v1").toString())
+                .clientConnector(new ReactorClientHttpConnector(HttpClient.create()))
+                .build();
+        var withParams = new QwenEmbeddingClient(webClient, "text-embedding-v4", 4, 2, 0,
+                java.util.Map.of("text_type", "document"));
+        server.enqueue(new okhttp3.mockwebserver.MockResponse().setResponseCode(400)
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"error\":{\"message\":\"batch size is invalid, it should not be larger than 10\"}}"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> withParams.embed(java.util.List.of("a", "b")))
+                .hasMessageContaining("rejected: 400")
+                .hasMessageContaining("batch size is invalid")
+                .hasMessageContaining("batch=2");
+        String body = server.takeRequest().getBody().readUtf8();
+        org.assertj.core.api.Assertions.assertThat(body)
+                .contains("\"text_type\":\"document\"", "\"model\":\"text-embedding-v4\"", "\"input\":[\"a\",\"b\"]");
+    }
 }

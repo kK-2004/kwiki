@@ -18,6 +18,7 @@ import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -68,21 +69,33 @@ public class ModelConfigAdminService {
 
     public record ModelRequest(String modelName, String displayName, Set<String> tags, Integer dimensions,
                                Integer maxOutputTokens, Boolean supportsTools, Boolean supportsThinking,
-                               Boolean enabled) {
+                               Boolean enabled, Map<String, Object> extra) {
+        public ModelRequest(String modelName, String displayName, Set<String> tags, Integer dimensions,
+                            Integer maxOutputTokens, Boolean supportsTools, Boolean supportsThinking,
+                            Boolean enabled) {
+            this(modelName, displayName, tags, dimensions, maxOutputTokens, supportsTools, supportsThinking,
+                    enabled, null);
+        }
     }
 
     public record ModelView(long id, long providerId, String modelName, String displayName, List<String> tags,
                             Integer dimensions, Integer maxOutputTokens, boolean supportsTools,
-                            boolean supportsThinking, boolean enabled, List<String> usedBy) {
+                            boolean supportsThinking, boolean enabled, List<String> usedBy,
+                            Map<String, Object> extra) {
     }
 
     public record AssignmentRequest(String purpose, Long modelId, Double temperature, Integer maxTokens,
-                                    Boolean thinking) {
+                                    Boolean thinking, Map<String, Object> extra) {
+        public AssignmentRequest(String purpose, Long modelId, Double temperature, Integer maxTokens,
+                                 Boolean thinking) {
+            this(purpose, modelId, temperature, maxTokens, thinking, null);
+        }
     }
 
     public record AssignmentView(String purpose, String label, String description, String requiredTag,
                                  boolean requiresTools, double defaultTemperature, Long modelId,
-                                 Double temperature, Integer maxTokens, Boolean thinking, String effectiveModel) {
+                                 Double temperature, Integer maxTokens, Boolean thinking, String effectiveModel,
+                                 Map<String, Object> extra) {
     }
 
     /** providerId 非空且 apiKey 为空时使用已保存的 key；表单中的其他字段优先。 */
@@ -248,7 +261,7 @@ public class ModelConfigAdminService {
             views.add(new AssignmentView(purpose.name(), purpose.label(), purpose.description(),
                     purpose.requiredTag().dbValue(), purpose.requiresTools() && nativeTools,
                     purpose.defaultTemperature(), a.modelId(), a.temperature(), a.maxTokens(), a.thinking(),
-                    effective));
+                    effective, a.extra()));
         }
         return views;
     }
@@ -284,7 +297,7 @@ public class ModelConfigAdminService {
                 }
             }
             validated.add(new ModelAssignment(purpose, request.modelId(), request.temperature(),
-                    request.maxTokens(), request.thinking()));
+                    request.maxTokens(), request.thinking(), extra(purpose.name() + " 的", request.extra())));
         }
         store.saveAssignments(validated);
         return changed();
@@ -337,14 +350,16 @@ public class ModelConfigAdminService {
         try {
             if (model.has(ModelTag.CHAT)) {
                 ChatModel chat = factory.chat(new ClientSpec(provider.baseUrl(), key, timeout, model.modelName(),
-                        0.0, 16, null));
+                        0.0, 16, null, ModelExtra.passthrough(model.extra())));
                 chat.chat("ping");
                 return new TestResult(true, "对话调用成功", elapsed(start));
             }
             if (model.has(ModelTag.EMBEDDING)) {
                 int dims = model.dimensions() == null ? 0 : model.dimensions();
+                Integer batch = ModelExtra.intValue(model.extra(), ModelExtra.BATCH_SIZE);
                 List<float[]> vectors = factory.embedding(provider.baseUrl(), key, timeout, model.modelName(),
-                        dims, 0).embed(List.of("ping"));
+                        dims, 0, batch == null ? ModelExtra.DEFAULT_BATCH_SIZE : batch,
+                        ModelExtra.passthrough(model.extra())).embed(List.of("ping"));
                 int actual = vectors.isEmpty() ? 0 : vectors.get(0).length;
                 return actual == dims
                         ? new TestResult(true, "向量调用成功，维度 " + actual, elapsed(start))
@@ -445,7 +460,7 @@ public class ModelConfigAdminService {
         String display = blank(request.displayName()) ? null : request.displayName().trim();
         return new ModelDefinition(id, providerId, name, display, tags, dims, request.maxOutputTokens(),
                 !Boolean.FALSE.equals(request.supportsTools()), Boolean.TRUE.equals(request.supportsThinking()),
-                !Boolean.FALSE.equals(request.enabled()));
+                !Boolean.FALSE.equals(request.enabled()), extra("模型 " + name + " 的", request.extra()));
     }
 
     private ProviderView view(ModelProvider p, ModelCatalog catalog) {
@@ -459,7 +474,15 @@ public class ModelConfigAdminService {
         List<String> tags = m.tags().stream().sorted().map(ModelTag::dbValue).toList();
         return new ModelView(m.id(), m.providerId(), m.modelName(), m.displayName(), tags, m.dimensions(),
                 m.maxOutputTokens(), m.supportsTools(), m.supportsThinking(), m.enabled(),
-                modelReferences(m, catalog));
+                modelReferences(m, catalog), m.extra());
+    }
+
+    private static Map<String, Object> extra(String owner, Map<String, Object> raw) {
+        try {
+            return ModelExtra.normalize(raw);
+        } catch (IllegalArgumentException e) {
+            throw invalid(owner + e.getMessage());
+        }
     }
 
     private static String requireName(String name) {

@@ -147,4 +147,45 @@ class DefaultModelRegistryTest {
         registry.reload();
         assertThat(registry.resolve(ModelPurpose.ROUTER).limiter()).isSameAs(router.limiter());
     }
+
+    @Test
+    void embedding默认每批10条_模型extra可覆盖并透传参数() {
+        store.insertModel(new ModelDefinition(null, providerId, "text-embedding-v4", null,
+                Set.of(ModelTag.EMBEDDING), 1024, null, false, false, true));
+        registry.reload();
+        assertThat(factory.embeddingBuilds).containsExactly("text-embedding-v4:1024:batch=10:{}");
+
+        long id = store.models.values().stream().filter(m -> m.modelName().equals("text-embedding-v4"))
+                .findFirst().orElseThrow().id();
+        ModelDefinition model = store.models.get(id);
+        store.updateModel(new ModelDefinition(id, providerId, model.modelName(), null, model.tags(), 1024, null,
+                false, false, true, java.util.Map.of("batchSize", 25, "text_type", "document")));
+        registry.reload();
+        assertThat(factory.embeddingBuilds).last().isEqualTo("text-embedding-v4:1024:batch=25:{text_type=document}");
+    }
+
+    @Test
+    void 用途extra覆盖模型extra_超时与透传参数生效且变化时重建客户端() {
+        ModelDefinition model = store.models.get(chatModelId);
+        store.updateModel(new ModelDefinition(chatModelId, providerId, model.modelName(), null, model.tags(), null,
+                8192, true, false, true, java.util.Map.of("top_p", 0.5, "timeoutMs", 5000)));
+        store.saveAssignments(List.of(new ModelAssignment(ModelPurpose.ROUTER, chatModelId, null, null, false,
+                java.util.Map.of("top_p", 0.9))));
+        registry.reload();
+
+        ClientSpec spec = factory.chatBuilds.stream().filter(c -> Boolean.FALSE.equals(c.thinking()))
+                .findFirst().orElseThrow();
+        ClientSpec answer = factory.chatBuilds.stream().filter(c -> c.thinking() == null).findFirst().orElseThrow();
+        assertThat(answer.parameters()).containsEntry("top_p", 0.5); // 未设用途 extra 的 ANSWER 取模型 extra
+        assertThat(spec.parameters()).containsEntry("top_p", 0.9).doesNotContainKey("timeoutMs");
+        assertThat(spec.customParameters()).containsEntry("enable_thinking", false);
+        assertThat(spec.timeout()).isEqualTo(java.time.Duration.ofMillis(5000));
+        assertThat(registry.resolve(ModelPurpose.ROUTER).extra()).containsEntry("top_p", 0.9);
+        var before = registry.chat(ModelPurpose.ROUTER);
+
+        store.saveAssignments(List.of(new ModelAssignment(ModelPurpose.ROUTER, chatModelId, null, null, false,
+                java.util.Map.of("top_p", 0.7))));
+        registry.reload();
+        assertThat(registry.chat(ModelPurpose.ROUTER)).isNotSameAs(before);
+    }
 }

@@ -126,14 +126,15 @@ public class DefaultModelRegistry implements ModelRegistry {
             ModelProvider provider = catalog.provider(model.providerId()).orElse(null);
             if (provider == null || !provider.enabled()) continue;
             String apiKey = keys.get(provider.id());
-            Duration timeout = Duration.ofMillis(provider.requestTimeoutMs());
+            Map<String, Object> extra = ModelExtra.merge(model.extra(), assignment.extra());
+            Duration timeout = timeout(provider, extra);
             Integer maxTokens = assignment.maxTokens() != null ? assignment.maxTokens()
                     : model.maxOutputTokens() != null ? model.maxOutputTokens()
                     : probe(provider, apiKey, timeout, model);
             double temperature = assignment.temperature() != null
                     ? assignment.temperature() : assignment.purpose().defaultTemperature();
             ClientSpec spec = new ClientSpec(provider.baseUrl(), apiKey, timeout, model.modelName(),
-                    temperature, maxTokens, assignment.thinking());
+                    temperature, maxTokens, assignment.thinking(), ModelExtra.passthrough(extra));
             String fingerprint = spec.fingerprint();
             RateLimiter limiter = provider.maxConcurrency() == null ? null
                     : limiters.computeIfAbsent(provider.id() + ":" + provider.maxConcurrency() + ":" + provider.qps(),
@@ -149,7 +150,7 @@ public class DefaultModelRegistry implements ModelRegistry {
             }
             ResolvedModel resolved = new ResolvedModel(assignment.purpose(), provider.id(), provider.name(),
                     provider.baseUrl(), apiKey, model.modelName(), temperature, maxTokens, assignment.thinking(),
-                    provider.maxRetries(), timeout, limiter, provider.maxConcurrency());
+                    provider.maxRetries(), timeout, limiter, provider.maxConcurrency(), extra);
             entries.put(assignment.purpose(), new Entry(resolved, chat, streaming));
         }
         Map<String, EmbeddingBinding> embeddings = new LinkedHashMap<>();
@@ -159,20 +160,30 @@ public class DefaultModelRegistry implements ModelRegistry {
             ModelProvider provider = catalog.provider(model.providerId()).orElse(null);
             if (provider == null || !provider.enabled()) continue;
             String apiKey = keys.get(provider.id());
-            Duration timeout = Duration.ofMillis(provider.requestTimeoutMs());
+            Duration timeout = timeout(provider, model.extra());
+            Integer configuredBatch = ModelExtra.intValue(model.extra(), ModelExtra.BATCH_SIZE);
+            int batchSize = configuredBatch == null ? ModelExtra.DEFAULT_BATCH_SIZE : configuredBatch;
+            Map<String, Object> parameters = ModelExtra.passthrough(model.extra());
             String fingerprint = new ClientSpec(provider.baseUrl(), apiKey, timeout, model.modelName(),
-                    model.dimensions(), provider.maxRetries(), null).fingerprint() + ":" + provider.name();
+                    model.dimensions(), batchSize, null, parameters).fingerprint()
+                    + ":" + provider.name() + ":" + provider.maxRetries();
             EmbeddingBinding binding = previous.embeddingsByFingerprint.get(fingerprint);
             if (binding == null) {
                 binding = new EmbeddingBinding(provider.name(), model.modelName(), model.dimensions(),
                         factory.embedding(provider.baseUrl(), apiKey, timeout, model.modelName(),
-                                model.dimensions(), provider.maxRetries()));
+                                model.dimensions(), provider.maxRetries(), batchSize, parameters));
             }
             embeddingsByFingerprint.put(fingerprint, binding);
             embeddings.put(provider.name() + "\u0000" + model.modelName(), binding);
         }
         return new Snapshot(catalog.version(), Instant.now(), entries, chats, streams, limiters,
                 embeddings, embeddingsByFingerprint);
+    }
+
+    /** extra.timeoutMs 覆盖 provider 的请求超时。 */
+    private static Duration timeout(ModelProvider provider, Map<String, Object> extra) {
+        Integer override = ModelExtra.intValue(extra, ModelExtra.TIMEOUT_MS);
+        return Duration.ofMillis(override == null ? provider.requestTimeoutMs() : override);
     }
 
     private Integer probe(ModelProvider provider, String apiKey, Duration timeout, ModelDefinition model) {

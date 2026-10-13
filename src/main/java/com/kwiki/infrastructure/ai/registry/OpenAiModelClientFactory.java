@@ -42,7 +42,6 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
             "max_completion_tokens", "maxCompletionTokens",
             "output_token_limit", "outputTokenLimit",
             "max_tokens", "maxTokens");
-    private static final int EMBEDDING_BATCH_SIZE = 25;
 
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
 
@@ -69,7 +68,7 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
                 .timeout(spec.timeout())
                 .httpClientBuilder(httpClient());
         if (spec.maxTokens() != null) builder.maxTokens(spec.maxTokens());
-        if (spec.thinking() != null) builder.customParameters(Map.of("enable_thinking", spec.thinking()));
+        if (!spec.customParameters().isEmpty()) builder.customParameters(spec.customParameters());
         return builder.build();
     }
 
@@ -85,15 +84,15 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
                 .timeout(spec.timeout())
                 .httpClientBuilder(httpClient());
         if (spec.maxTokens() != null) builder.maxTokens(spec.maxTokens());
-        if (spec.thinking() != null) builder.customParameters(Map.of("enable_thinking", spec.thinking()));
+        if (!spec.customParameters().isEmpty()) builder.customParameters(spec.customParameters());
         return builder.build();
     }
 
     @Override
     public ChunkEmbeddingPort embedding(String baseUrl, String apiKey, Duration timeout, String modelName,
-                                        int dimensions, int maxRetries) {
+                                        int dimensions, int maxRetries, int batchSize, Map<String, Object> parameters) {
         return new QwenEmbeddingClient(webClient(baseUrl, apiKey, timeout), modelName, dimensions,
-                EMBEDDING_BATCH_SIZE, maxRetries);
+                batchSize, maxRetries, parameters);
     }
 
     @Override

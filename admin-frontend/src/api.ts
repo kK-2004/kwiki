@@ -7,12 +7,12 @@ export interface Run{runId:number;versionNumber:number;buildGeneration:number;ki
 export interface Validation{id:number;versionNumber:number;runId:number;status:string;summary:string;createdAt:string;[key:string]:unknown}
 export interface Audit{id:number;action:string;targetVersion?:number;runId?:number;operator:string;priorState?:string;resultState?:string;outcome:string;errorSummary?:string;createdAt:string}
 export type ModelTag="chat"|"vision"|"embedding";
-export interface ModelView{id:number;providerId:number;modelName:string;displayName:string|null;tags:ModelTag[];dimensions:number|null;maxOutputTokens:number|null;supportsTools:boolean;supportsThinking:boolean;enabled:boolean;usedBy:string[]}
+export interface ModelView{id:number;providerId:number;modelName:string;displayName:string|null;tags:ModelTag[];dimensions:number|null;maxOutputTokens:number|null;supportsTools:boolean;supportsThinking:boolean;enabled:boolean;usedBy:string[];extra:Record<string,unknown>}
 export interface ProviderView{id:number;name:string;protocol:string;baseUrl:string;apiKeyHint:string;requestTimeoutMs:number;maxRetries:number;maxConcurrency:number|null;qps:number|null;enabled:boolean;models:ModelView[]}
 export interface ProviderRequest{name:string;baseUrl:string;apiKey?:string;requestTimeoutMs:number|null;maxRetries:number|null;maxConcurrency:number|null;qps:number|null;enabled:boolean}
-export interface ModelRequest{modelName:string;displayName:string|null;tags:ModelTag[];dimensions:number|null;maxOutputTokens:number|null;supportsTools:boolean;supportsThinking:boolean;enabled:boolean}
-export interface AssignmentView{purpose:string;label:string;description:string;requiredTag:ModelTag;requiresTools:boolean;defaultTemperature:number;modelId:number|null;temperature:number|null;maxTokens:number|null;thinking:boolean|null;effectiveModel:string|null}
-export interface AssignmentRequest{purpose:string;modelId:number|null;temperature:number|null;maxTokens:number|null;thinking:boolean|null}
+export interface ModelRequest{modelName:string;displayName:string|null;tags:ModelTag[];dimensions:number|null;maxOutputTokens:number|null;supportsTools:boolean;supportsThinking:boolean;enabled:boolean;extra:Record<string,unknown>|null}
+export interface AssignmentView{purpose:string;label:string;description:string;requiredTag:ModelTag;requiresTools:boolean;defaultTemperature:number;modelId:number|null;temperature:number|null;maxTokens:number|null;thinking:boolean|null;effectiveModel:string|null;extra:Record<string,unknown>}
+export interface AssignmentRequest{purpose:string;modelId:number|null;temperature:number|null;maxTokens:number|null;thinking:boolean|null;extra:Record<string,unknown>|null}
 export interface ModelTestResult{ok:boolean;message:string;latencyMs:number}
 export interface ModelConfigStatus{version:number;loadedAt:string|null;lastError:string|null;databaseVersion:number}
 const tokenKey="kwiki_access_token";

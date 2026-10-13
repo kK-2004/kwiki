@@ -23,15 +23,22 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
     private final int dimensions;
     private final int batchSize;
     private final int maxRetries;
+    private final java.util.Map<String, Object> parameters;
 
-    /** 由模型目录（{@code OpenAiModelClientFactory}）按 provider 与模型构建。 */
     public QwenEmbeddingClient(WebClient webClient, String model, int dimensions,
                                int batchSize, int maxRetries) {
+        this(webClient, model, dimensions, batchSize, maxRetries, java.util.Map.of());
+    }
+
+    /** 由模型目录（{@code OpenAiModelClientFactory}）按 provider 与模型构建；parameters 透传进请求体。 */
+    public QwenEmbeddingClient(WebClient webClient, String model, int dimensions,
+                               int batchSize, int maxRetries, java.util.Map<String, Object> parameters) {
         this.webClient = webClient;
         this.model = model;
         this.dimensions = dimensions;
         this.batchSize = Math.max(1, batchSize);
         this.maxRetries = Math.max(0, maxRetries);
+        this.parameters = parameters == null ? java.util.Map.of() : java.util.Map.copyOf(parameters);
     }
 
     @Override
@@ -60,8 +67,8 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
                 return callOnce(batch);
             } catch (WebClientResponseException e) {
                 if (!isTransient(e.getStatusCode().value())) {
-                    throw new IllegalStateException(
-                            "embedding request rejected: " + e.getStatusCode().value(), null);
+                    throw new IllegalStateException("embedding request rejected: " + e.getStatusCode().value()
+                            + providerReason(e) + " (batch=" + batch.size() + ")", null);
                 }
                 lastTransient = e;
             } catch (IllegalStateException e) {
@@ -79,7 +86,7 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
                 webClient
                         .post()
                         .uri("/embeddings")
-                        .bodyValue(new EmbeddingRequest(model, List.copyOf(batch)))
+                        .bodyValue(requestBody(batch))
                         .retrieve()
                         .bodyToMono(EmbeddingResponse.class)
                         .block(
@@ -102,11 +109,30 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
         return vectors;
     }
 
+    private java.util.Map<String, Object> requestBody(List<String> batch) {
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>(parameters);
+        body.put("model", model);
+        body.put("input", List.copyOf(batch));
+        return body;
+    }
+
+    /** provider 返回的错误原因（脱敏、截断）；拿不到时为空串。 */
+    private static String providerReason(WebClientResponseException e) {
+        String body;
+        try {
+            body = e.getResponseBodyAsString();
+        } catch (RuntimeException ignored) {
+            return "";
+        }
+        if (body == null || body.isBlank()) return "";
+        String reason = com.kwiki.infrastructure.observability.SecretRedaction.redact(body.strip())
+                .replaceAll("\\s+", " ");
+        return " " + (reason.length() > 300 ? reason.substring(0, 300) + "…" : reason);
+    }
+
     private static boolean isTransient(int status) {
         return status == 429 || status >= 500;
     }
-
-    public record EmbeddingRequest(String model, List<String> input) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record EmbeddingResponse(List<EmbeddingItem> data) {}

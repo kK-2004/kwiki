@@ -34,8 +34,9 @@ class CountingClientFactory implements ModelClientFactory {
 
     @Override
     public ChunkEmbeddingPort embedding(String baseUrl, String apiKey, Duration timeout, String modelName,
-                                        int dimensions, int maxRetries) {
-        embeddingBuilds.add(modelName + ":" + dimensions);
+                                        int dimensions, int maxRetries, int batchSize,
+                                        java.util.Map<String, Object> parameters) {
+        embeddingBuilds.add(modelName + ":" + dimensions + ":batch=" + batchSize + ":" + parameters);
         return texts -> List.of();
     }
 

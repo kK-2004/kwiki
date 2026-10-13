@@ -43,14 +43,66 @@ export function providerRequest(form: ProviderForm): ProviderRequest {
   return body;
 }
 
-export interface ModelForm { modelName: string; displayName: string; tags: ModelTag[]; dimensions: number | null; maxOutputTokens: number | null; supportsTools: boolean; supportsThinking: boolean; enabled: boolean }
+export interface ModelForm { modelName: string; displayName: string; tags: ModelTag[]; dimensions: number | null; maxOutputTokens: number | null; supportsTools: boolean; supportsThinking: boolean; enabled: boolean; extra: ExtraRow[] }
 
 export function emptyModelForm(): ModelForm {
-  return { modelName: "", displayName: "", tags: ["chat"], dimensions: null, maxOutputTokens: null, supportsTools: true, supportsThinking: false, enabled: true };
+  return { modelName: "", displayName: "", tags: ["chat"], dimensions: null, maxOutputTokens: null, supportsTools: true, supportsThinking: false, enabled: true, extra: [] };
 }
 
 export function modelForm(model: ModelView): ModelForm {
-  return { modelName: model.modelName, displayName: model.displayName || "", tags: [...model.tags], dimensions: model.dimensions, maxOutputTokens: model.maxOutputTokens, supportsTools: model.supportsTools, supportsThinking: model.supportsThinking, enabled: model.enabled };
+  return { modelName: model.modelName, displayName: model.displayName || "", tags: [...model.tags], dimensions: model.dimensions, maxOutputTokens: model.maxOutputTokens, supportsTools: model.supportsTools, supportsThinking: model.supportsThinking, enabled: model.enabled, extra: extraRows(model.extra) };
+}
+
+// ---------- extra（扩展配置） ----------
+
+/** kwiki 自己解释的键；其余键原样透传给 provider。 */
+export const KNOWN_EXTRA_KEYS: Record<string, string> = {
+  batchSize: "embedding 每批条数（默认 10，百炼上限 10）",
+  timeoutMs: "覆盖 provider 的请求超时（毫秒）",
+};
+
+export interface ExtraRow { key: string; value: string }
+
+export function extraRows(extra: Record<string, unknown> | null | undefined): ExtraRow[] {
+  return Object.entries(extra || {}).map(([key, value]) => ({ key, value: formatExtraValue(value) }));
+}
+
+export function formatExtraValue(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/** 输入框的文本按 JSON 解析：数字、true/false、{…}/[…]；其余视为字符串。 */
+export function parseExtraValue(text: string): unknown {
+  const value = text.trim();
+  if (/^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(value)) return Number(value);
+  if (value === "true" || value === "false") return value === "true";
+  if (value.startsWith("{") || value.startsWith("[") || value.startsWith("\"")) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      throw new Error(`参数值不是合法的 JSON：${value}`);
+    }
+  }
+  return value;
+}
+
+/** 空行忽略；键重复或值非法时抛出可直接展示的错误。全部为空时返回 null。 */
+export function rowsToExtra(rows: ExtraRow[]): Record<string, unknown> | null {
+  const result: Record<string, unknown> = {};
+  for (const row of rows) {
+    const key = row.key.trim();
+    if (!key && !row.value.trim()) continue;
+    if (!key) throw new Error("参数名不能为空");
+    if (!row.value.trim()) throw new Error(`参数 ${key} 的值不能为空`);
+    if (key in result) throw new Error(`参数名重复：${key}`);
+    result[key] = parseExtraValue(row.value);
+  }
+  return Object.keys(result).length ? result : null;
+}
+
+export function extraSummary(extra: Record<string, unknown> | null | undefined): string {
+  const keys = Object.keys(extra || {});
+  return keys.length ? keys.join("、") : "";
 }
 
 /** 按模型名猜测标签：名称含 embedding 的视为向量模型，含 vl / vision 的视为图片理解模型。 */
@@ -63,9 +115,9 @@ export function guessTags(modelName: string): ModelTag[] {
 
 export function modelRequest(form: ModelForm): ModelRequest {
   const embedding = form.tags.includes("embedding");
-  return { modelName: form.modelName.trim(), displayName: blankToNull(form.displayName.trim()), tags: form.tags, dimensions: embedding ? blankToNull(form.dimensions) : null, maxOutputTokens: blankToNull(form.maxOutputTokens), supportsTools: form.supportsTools, supportsThinking: form.supportsThinking, enabled: form.enabled };
+  return { modelName: form.modelName.trim(), displayName: blankToNull(form.displayName.trim()), tags: form.tags, dimensions: embedding ? blankToNull(form.dimensions) : null, maxOutputTokens: blankToNull(form.maxOutputTokens), supportsTools: form.supportsTools, supportsThinking: form.supportsThinking, enabled: form.enabled, extra: rowsToExtra(form.extra) };
 }
 
 export function assignmentRequests(rows: AssignmentView[]): AssignmentRequest[] {
-  return rows.map(row => ({ purpose: row.purpose, modelId: blankToNull(row.modelId), temperature: blankToNull(row.temperature), maxTokens: blankToNull(row.maxTokens), thinking: blankToNull(row.thinking) }));
+  return rows.map(row => ({ purpose: row.purpose, modelId: blankToNull(row.modelId), temperature: blankToNull(row.temperature), maxTokens: blankToNull(row.maxTokens), thinking: blankToNull(row.thinking), extra: row.extra && Object.keys(row.extra).length ? row.extra : null }));
 }

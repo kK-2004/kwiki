@@ -4,9 +4,11 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { api, ApiError, type AssignmentView, type ModelConfigStatus, type ModelView, type ProviderView } from "../api";
 import { useAuth } from "../auth";
 import {
-  TAG_LABELS, assignmentRequests, candidatesFor, emptyModelForm, emptyProviderForm, guessTags, modelForm,
-  modelRequest, providerForm, providerRequest, type ModelForm, type ProviderForm,
+  TAG_LABELS, assignmentRequests, candidatesFor, emptyModelForm, emptyProviderForm, extraRows, extraSummary,
+  guessTags, modelForm, modelRequest, providerForm, providerRequest, rowsToExtra, type ExtraRow, type ModelForm,
+  type ProviderForm,
 } from "../modelConfig";
+import ExtraParamsEditor from "../components/ExtraParamsEditor.vue";
 
 const auth = useAuth();
 const tab = ref<"providers" | "assignments">("providers");
@@ -20,6 +22,35 @@ const savingAssignments = ref(false);
 
 const providerDialog = reactive({ open: false, editing: null as ProviderView | null, form: emptyProviderForm() as ProviderForm, testing: false, result: "" });
 const modelDialog = reactive({ open: false, editing: null as ModelView | null, form: emptyModelForm() as ModelForm });
+/** 用途分配的额外参数编辑：确认后写回行数据，随「保存分配」一起提交。 */
+const extraDialog = reactive({ open: false, row: null as AssignmentView | null, rows: [] as ExtraRow[], inherited: [] as ExtraRow[] });
+
+function modelById(id: number | null) {
+  if (id == null) return null;
+  for (const provider of providers.value) {
+    const found = provider.models.find(model => model.id === id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function openExtra(row: AssignmentView) {
+  extraDialog.row = row;
+  extraDialog.rows = extraRows(row.extra);
+  extraDialog.inherited = extraRows(modelById(row.modelId)?.extra);
+  extraDialog.open = true;
+}
+
+function confirmExtra() {
+  if (!extraDialog.row) return;
+  try {
+    extraDialog.row.extra = rowsToExtra(extraDialog.rows) || {};
+    extraDialog.open = false;
+  } catch (error) {
+    failure(error, "额外参数无效");
+  }
+}
+
 const discoverDialog = reactive({ open: false, loading: false, names: [] as string[], picked: [] as string[], dimensions: {} as Record<string, number | null> });
 
 function failure(error: unknown, fallback: string) {
@@ -28,7 +59,8 @@ function failure(error: unknown, fallback: string) {
     location.assign("/admin/login");
     return;
   }
-  ElMessage.error(error instanceof ApiError && error.code !== "request_failed" ? error.code : fallback);
+  if (error instanceof ApiError) ElMessage.error(error.code !== "request_failed" ? error.code : fallback);
+  else ElMessage.error(error instanceof Error && error.message ? error.message : fallback);
 }
 
 async function load() {
@@ -249,6 +281,9 @@ onMounted(load);
               <el-table-column label="被引用" min-width="160">
                 <template #default="{ row }"><span class="muted">{{ row.usedBy.join("、") || "—" }}</span></template>
               </el-table-column>
+              <el-table-column label="额外参数" min-width="140">
+                <template #default="{ row }"><span class="muted">{{ extraSummary(row.extra) || "—" }}</span></template>
+              </el-table-column>
               <el-table-column label="状态" width="80"><template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? "启用" : "停用" }}</el-tag></template></el-table-column>
               <el-table-column label="操作" width="190" fixed="right">
                 <template #default="{ row }">
@@ -283,6 +318,12 @@ onMounted(load);
           </el-table-column>
           <el-table-column label="maxTokens" width="150">
             <template #default="{ row }"><el-input-number v-model="row.maxTokens" :min="1" :step="256" controls-position="right" placeholder="模型默认" :value-on-clear="null" /></template>
+          </el-table-column>
+          <el-table-column label="额外参数" width="200">
+            <template #default="{ row }">
+              <span class="muted extra-summary">{{ extraSummary(row.extra) || "—" }}</span>
+              <el-button text size="small" :aria-label="`编辑${row.label}额外参数`" @click="openExtra(row)">编辑</el-button>
+            </template>
           </el-table-column>
           <el-table-column label="thinking" width="130">
             <template #default="{ row }">
@@ -321,7 +362,7 @@ onMounted(load);
       </template>
     </el-dialog>
 
-    <el-dialog v-model="modelDialog.open" :title="modelDialog.editing ? '编辑模型' : '添加模型'" width="520">
+    <el-dialog v-model="modelDialog.open" :title="modelDialog.editing ? '编辑模型' : '添加模型'" width="680">
       <el-form label-width="110px">
         <el-form-item label="模型名"><el-input v-model="modelDialog.form.modelName" placeholder="发给 API 的模型名，如 qwen-max" aria-label="模型名" /></el-form-item>
         <el-form-item label="显示名"><el-input v-model="modelDialog.form.displayName" /></el-form-item>
@@ -340,10 +381,23 @@ onMounted(load);
           <el-checkbox v-model="modelDialog.form.supportsThinking">thinking</el-checkbox>
         </el-form-item>
         <el-form-item label="启用"><el-switch v-model="modelDialog.form.enabled" /></el-form-item>
+        <el-form-item label="额外参数">
+          <ExtraParamsEditor v-model="modelDialog.form.extra" />
+          <div v-if="modelDialog.form.tags.includes('embedding')" class="hint">embedding 模型通过 <code>batchSize</code> 控制每批条数，不填为 10。</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="modelDialog.open = false">取消</el-button>
         <el-button type="primary" @click="saveModel">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="extraDialog.open" :title="`额外参数：${extraDialog.row?.label || ''}`" width="640">
+      <ExtraParamsEditor v-model="extraDialog.rows" :inherited="extraDialog.inherited" />
+      <p class="hint">用途上的同名参数覆盖模型上的；确认后点击「保存分配」才会生效。</p>
+      <template #footer>
+        <el-button @click="extraDialog.open = false">取消</el-button>
+        <el-button type="primary" @click="confirmExtra">确认</el-button>
       </template>
     </el-dialog>
 
@@ -384,6 +438,7 @@ onMounted(load);
 .footer { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; gap: 12px; }
 .hint { font-size: 12px; color: var(--k-muted); width: 100%; }
 .result { margin: 0; font-size: 13px; }
+.extra-summary { display: inline-block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .discover { display: flex; flex-direction: column; gap: 6px; }
 .dims { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 </style>

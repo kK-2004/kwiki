@@ -41,7 +41,7 @@ public final class StubModelRegistry implements ModelRegistry {
 
     public StubModelRegistry withPurpose(ModelPurpose purpose, String modelName, ChatModel chat) {
         resolved.put(purpose, new ResolvedModel(purpose, 1, "stub", "http://localhost/v1", "stub-key", modelName,
-                purpose.defaultTemperature(), null, null, 2, Duration.ofSeconds(30), null, null));
+                purpose.defaultTemperature(), null, null, 2, Duration.ofSeconds(30), null, null, Map.of()));
         if (chat != null) chats.put(purpose, chat);
         return this;
     }

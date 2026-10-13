@@ -46,15 +46,16 @@ public class JdbcModelConfigStore implements ModelConfigStore {
         });
         List<ModelDefinition> models = jdbc.query("""
                 SELECT id, provider_id, model_name, display_name, dimensions, max_output_tokens,
-                       supports_tools, supports_thinking, enabled
+                       supports_tools, supports_thinking, enabled, extra
                 FROM model_definition ORDER BY provider_id, id
                 """, (rs, i) -> new ModelDefinition(rs.getLong("id"), rs.getLong("provider_id"),
                 rs.getString("model_name"), rs.getString("display_name"),
                 tags.getOrDefault(rs.getLong("id"), Set.of()), nullableInt(rs, "dimensions"),
                 nullableInt(rs, "max_output_tokens"), rs.getBoolean("supports_tools"),
-                rs.getBoolean("supports_thinking"), rs.getBoolean("enabled")));
+                rs.getBoolean("supports_thinking"), rs.getBoolean("enabled"),
+                ModelExtra.fromJson(rs.getString("extra"))));
         Map<ModelPurpose, ModelAssignment> assignments = new EnumMap<>(ModelPurpose.class);
-        jdbc.query("SELECT purpose, model_id, temperature, max_tokens, thinking FROM model_assignment",
+        jdbc.query("SELECT purpose, model_id, temperature, max_tokens, thinking, extra FROM model_assignment",
                 (ResultSet rs) -> {
                     ModelPurpose purpose;
                     try {
@@ -65,7 +66,8 @@ public class JdbcModelConfigStore implements ModelConfigStore {
                     Object thinking = rs.getObject("thinking");
                     assignments.put(purpose, new ModelAssignment(purpose, nullableLong(rs, "model_id"),
                             nullableDouble(rs, "temperature"), nullableInt(rs, "max_tokens"),
-                            thinking == null ? null : rs.getBoolean("thinking")));
+                            thinking == null ? null : rs.getBoolean("thinking"),
+                            ModelExtra.fromJson(rs.getString("extra"))));
                 });
         return new ModelCatalog(version, providers, models, assignments);
     }
@@ -129,8 +131,8 @@ public class JdbcModelConfigStore implements ModelConfigStore {
         jdbc.update(connection -> {
             PreparedStatement s = connection.prepareStatement("""
                     INSERT INTO model_definition (provider_id, model_name, display_name, dimensions,
-                        max_output_tokens, supports_tools, supports_thinking, enabled)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        max_output_tokens, supports_tools, supports_thinking, enabled, extra)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, Statement.RETURN_GENERATED_KEYS);
             bindModel(s, m);
             return s;
@@ -146,11 +148,11 @@ public class JdbcModelConfigStore implements ModelConfigStore {
             PreparedStatement s = connection.prepareStatement("""
                     UPDATE model_definition SET provider_id = ?, model_name = ?, display_name = ?,
                         dimensions = ?, max_output_tokens = ?, supports_tools = ?, supports_thinking = ?,
-                        enabled = ?
+                        enabled = ?, extra = ?
                     WHERE id = ?
                     """);
             bindModel(s, m);
-            s.setLong(9, m.id());
+            s.setLong(10, m.id());
             return s;
         });
         replaceTags(m.id(), m.tags());
@@ -166,11 +168,12 @@ public class JdbcModelConfigStore implements ModelConfigStore {
     public void saveAssignments(Collection<ModelAssignment> assignments) {
         for (ModelAssignment a : assignments) {
             jdbc.update("""
-                    INSERT INTO model_assignment (purpose, model_id, temperature, max_tokens, thinking)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO model_assignment (purpose, model_id, temperature, max_tokens, thinking, extra)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON DUPLICATE KEY UPDATE model_id = VALUES(model_id), temperature = VALUES(temperature),
-                        max_tokens = VALUES(max_tokens), thinking = VALUES(thinking)
-                    """, a.purpose().name(), a.modelId(), a.temperature(), a.maxTokens(), a.thinking());
+                        max_tokens = VALUES(max_tokens), thinking = VALUES(thinking), extra = VALUES(extra)
+                    """, a.purpose().name(), a.modelId(), a.temperature(), a.maxTokens(), a.thinking(),
+                    ModelExtra.toJson(a.extra()));
         }
     }
 
@@ -227,6 +230,7 @@ public class JdbcModelConfigStore implements ModelConfigStore {
         s.setBoolean(6, m.supportsTools());
         s.setBoolean(7, m.supportsThinking());
         s.setBoolean(8, m.enabled());
+        setNullable(s, 9, ModelExtra.toJson(m.extra()), Types.VARCHAR);
     }
 
     private static void setNullable(PreparedStatement s, int index, Object value, int type) throws SQLException {

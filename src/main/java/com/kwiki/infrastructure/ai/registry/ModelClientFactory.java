@@ -7,6 +7,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 /** 由目录取值构建具体客户端；构建本身不访问网络（输出上限探测除外）。 */
 public interface ModelClientFactory {
@@ -15,8 +16,9 @@ public interface ModelClientFactory {
 
     StreamingChatModel streaming(ClientSpec spec);
 
+    /** batchSize 为每批条数；parameters 为透传给 /embeddings 请求体的额外参数。 */
     ChunkEmbeddingPort embedding(String baseUrl, String apiKey, Duration timeout, String modelName,
-                                 int dimensions, int maxRetries);
+                                 int dimensions, int maxRetries, int batchSize, Map<String, Object> parameters);
 
     /** 从 provider 的模型元数据探测输出上限；拿不到时返回 null（请求省略 max_tokens）。 */
     Integer probeOutputLimit(String baseUrl, String apiKey, Duration timeout, String modelName);

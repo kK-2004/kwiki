@@ -187,4 +187,26 @@ class ModelConfigAdminServiceTest {
         assertThat(ok.ok()).isTrue();
         assertThat(ok.message()).contains("2");
     }
+
+    @Test
+    void extra非法时返回400_合法时保存并回显() {
+        long id = service.createProvider(provider("bailian", "sk-1")).id();
+        assertThatThrownBy(() -> service.createModels(id, List.of(new ModelRequest("e", null, Set.of("embedding"),
+                1024, null, false, false, true, java.util.Map.of("batchSize", 0)))))
+                .satisfies(e -> assertThat(code(e)).isEqualTo(400))
+                .hasMessageContaining("batchSize");
+        var models = service.createModels(id, List.of(new ModelRequest("e", null, Set.of("embedding"),
+                1024, null, false, false, true, java.util.Map.of("batchSize", 10, "text_type", "document")),
+                chat("qwen-max", true)));
+        assertThat(models.get(0).extra()).containsEntry("batchSize", 10).containsEntry("text_type", "document");
+
+        assertThatThrownBy(() -> service.saveAssignments(List.of(new AssignmentRequest("ROUTER", models.get(1).id(),
+                null, null, null, java.util.Map.of("max_tokens", 10)))))
+                .satisfies(e -> assertThat(code(e)).isEqualTo(400))
+                .hasMessageContaining("max_tokens");
+        service.saveAssignments(List.of(new AssignmentRequest("ROUTER", models.get(1).id(), null, null, null,
+                java.util.Map.of("top_p", 0.8))));
+        assertThat(service.assignments().stream().filter(v -> v.purpose().equals("ROUTER")).findFirst().orElseThrow()
+                .extra()).containsEntry("top_p", 0.8);
+    }
 }
