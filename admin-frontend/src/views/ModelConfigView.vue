@@ -303,7 +303,7 @@ onMounted(load);
     <el-dialog v-model="providerDialog.open" :title="providerDialog.editing ? '编辑 provider' : '新增 provider'" width="560">
       <el-form label-width="120px">
         <el-form-item label="名称"><el-input v-model="providerDialog.form.name" aria-label="provider 名称" /></el-form-item>
-        <el-form-item label="Base URL"><el-input v-model="providerDialog.form.baseUrl" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" aria-label="Base URL" /></el-form-item>
+        <el-form-item label="Base URL"><el-input v-model="providerDialog.form.baseUrl" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" aria-label="Base URL" /><div class="hint">OpenAI 兼容的 API 根路径，通常以 /v1 结尾（会请求 &lt;Base URL&gt;/models、/chat/completions）。</div></el-form-item>
         <el-form-item label="API key">
           <el-input v-model="providerDialog.form.apiKey" type="password" show-password :placeholder="providerDialog.editing ? `${providerDialog.editing.apiKeyHint}（留空不修改）` : ''" aria-label="API key" />
         </el-form-item>

@@ -67,4 +67,41 @@ class OpenAiModelClientFactoryTest {
             assertThat(server.takeRequest().getPath()).isEqualTo("/v1/models");
         }
     }
+
+    @Test
+    void 返回网页时提示baseUrl可能缺少v1() throws Exception {
+        try (var server = new MockWebServer()) {
+            server.start();
+            server.enqueue(new MockResponse().setHeader("Content-Type", "text/html;charset=utf-8")
+                    .setBody("<!doctype html><html><body>new-api</body></html>"));
+            String base = server.url("/").toString();
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> factory.listModels(base, "k", Duration.ofSeconds(2)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("网页")
+                    .hasMessageContaining("/v1");
+        }
+    }
+
+    @Test
+    void content_type不规范但内容是JSON时照常解析() throws Exception {
+        try (var server = new MockWebServer()) {
+            server.start();
+            server.enqueue(new MockResponse().setHeader("Content-Type", "text/plain")
+                    .setBody("{\"data\":[{\"id\":\"qwen-max\"}]}"));
+            assertThat(factory.listModels(server.url("/v1").toString(), "k", Duration.ofSeconds(2)))
+                    .containsExactly("qwen-max");
+        }
+    }
+
+    @Test
+    void JSON但不是模型列表时明确失败() throws Exception {
+        try (var server = new MockWebServer()) {
+            server.start();
+            server.enqueue(new MockResponse().setHeader("Content-Type", "application/json").setBody("{\"ok\":true}"));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                            factory.listModels(server.url("/v1").toString(), "k", Duration.ofSeconds(2)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("data");
+        }
+    }
 }

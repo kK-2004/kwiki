@@ -44,6 +44,8 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
             "max_tokens", "maxTokens");
     private static final int EMBEDDING_BATCH_SIZE = 25;
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+
     private final WebClient.Builder webClientBuilder;
     private final Optional<io.micrometer.tracing.Tracer> tracer;
     private final Optional<io.micrometer.tracing.propagation.Propagator> propagator;
@@ -100,7 +102,7 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
         Duration probeTimeout = timeout.compareTo(Duration.ofSeconds(15)) < 0 ? timeout : Duration.ofSeconds(15);
         for (String path : List.of("models/" + UriUtils.encodePathSegment(modelName, StandardCharsets.UTF_8), "models")) {
             try {
-                JsonNode document = client.get().uri(path).retrieve().bodyToMono(JsonNode.class).block(probeTimeout);
+                JsonNode document = readJson(client, path, probeTimeout, baseUrl);
                 Optional<Integer> limit = findOutputLimit(selectModel(document, modelName));
                 if (limit.isPresent()) return limit.get();
             } catch (Exception ignored) {
@@ -113,16 +115,35 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
     /** 列出 provider 的模型 id（GET /models）；用于连通性测试与模型发现。 */
     @Override
     public List<String> listModels(String baseUrl, String apiKey, Duration timeout) {
-        JsonNode document = webClient(baseUrl, apiKey, timeout).get().uri("models").retrieve()
-                .bodyToMono(JsonNode.class).block(timeout);
+        JsonNode document = readJson(webClient(baseUrl, apiKey, timeout), "models", timeout, baseUrl);
+        if (document == null || !document.path("data").isArray()) {
+            throw new IllegalStateException("GET " + baseUrl.replaceAll("/+$", "")
+                    + "/models 的响应不是 OpenAI 兼容的模型列表（缺少 data 数组）");
+        }
         List<String> ids = new ArrayList<>();
-        if (document != null && document.path("data").isArray()) {
-            for (JsonNode model : document.path("data")) {
-                String id = model.path("id").asText("");
-                if (!id.isBlank()) ids.add(id);
-            }
+        for (JsonNode model : document.path("data")) {
+            String id = model.path("id").asText("");
+            if (!id.isBlank()) ids.add(id);
         }
         return ids;
+    }
+
+    /**
+     * 以字符串读取响应再解析 JSON：部分 provider 的 Content-Type 不规范（如 text/plain）。
+     * 返回网页时多半是 baseUrl 指向了站点首页而不是 API 根路径，给出可操作的提示。
+     */
+    private static JsonNode readJson(WebClient client, String path, Duration timeout, String baseUrl) {
+        String body = client.get().uri(path).retrieve().bodyToMono(String.class).block(timeout);
+        String trimmed = body == null ? "" : body.strip();
+        if (trimmed.startsWith("<")) {
+            throw new IllegalStateException("provider 返回的是网页而不是 JSON，Base URL 可能缺少 /v1（例如 "
+                    + baseUrl.replaceAll("/+$", "") + "/v1）");
+        }
+        try {
+            return JSON.readTree(trimmed);
+        } catch (Exception e) {
+            throw new IllegalStateException("provider 的响应不是合法的 JSON");
+        }
     }
 
     static JsonNode selectModel(JsonNode document, String modelName) {
