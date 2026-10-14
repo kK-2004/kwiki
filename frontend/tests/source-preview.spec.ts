@@ -8,6 +8,7 @@ import SourcePreview from '../src/features/wiki/components/SourcePreview.vue';
 import { createTestingPinia } from './test-pinia';
 import { useWikiStore } from '../src/features/wiki/store';
 import { useAuthStore } from '../src/features/auth/store';
+import { clearSourceCache } from '../src/features/wiki/sourceCache';
 
 type SourceSummary = { format: 'PDF' | 'DOCX'; fileName: string; byteSize: number; attachmentUuid: string };
 
@@ -63,7 +64,8 @@ const okBlob = { ok: true, status: 200, blob: async () => new Blob(['%PDF-1.7 mo
 
 async function flush(times = 16) { for (let i = 0; i < times; i++) await nextTick(); }
 
-afterEach(() => {
+afterEach(async () => {
+  await clearSourceCache();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -166,14 +168,16 @@ describe('SourcePreview 预览组件', () => {
     const auth = useAuthStore(pinia);
     auth.user = { id: 7, username: 'zhangsan', displayName: '张三', admin: false };
     await flush();
+    // 首屏交给 PDF.js 按 Range 渲染，完成后后台取全量写入缓存。
     expect(calls.map(call => call.url)).toEqual([
       '/api/v1/knowledge-bases/1/pages/11/source-preview',
+      'https://files.example.test/signed-pdf',
     ]);
     expect(pdfViewer.sources).toEqual(['https://files.example.test/signed-pdf']);
     const watermark = view.getByTestId('source-watermark');
     expect(watermark.getAttribute('aria-hidden')).toBe('true');
     expect(watermark.textContent).toContain('zhangsan');
-    expect(fn).toHaveBeenCalledTimes(1);
+    expect(fn).toHaveBeenCalledTimes(2);
     view.unmount();
   });
 
@@ -210,9 +214,11 @@ describe('SourcePreview 预览组件', () => {
     pdfViewer.outcomes.push('error', 'ready');
     const { view } = makePreview();
     await flush();
-    expect(calls.map(call => call.url)).toEqual([
+    // 回退后的同源代理地址同样用于后台写入缓存。
+    await vi.waitFor(() => expect(calls.map(call => call.url)).toEqual([
       '/api/v1/knowledge-bases/1/pages/11/source-preview',
-    ]);
+      '/api/v1/knowledge-bases/1/pages/11/source-preview/content',
+    ]));
     expect(pdfViewer.sources).toEqual([
       'https://files.example.test/cors-blocked',
       '/api/v1/knowledge-bases/1/pages/11/source-preview/content',
@@ -236,9 +242,93 @@ describe('SourcePreview 预览组件', () => {
     await flush();
     expect(calls.map(call => call.url)).toEqual([
       '/api/v1/knowledge-bases/1/pages/11/source-preview',
+      'http://minio-local:9000/wiki/manual.pdf?signature=x',
     ]);
     expect(pdfViewer.sources).toEqual(['http://minio-local:9000/wiki/manual.pdf?signature=x']);
     view.unmount();
+  });
+
+  it('切回已预览过的源文件时仍校验授权，但直接使用浏览器缓存不再下载', async () => {
+    const { calls } = stubFetch(url => {
+      if (url.endsWith('/source-preview')) {
+        return {
+          ok: true, status: 200, headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: async () => ({ data: { url: 'https://files.example.test/signed-pdf' } }),
+          blob: async () => new Blob(),
+        };
+      }
+      return okBlob;
+    });
+    const first = makePreview();
+    await flush();
+    first.view.unmount();
+    calls.length = 0;
+    pdfViewer.sources.length = 0;
+
+    const second = makePreview();
+    await flush();
+    expect(calls.map(call => call.url)).toEqual([
+      '/api/v1/knowledge-bases/1/pages/11/source-preview',
+    ]);
+    expect(pdfViewer.sources[0]).toBeInstanceOf(Blob);
+    second.view.unmount();
+  });
+
+  it('内容中心临时不可用（503）时回退到已缓存的源文件', async () => {
+    let storageDown = false;
+    stubFetch(url => {
+      if (!url.endsWith('/source-preview')) return okBlob;
+      if (storageDown) return { ok: false, status: 503, blob: async () => new Blob() };
+      return {
+        ok: true, status: 200, headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: async () => ({ data: { url: 'https://files.example.test/signed-pdf' } }),
+        blob: async () => new Blob(),
+      };
+    });
+    const first = makePreview();
+    await flush();
+    first.view.unmount();
+    storageDown = true;
+    pdfViewer.sources.length = 0;
+
+    const second = makePreview();
+    await flush();
+    expect(second.view.queryByTestId('source-error')).toBeNull();
+    expect(pdfViewer.sources[0]).toBeInstanceOf(Blob);
+    second.view.unmount();
+  });
+
+  it('内容中心临时不可用且无缓存时提示稍后重试', async () => {
+    stubFetch(() => ({ ok: false, status: 503, blob: async () => new Blob() }));
+    const { view } = makePreview();
+    await flush();
+    expect(view.getByTestId('source-error').textContent).toContain('内容中心暂时不可用');
+    expect(view.getByTestId('source-retry')).toBeTruthy();
+    view.unmount();
+  });
+
+  it('撤权后不再展示缓存内容', async () => {
+    let allowed = true;
+    stubFetch(url => {
+      if (!url.endsWith('/source-preview')) return okBlob;
+      if (!allowed) return { ok: false, status: 403, blob: async () => new Blob() };
+      return {
+        ok: true, status: 200, headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: async () => ({ data: { url: 'https://files.example.test/signed-pdf' } }),
+        blob: async () => new Blob(),
+      };
+    });
+    const first = makePreview();
+    await flush();
+    first.view.unmount();
+    allowed = false;
+    pdfViewer.sources.length = 0;
+
+    const second = makePreview();
+    await flush();
+    expect(second.view.getByTestId('source-error').textContent).toContain('无权');
+    expect(pdfViewer.sources).toHaveLength(0);
+    second.view.unmount();
   });
 
   it('加载失败时展示原因与重试入口，重试成功后恢复', async () => {

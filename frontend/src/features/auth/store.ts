@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import {
   api, bumpAuthGeneration, clearAuthToken, getAuthToken, setAuthToken, type UserDto,
 } from '../wiki/api';
+import { clearSourceCache } from '../wiki/sourceCache';
 
 interface LoginResponse {
   token: string;
@@ -50,6 +51,8 @@ export const useAuthStore = defineStore('auth', {
     },
     logout() {
       clearAuthToken(); this.token = ''; this.user = null; this.ready = true;
+      // 源文件缓存不跨账号保留。
+      void clearSourceCache();
       this.generation = bumpAuthGeneration();
     },
   },

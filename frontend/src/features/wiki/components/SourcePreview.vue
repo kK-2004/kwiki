@@ -39,6 +39,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { SourceDocumentSummary } from '../api';
 import { getAuthToken } from '../api';
 import { useAuthStore } from '../../auth/store';
+import { getCachedSource, putCachedSource } from '../sourceCache';
 import { renderSource, SOURCE_PREVIEW_MAX_BYTES, type SourceRenderHandle } from './sourceAdapters';
 import PdfSourceViewer from './PdfSourceViewer.vue';
 import SourceWatermark from './SourceWatermark.vue';
@@ -130,6 +131,17 @@ function onPdfError(error: unknown) {
   pdfAttempt.reject(error);
 }
 
+async function cacheRemoteSource(uuid: string, url: string, headers?: Record<string, string>) {
+  try {
+    const response = await fetch(url, { headers });
+    if (!response.ok) return;
+    const blob = await response.blob();
+    if (blob.size <= SOURCE_PREVIEW_MAX_BYTES) await putCachedSource(uuid, blob);
+  } catch {
+    // 缓存失败不影响预览，下次进入时重新加载即可。
+  }
+}
+
 async function load() {
   const run = ++generation;
   release();
@@ -144,17 +156,28 @@ async function load() {
       { headers: getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}, signal },
     ));
     if (run !== generation) return;
-    if (!response.ok) {
+    // 503 只在页面授权通过、签发内容中心链接时出现（内容中心临时故障）：有缓存则照常展示。
+    const cached = response.ok || response.status === 503
+      ? await deadline.waitFor(getCachedSource(props.source.attachmentUuid))
+      : null;
+    if (run !== generation) return;
+    if (!response.ok && !cached) {
       retryable.value = response.status >= 500;
       errorText.value = response.status === 403 || response.status === 404
         ? '无权访问该源文件，或源文件已失效'
-        : '源文件预览加载失败';
+        : response.status === 410
+          ? '源文件已丢失，请重新上传'
+          : response.status === 503
+            ? '内容中心暂时不可用，请稍后重试'
+            : '源文件预览加载失败';
       status.value = 'error';
       return;
     }
     const contentType = response.headers?.get('Content-Type') ?? '';
     let sourceData: Blob | string;
-    if (contentType.includes('application/json')) {
+    if (cached) {
+      sourceData = cached;
+    } else if (contentType.includes('application/json')) {
       const payload = await deadline.waitFor(response.json()) as { data?: { url?: string } };
       const sourceUrl = payload.data?.url;
       if (!sourceUrl) throw new Error('源文件预览地址无效');
@@ -176,20 +199,26 @@ async function load() {
       status.value = 'error';
       return;
     }
+    if (sourceData instanceof Blob && !cached) void putCachedSource(props.source.attachmentUuid, sourceData);
     // 渲染容器随首个渲染周期即已挂载；等待一次 tick 确保 DOM 就绪。
     await nextTick();
     if (run !== generation) return;
     if (props.source.format === 'PDF') {
+      let remote: { url: string; headers?: Record<string, string> } | null =
+        typeof sourceData === 'string' ? { url: sourceData } : null;
       try {
         await deadline.waitFor(renderPdf(sourceData));
       } catch (error) {
         // 仅当直连 PDF 的跨域/地址不可用时，退回同源 Range 代理。
         if (typeof sourceData !== 'string' || signal.aborted) throw error;
-        await deadline.waitFor(renderPdf(
-          `/api/v1/knowledge-bases/${props.kbId}/pages/${props.pageId}/source-preview/content`,
-          getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : undefined,
-        ));
+        remote = {
+          url: `/api/v1/knowledge-bases/${props.kbId}/pages/${props.pageId}/source-preview/content`,
+          headers: getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : undefined,
+        };
+        await deadline.waitFor(renderPdf(remote.url, remote.headers));
       }
+      // 首次预览按 Range 流式渲染以尽快出首屏；渲染完成后在后台取全量写入缓存。
+      if (remote && run === generation) void cacheRemoteSource(props.source.attachmentUuid, remote.url, remote.headers);
     } else {
       if (!renderer.value) throw new Error('源文件预览容器未就绪');
       handle = await deadline.waitFor(renderSource(renderer.value, 'DOCX', sourceData, { signal }));

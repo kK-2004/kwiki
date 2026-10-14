@@ -6,6 +6,7 @@ import com.kk2004.common.exception.BaseBusinessException;
 import com.kk2004.common.exception.CommonErrorCode;
 import com.kk2004.common.response.TransDTO;
 import com.kwiki.indexing.plugin.IndexPluginValidationException;
+import com.kwiki.wiki.attach.AttachmentStorageException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -124,6 +125,27 @@ public class ApiControllerAdvice {
         log.warn("handled index-plugin validation exception: {}", e.getMessage(), e);
         return ResponseEntity.badRequest()
                 .body(TransDTO.failure(HttpStatus.BAD_REQUEST.value(), e.getMessage()));
+    }
+
+    /**
+     * 内容中心故障不是应用缺陷：临时故障（超时、522 等远端 5xx）回 503 供前端重试/回退缓存，
+     * 文件已丢失回 410，其余永久失败回 502。存储适配器已记录上游状态，这里不再打印堆栈。
+     */
+    @ExceptionHandler(AttachmentStorageException.class)
+    ResponseEntity<TransDTO<String>> storageFailure(AttachmentStorageException e) {
+        log.warn("handled attachment-storage exception category={} contentMissing={} message={}",
+                e.getCategory(), e.isContentMissing(), e.getMessage());
+        if (e.isContentMissing()) {
+            return ResponseEntity.status(HttpStatus.GONE)
+                    .body(TransDTO.failure(HttpStatus.GONE.value(), "文件已丢失，请删除后重新上传"));
+        }
+        if (e.getCategory() == AttachmentStorageException.Category.TRANSIENT) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .header(org.springframework.http.HttpHeaders.RETRY_AFTER, "5")
+                    .body(TransDTO.failure(HttpStatus.SERVICE_UNAVAILABLE.value(), "内容中心暂时不可用，请稍后重试"));
+        }
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(TransDTO.failure(HttpStatus.BAD_GATEWAY.value(), "内容中心请求失败"));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
