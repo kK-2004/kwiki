@@ -13,33 +13,3 @@ spring:
         username: ${KWIKI_NACOS_USERNAME:kwiki}
         password: ${KWIKI_NACOS_PASSWORD:}
         refresh-enabled: true
-  ai:
-    mcp:
-      server:
-        # MCP Server 总开关跟随 kwiki.mcp.enabled：关闭时既不装配
-        # Spring AI 的 /mcp 端点，也不装配 kwiki.mcp.* 的安全与工具层。
-        enabled: ${kwiki.mcp.enabled:false}
-        name: kwiki-mcp
-        version: 0.1.0
-        type: sync
-        protocol: STREAMABLE
-        capabilities:
-          tool: true
-          resource: false
-          prompt: false
-          completion: false
-        # 工具经 McpSyncServerCustomizer 显式注册，不使用注解扫描
-        annotation-scanner:
-          enabled: false
-        streamable-http:
-          mcp-endpoint: /mcp
-
-kwiki:
-  agentic:
-    # QA plan-execute（LLM 规划工具、代码执行）默认关闭；关闭时保持固定的检索—评审—改写阶梯。
-    planner-enabled: ${KWIKI_AGENTIC_PLANNER_ENABLED:false}
-  routing:
-    # LLM 路由默认关闭：关闭时只有规则 + 回退到带作用域的 KNOWLEDGE_QA（偏向检索）。
-    llm-enabled: ${KWIKI_ROUTING_LLM_ENABLED:false}
-    # LLM 路由显式给出的置信度低于该值（且大于 0）时，向用户反问。
-    clarify-confidence-threshold: ${KWIKI_ROUTING_CLARIFY_CONFIDENCE_THRESHOLD:0.5}
