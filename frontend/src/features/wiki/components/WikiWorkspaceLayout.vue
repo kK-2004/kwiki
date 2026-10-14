@@ -1,7 +1,7 @@
 <template>
-  <div class="wiki-layout" data-testid="workspace">
-    <aside class="tree-column" :class="{ 'mobile-open': treeOpen }" aria-label="Wiki 页面导航" data-testid="middle-column">
-      <header class="tree-header"><RouterLink to="/knowledge-bases" class="back-link"><i class="i-lucide-arrow-left" /> 所有知识库</RouterLink><div class="kb-title"><span class="kb-icon"><i class="i-lucide-library" /></span><strong>{{ base?.name || '加载中…' }}</strong><RouterLink v-if="base?.canManage" :to="`/knowledge-bases/${kbId}/trash`" class="ui-icon" aria-label="回收站" data-testid="kb-trash-link"><i class="i-lucide-archive" /></RouterLink><RouterLink v-if="base?.canManage" :to="`/knowledge-bases/${kbId}/settings`" class="ui-icon" aria-label="知识库设置"><i class="i-lucide-settings-2" /></RouterLink></div><p>{{ base?.description || '让知识有序，让协作发生' }}</p></header>
+  <div class="wiki-layout" :class="{ 'tree-collapsed': treeCollapsed }" data-testid="workspace">
+    <aside id="wiki-tree-column" class="tree-column" :class="{ 'mobile-open': treeOpen }" aria-label="Wiki 页面导航" data-testid="middle-column" :inert="treeCollapsed && !treeOpen">
+      <header class="tree-header"><div class="tree-top"><RouterLink to="/knowledge-bases" class="back-link"><i class="i-lucide-arrow-left" /> 所有知识库</RouterLink><button type="button" class="ui-icon tree-collapse" aria-label="收起页面目录" title="收起页面目录" aria-controls="wiki-tree-column" @click="treeCollapsed = true"><i class="i-lucide-panel-left-close" /></button></div><div class="kb-title"><span class="kb-icon"><i class="i-lucide-library" /></span><strong>{{ base?.name || '加载中…' }}</strong><RouterLink v-if="base?.canManage" :to="`/knowledge-bases/${kbId}/trash`" class="ui-icon" aria-label="回收站" data-testid="kb-trash-link"><i class="i-lucide-archive" /></RouterLink><RouterLink v-if="base?.canManage" :to="`/knowledge-bases/${kbId}/settings`" class="ui-icon" aria-label="知识库设置"><i class="i-lucide-settings-2" /></RouterLink></div><p>{{ base?.description || '让知识有序，让协作发生' }}</p></header>
       <div class="tree-tabs" role="tablist" aria-label="Wiki 视图"><button role="tab" :aria-selected="store.middleTab === 'knowledge'" :class="{ active: store.middleTab === 'knowledge' }" @click="store.middleTab = 'knowledge'">目录 <span>{{ pageCount }}</span></button><button role="tab" :aria-selected="store.middleTab === 'summary'" :class="{ active: store.middleTab === 'summary' }" @click="store.middleTab = 'summary'">摘要</button><button v-if="base?.canUpload" class="ui-icon" aria-label="新建页面" @click="beginCreate('PAGE')"><i class="i-lucide-file-plus" /></button><button v-if="base?.canUpload" class="ui-icon" aria-label="新建目录" @click="beginCreate('FOLDER')"><i class="i-lucide-folder-plus" /></button></div>
       <p v-if="treeError" class="ui-error">{{ treeError }} <button class="ui-button" @click="load">重试</button></p>
       <p v-else-if="loading" class="tree-state">正在加载目录…</p>
@@ -9,7 +9,7 @@
       <div v-else class="summary-scroll"><WikiSummaryPanel /></div>
       <RouterLink v-if="base?.canUpload" :to="`/knowledge-bases?import=${kbId}`" class="import-link"><i class="i-lucide-upload" /> 导入文档</RouterLink>
     </aside>
-    <section class="wiki-content" data-testid="content-column"><header class="workspace-head"><button class="ui-icon mobile-tree" aria-label="打开页面目录" @click="treeOpen = !treeOpen"><i class="i-lucide-panel-left-open" /></button><nav class="crumbs" aria-label="面包屑"><RouterLink to="/knowledge-bases">知识库</RouterLink><span>›</span><RouterLink :to="`/knowledge-bases/${kbId}`">{{ base?.name || '加载中…' }}</RouterLink><template v-for="node in ancestors" :key="node.id"><span>/</span><RouterLink :to="`/knowledge-bases/${kbId}/${node.id}`" :aria-current="node.id === Number(pageId) ? 'page' : undefined">{{ node.title }}</RouterLink></template></nav><PageHeaderActions v-if="selectedNode?.nodeType === 'PAGE' && kbId && pageId" :kb-id="Number(kbId)" :page-id="Number(pageId)" @edit="invokePageAction('toggleEdit')" @history="invokePageAction('toggleHistory')" @archive="invokePageAction('openArchive')" /></header>
+    <section class="wiki-content" data-testid="content-column"><header class="workspace-head"><button class="ui-icon mobile-tree" aria-label="打开页面目录" title="展开页面目录" aria-controls="wiki-tree-column" :aria-expanded="treeOpen || !treeCollapsed" @click="toggleTree"><i class="i-lucide-panel-left-open" /></button><nav class="crumbs" aria-label="面包屑"><RouterLink to="/knowledge-bases">知识库</RouterLink><span>›</span><RouterLink :to="`/knowledge-bases/${kbId}`">{{ base?.name || '加载中…' }}</RouterLink><template v-for="node in ancestors" :key="node.id"><span>/</span><RouterLink :to="`/knowledge-bases/${kbId}/${node.id}`" :aria-current="node.id === Number(pageId) ? 'page' : undefined">{{ node.title }}</RouterLink></template></nav><PageHeaderActions v-if="selectedNode?.nodeType === 'PAGE' && kbId && pageId" :kb-id="Number(kbId)" :page-id="Number(pageId)" @edit="invokePageAction('toggleEdit')" @history="invokePageAction('toggleHistory')" @archive="invokePageAction('openArchive')" /></header>
       <main class="document"><div v-if="!pageId || selectedNode?.nodeType === 'FOLDER'" class="overview"><span class="overview-icon"><i :class="selectedNode ? 'i-lucide-folder-open' : 'i-lucide-library'" /></span><p class="eyebrow">{{ selectedNode ? '文档目录' : '知识库概览' }}</p><h1>{{ selectedNode?.title || base?.name || '知识库' }}</h1><p class="description">{{ selectedNode ? '浏览此目录下的文档，或添加新的内容。' : base?.description || '将分散的信息整理为团队共享的知识。' }}</p><div class="overview-actions" v-if="base?.canUpload"><button class="ui-button primary" @click="beginCreate('PAGE')"><i class="i-lucide-plus" />新建文档</button><RouterLink class="ui-button" :to="`/knowledge-bases?import=${kbId}`"><i class="i-lucide-upload" />导入文档</RouterLink></div><div class="contents-header"><h2>{{ selectedNode ? '目录内容' : '内容目录' }}</h2><span>{{ overviewCount }} 项</span></div><p v-if="importError && !selectedNode" class="import-list-error" role="alert">{{ importError }} <button type="button" @click="loadImports">重试</button></p><p v-if="!overviewCount" class="empty-directory">这里还没有内容，创建第一篇文档开始整理知识。</p><div v-for="job in visiblePendingImports" :key="`import-${job.jobId}`" class="overview-row import-row"><i class="i-lucide-file-clock" /><span class="row-main"><strong>{{ job.fileName }}</strong><small v-if="job.state === 'FAILED'" :class="{ 'source-missing': job.sourceMissing }">{{ job.sourceMissing ? '文件已丢失，请删除后重新上传' : job.error || '文档解析失败，请重试' }}</small></span><span class="import-status" :class="job.state.toLowerCase()"><span v-if="isImportActive(job)" class="status-spinner" aria-hidden="true"></span>{{ importStatus(job.state) }}</span><button v-if="job.state === 'FAILED' && !job.sourceMissing" type="button" class="retry-import" :disabled="retryingJobId === job.jobId" @click="retryImport(job)">{{ retryingJobId === job.jobId ? '重试中…' : '重试' }}</button><button v-if="job.state === 'FAILED'" type="button" class="retry-import delete-import" :disabled="deletingJobId === job.jobId" :aria-label="`删除导入任务 ${job.fileName}`" @click="deleteImport(job)">{{ deletingJobId === job.jobId ? '删除中…' : '删除' }}</button></div><RouterLink v-for="node in overviewNodes" :key="node.id" :to="`/knowledge-bases/${kbId}/${node.id}`" class="overview-row"><i :class="node.nodeType === 'FOLDER' ? 'i-lucide-folder' : 'i-lucide-file-text'" /><span class="row-main"><strong>{{ node.title }}</strong></span><span v-if="importForPage(node.id) && importForPage(node.id)!.state !== 'SUCCEEDED'" class="import-status" :class="importForPage(node.id)!.state.toLowerCase()">{{ importStatus(importForPage(node.id)!.state) }}</span><span v-else-if="importForPage(node.id)?.indexState === 'INDEXING'" class="import-status indexing" title="页面已可阅读，图片摘要与检索索引仍在构建，完成前搜索和 AI 问答暂无法引用本页内容"><span class="status-spinner" aria-hidden="true"></span>索引建立中</span><span v-else-if="importForPage(node.id)?.indexState === 'FAILED'" class="import-status failed" title="搜索和 AI 问答暂无法引用本页内容，请联系管理员重试索引任务">索引失败</span><i class="i-lucide-chevron-right" /></RouterLink></div><RouterView v-else v-slot="{ Component }"><component :is="Component" ref="pageComponent" /></RouterView></main>
     </section>
     <div v-if="creating" class="create-overlay" @click.self="creating = false"><form class="create-dialog" role="dialog" aria-modal="true" :aria-label="nodeType === 'FOLDER' ? '新建目录' : '新建文档'" @submit.prevent="create"><h2>{{ nodeType === 'FOLDER' ? '新建目录' : '新建文档' }}</h2><label>名称<input v-model.trim="title" class="ui-input" required maxlength="200" autofocus /></label><p v-if="createError" class="ui-error">{{ createError }}</p><footer><button type="button" class="ui-button" @click="creating = false">取消</button><button class="ui-button primary" :disabled="saving || !title">{{ saving ? '创建中…' : '创建' }}</button></footer></form></div>
@@ -25,7 +25,12 @@ type PageActionTarget = { toggleEdit?: () => void; toggleHistory?: () => void; o
 const pageComponent = ref<PageActionTarget | null>(null);
 function invokePageAction(action: keyof PageActionTarget) { pageComponent.value?.[action]?.(); }
 const base = ref<{ name: string; description?: string; canManage: boolean; canUpload: boolean }>();
-const treeOpen = ref(false); const loading = ref(false); const treeError = ref(''); let version = 0;
+const treeOpen = ref(false);
+const TREE_COLLAPSED_KEY = 'kwiki.wiki.treeCollapsed'; const treeCollapsed = ref(localStorage.getItem(TREE_COLLAPSED_KEY) === '1');
+watch(treeCollapsed, value => localStorage.setItem(TREE_COLLAPSED_KEY, value ? '1' : '0'));
+// 窄屏下目录是浮层，桌面端则展开固定栏
+function toggleTree() { if (window.matchMedia('(max-width: 900px)').matches) treeOpen.value = !treeOpen.value; else treeCollapsed.value = false; }
+ const loading = ref(false); const treeError = ref(''); let version = 0;
 function pathTo(nodes: TreeNodeDto[], id: number): TreeNodeDto[] { for (const node of nodes) { if (node.id === id) return [node]; const path = pathTo(node.children || [], id); if (path.length) return [node, ...path]; } return []; }
 const ancestors = computed(() => pathTo(store.tree, Number(props.pageId))); const selectedNode = computed(() => ancestors.value.at(-1));
 const overviewNodes = computed(() => selectedNode.value?.nodeType === 'FOLDER' ? selectedNode.value.children : store.tree);
@@ -106,10 +111,13 @@ async function retryImport(job: ImportJob) {
 }
 </script>
 <style scoped>
-.wiki-layout { display: grid; grid-template-columns: var(--kwiki-tree-width) minmax(0, 1fr); height: 100%; min-height: 0; }
+.wiki-layout { --tree-width: var(--kwiki-tree-width); display: grid; grid-template-columns: var(--tree-width) minmax(0, 1fr); height: 100%; min-height: 0; transition: grid-template-columns .2s ease; }
+.wiki-layout.tree-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
+.wiki-layout.tree-collapsed .tree-column { visibility: hidden; padding-left: 0; padding-right: 0; border-right: 0; }
 /* 目录栏：浅灰底 + 右侧细线 */
-.tree-column { min-height: 0; min-width: 0; display: flex; flex-direction: column; padding: 24px 16px 16px; background: var(--k-surface); border-right: 1px solid var(--k-line); }
-.back-link { font-size: 12px; color: var(--k-muted); text-decoration: none; display: flex; gap: 5px; align-items: center; margin-bottom: 24px; }
+.tree-column { min-height: 0; min-width: 0; overflow: hidden; display: flex; flex-direction: column; padding: 24px 16px 16px; background: var(--k-surface); border-right: 1px solid var(--k-line); }
+.tree-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -6px 0 18px; }
+.back-link { font-size: 12px; color: var(--k-muted); text-decoration: none; display: flex; gap: 5px; align-items: center; }
 .back-link:hover { color: var(--k-ink); }
 .kb-title { display: flex; align-items: center; gap: 10px; }
 .kb-title strong { font-size: 16px; font-weight: 600; color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -167,17 +175,20 @@ h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.8px; line-height: 1.2
 @keyframes import-spin { to { transform: rotate(360deg); } }
 .empty-directory { padding: 30px 0; color: var(--k-muted); font-size: 13px; }
 .mobile-tree { display: none; }
+.wiki-layout.tree-collapsed .mobile-tree { display: inline-grid; }
 .create-overlay { position: fixed; inset: 0; display: grid; place-items: center; background: var(--k-overlay); z-index: 90; }
 .create-dialog { width: min(440px, 90vw); padding: 28px; background: var(--k-canvas); border: 1px solid var(--k-line); border-radius: var(--k-r-lg); box-shadow: var(--k-shadow-float); }
 .create-dialog h2 { margin-top: 0; font-size: 18px; font-weight: 600; color: var(--k-ink); }
 .create-dialog label { display: grid; gap: 10px; color: var(--k-ink-2); font-size: 13px; }
 .create-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 @media (max-width: 1100px) {
-  .wiki-layout { grid-template-columns: 260px minmax(0, 1fr); }
+  .wiki-layout { --tree-width: 260px; }
   .document { padding: 24px; }
 }
 @media (max-width: 900px) {
-  .wiki-layout { grid-template-columns: minmax(0, 1fr); }
+  .wiki-layout, .wiki-layout.tree-collapsed { grid-template-columns: minmax(0, 1fr); }
+  .tree-collapse { display: none; }
+  .wiki-layout.tree-collapsed .tree-column.mobile-open { visibility: visible; padding: 24px 16px 16px; border-right: 1px solid var(--k-line); }
   .tree-column { display: none; }
   .tree-column.mobile-open { display: flex; position: absolute; inset: 0 auto 0 0; width: 280px; background: var(--k-surface); z-index: 30; box-shadow: var(--k-shadow-float); }
   .mobile-tree { display: inline-grid; }

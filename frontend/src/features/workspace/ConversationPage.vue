@@ -1,7 +1,7 @@
 <template>
-  <main class="conversation-page" data-testid="conversation-page">
-    <aside class="history-column" :class="{ open: historyOpen }" aria-label="会话历史"><header><div><p>与知识对话</p><h1>聊天记录</h1></div><button class="ui-icon" aria-label="新建聊天" @click="newConversation"><i class="i-lucide-square-pen" /></button></header><label class="history-search"><i class="i-lucide-search" /><input v-model="search" aria-label="搜索聊天记录" placeholder="搜索聊天记录" /></label><div class="history-list"><p v-if="store.listError" class="ui-error">{{ store.listError }}<button class="ui-button" @click="store.loadSessions">重试</button></p><p v-else-if="!filtered.length" class="empty-history">{{ search ? '没有匹配的聊天' : '开始一次对话，记录会保存在这里。' }}</p><template v-for="group in groups" :key="group.label"><p v-if="group.items.length" class="date-label">{{ group.label }}</p><div v-for="session in group.items" :key="session.id" class="history-item" :class="{ selected: session.id === store.sessionId }"><button class="session-link" @click="select(session.id)"><i class="i-lucide-message-circle" /><span>{{ session.title }}</span></button><button class="ui-icon session-edit" :aria-label="`管理会话 ${session.title}`" @click="editSession = session; editTitle = session.title; actionError = ''"><i class="i-lucide-ellipsis" /></button></div></template></div><footer><i class="i-lucide-lock-keyhole" />聊天记录仅自己可见</footer></aside>
-    <section class="conversation-column"><header class="chat-header"><button class="ui-icon history-toggle" aria-label="切换聊天记录" @click="historyOpen = !historyOpen"><i class="i-lucide-panel-left-open" /></button><div><h2>{{ currentTitle }}</h2><span><i class="status-dot" />{{ store.running ? '正在生成回答' : '知识库问答' }}</span></div><button class="ui-icon" aria-label="收起为浮窗" @click="float"><i class="i-lucide-minimize-2" /></button></header><ConversationMessages /></section>
+  <main class="conversation-page" :class="{ 'history-collapsed': historyCollapsed }" data-testid="conversation-page">
+    <aside id="conversation-history" class="history-column" :class="{ open: historyOpen }" aria-label="会话历史" :inert="historyCollapsed && !historyOpen"><header><div><p>与知识对话</p><h1>聊天记录</h1></div><div class="history-actions"><button class="ui-icon" aria-label="新建聊天" @click="newConversation"><i class="i-lucide-square-pen" /></button><button class="ui-icon history-collapse" aria-label="收起聊天记录" title="收起聊天记录" aria-controls="conversation-history" @click="historyCollapsed = true"><i class="i-lucide-panel-left-close" /></button></div></header><label class="history-search"><i class="i-lucide-search" /><input v-model="search" aria-label="搜索聊天记录" placeholder="搜索聊天记录" /></label><div class="history-list"><p v-if="store.listError" class="ui-error">{{ store.listError }}<button class="ui-button" @click="store.loadSessions">重试</button></p><p v-else-if="!filtered.length" class="empty-history">{{ search ? '没有匹配的聊天' : '开始一次对话，记录会保存在这里。' }}</p><template v-for="group in groups" :key="group.label"><p v-if="group.items.length" class="date-label">{{ group.label }}</p><div v-for="session in group.items" :key="session.id" class="history-item" :class="{ selected: session.id === store.sessionId }"><button class="session-link" @click="select(session.id)"><i class="i-lucide-message-circle" /><span>{{ session.title }}</span></button><button class="ui-icon session-edit" :aria-label="`管理会话 ${session.title}`" @click="editSession = session; editTitle = session.title; actionError = ''"><i class="i-lucide-ellipsis" /></button></div></template></div><footer><i class="i-lucide-lock-keyhole" />聊天记录仅自己可见</footer></aside>
+    <section class="conversation-column"><header class="chat-header"><button class="ui-icon history-toggle" aria-label="展开聊天记录" title="展开聊天记录" aria-controls="conversation-history" :aria-expanded="historyOpen || !historyCollapsed" @click="toggleHistory"><i class="i-lucide-panel-left-open" /></button><button class="ui-icon header-new-chat" aria-label="新建聊天" title="新建聊天" @click="newConversation"><i class="i-lucide-square-pen" /></button><div class="chat-title"><h2>{{ currentTitle }}</h2><span><i class="status-dot" />{{ store.running ? '正在生成回答' : '知识库问答' }}</span></div><button class="ui-icon" aria-label="收起为浮窗" @click="float"><i class="i-lucide-minimize-2" /></button></header><ConversationMessages /></section>
     <div v-if="editSession" class="dialog-overlay" @click.self="editSession = null"><form class="session-dialog" role="dialog" aria-modal="true" aria-label="管理会话" @submit.prevent="rename"><h2>管理会话</h2><label>会话名称<input v-model.trim="editTitle" class="ui-input" maxlength="300" required /></label><p v-if="actionError" class="ui-error">{{ actionError }}</p><footer><button type="button" class="ui-button danger" :disabled="saving" @click="remove">删除会话</button><span /><button type="button" class="ui-button" @click="editSession = null">取消</button><button class="ui-button primary" :disabled="saving || !editTitle">保存</button></footer></form></div>
   </main>
 </template>
@@ -9,6 +9,10 @@
 import { computed, onMounted, ref, watch } from 'vue'; import { useRoute, useRouter } from 'vue-router';
 import { useConversationStore, type Session } from './conversationStore'; import ConversationMessages from './ConversationMessages.vue'; import { errorMessage } from '../wiki/api';
 const route = useRoute(); const router = useRouter(); const store = useConversationStore(); const search = ref(''); const historyOpen = ref(false);
+const HISTORY_COLLAPSED_KEY = 'kwiki.conversation.historyCollapsed'; const historyCollapsed = ref(localStorage.getItem(HISTORY_COLLAPSED_KEY) === '1');
+watch(historyCollapsed, value => localStorage.setItem(HISTORY_COLLAPSED_KEY, value ? '1' : '0'));
+// 窄屏下聊天记录是浮层，桌面端则展开固定栏
+function toggleHistory() { if (window.matchMedia('(max-width: 900px)').matches) historyOpen.value = !historyOpen.value; else historyCollapsed.value = false; }
 const filtered = computed(() => store.sessions.filter(s => s.title.toLowerCase().includes(search.value.toLowerCase())));
 const groups = computed(() => { const today = new Date(); today.setHours(0,0,0,0); const week = today.getTime() - 6 * 86400000; return [{ label: '今天', items: filtered.value.filter(s => new Date(s.updatedAt || s.createdAt || 0).getTime() >= +today) }, { label: '最近 7 天', items: filtered.value.filter(s => { const t = +new Date(s.updatedAt || s.createdAt || 0); return t < +today && t >= week; }) }, { label: '更早', items: filtered.value.filter(s => +new Date(s.updatedAt || s.createdAt || 0) < week) }]; });
 const currentTitle = computed(() => store.sessions.find(s => s.id === store.sessionId)?.title || '新聊天');
@@ -23,7 +27,11 @@ async function rename() { if (!editSession.value) return; saving.value = true; t
 async function remove() { if (!editSession.value) return; saving.value = true; const id = editSession.value.id; try { await store.remove(id); editSession.value = null; if (route.params.sessionId === id) await router.replace('/conversations'); } catch(e) { actionError.value = errorMessage(e); } finally { saving.value = false; } }
 </script>
 <style scoped>
-.conversation-page { display: grid; grid-template-columns: 272px minmax(0, 1fr); height: 100%; min-height: 0; }
+.conversation-page { --history-width: 272px; display: grid; grid-template-columns: var(--history-width) minmax(0, 1fr); height: 100%; min-height: 0; transition: grid-template-columns .2s ease; }
+.conversation-page.history-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
+.conversation-page.history-collapsed .history-column { visibility: hidden; padding-left: 0; padding-right: 0; border-right: 0; }
+.history-column { overflow: hidden; min-width: 0; }
+.history-actions { display: flex; align-items: center; gap: 2px; }
 .history-column { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--k-line); background: var(--k-surface); padding: 26px 16px 16px; }
 .history-column > header { display: flex; align-items: center; justify-content: space-between; padding: 0 6px; margin-bottom: 24px; }
 .history-column header p { font-size: 11px; color: var(--k-muted); margin: 0 0 7px; }
@@ -51,15 +59,17 @@ async function remove() { if (!editSession.value) return; saving.value = true; c
 .chat-header h2 { font-size: 14px; font-weight: 600; margin: 0 0 6px; color: var(--k-ink); max-width: 500px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-header span { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--k-muted); }
 .status-dot { width: 5px; height: 5px; background: var(--k-green); border-radius: 50%; display: inline-block; }
-.history-toggle { display: none; }
+.history-toggle, .header-new-chat { display: none; }
+.conversation-page.history-collapsed .history-toggle, .conversation-page.history-collapsed .header-new-chat { display: inline-grid; }
+.chat-title { flex: 1; min-width: 0; }
 .dialog-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: var(--k-overlay); padding: 20px; }
 .session-dialog { background: var(--k-canvas); border: 1px solid var(--k-line); border-radius: 16px; padding: 28px; width: min(460px, 100%); box-shadow: var(--k-shadow-float); }
 .session-dialog h2 { font-size: 19px; margin-top: 0; color: var(--k-ink); }
 .session-dialog label { display: grid; gap: 10px; color: var(--k-ink-2); font-size: 13px; }
 .session-dialog footer { display: flex; gap: 8px; margin-top: 26px; }
 .session-dialog footer span { flex: 1; }
-@media (max-width: 1100px) { .conversation-page { grid-template-columns: 230px minmax(0, 1fr); } }
-@media (max-width: 900px) { .conversation-page { grid-template-columns: minmax(0, 1fr); } .history-column { display: none; } .history-column.open { display: flex; position: absolute; inset: 0 auto 0 0; width: 260px; z-index: 25; box-shadow: var(--k-shadow-float); } .history-toggle { display: inline-grid; } .chat-header { padding: 16px 20px; } .chat-header > div { flex: 1; min-width: 0; } .chat-header h2 { max-width: 65vw; } }
+@media (max-width: 1100px) { .conversation-page { --history-width: 230px; } }
+@media (max-width: 900px) { .conversation-page, .conversation-page.history-collapsed { grid-template-columns: minmax(0, 1fr); } .history-column { display: none; } .history-column.open { display: flex; position: absolute; inset: 0 auto 0 0; width: 260px; z-index: 25; box-shadow: var(--k-shadow-float); } .history-toggle { display: inline-grid; } .history-collapse { display: none; } .conversation-page.history-collapsed .history-column.open { visibility: visible; padding: 26px 16px 16px; border-right: 1px solid var(--k-line); } .chat-header { padding: 16px 20px; } .chat-header > div { flex: 1; min-width: 0; } .chat-header h2 { max-width: 65vw; } }
 .history-list { scrollbar-width: thin; scrollbar-color: var(--k-line-strong) transparent; }
 .history-list::-webkit-scrollbar { width: 8px; }
 .history-list::-webkit-scrollbar-track { background: transparent; }

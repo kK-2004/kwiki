@@ -1,5 +1,5 @@
 <template>
-  <article v-if="page" data-testid="page-reader" class="reader">
+  <article v-if="page" data-testid="page-reader" class="reader" :class="{ wide: sourceFormat && readerTab === 'source' }">
     <a v-if="parentTitle" class="back" href="#" @click.prevent="selectParent">
       <i class="i-lucide-arrow-left" aria-hidden="true"></i>{{ parentTitle }}
     </a>
@@ -403,6 +403,18 @@ onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort();
 .back,
 .source-tabs {
   margin-left: max(0px, calc((100% - 760px) / 2));
+}
+/* 查看全宽源文件时，标题等与预览卡片左边缘对齐，不再居中 */
+.reader.wide .title-row,
+.reader.wide .anchor-notice,
+.reader.wide .selection-notice,
+.reader.wide .provenance {
+  max-width: none;
+  margin-inline: 0;
+}
+.reader.wide .back,
+.reader.wide .source-tabs {
+  margin-left: 0;
 }
 .anchor-notice { display:flex; gap:8px; align-items:baseline; margin-block:18px 10px; padding:10px 12px; border:1px solid color-mix(in srgb, var(--k-green) 30%, transparent); border-radius:var(--k-r); background:var(--k-green-soft); color:var(--k-green-deep); font-size:13px; }
 .index-spin { align-self:center; animation:index-spin 1s linear infinite; }
