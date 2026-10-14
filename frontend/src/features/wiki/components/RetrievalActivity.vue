@@ -12,6 +12,7 @@
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue';
 import ThinkingStream from './ThinkingStream.vue';
 import ChunkPreview from './ChunkPreview.vue';
+import CollapsibleSources from './CollapsibleSources.vue';
 import type { ActivityStep, RetrievalSource } from '../sse';
 
 const props = defineProps<{
@@ -211,12 +212,12 @@ function degraded(step: ActivityStep): boolean {
                   <span v-if="degraded(step)" class="fact degraded">部分检索链路降级</span>
                   <span class="fact state">{{ stepStatusLabel(step) }}</span>
                 </div>
-                <div v-if="sources(step).length" class="sources">
+                <CollapsibleSources v-if="sources(step).length" :count="sources(step).length">
                   <ChunkPreview v-for="source in sources(step)" :key="source.childChunkKey" :source="source" />
-                </div>
-                <div v-else-if="sourceTitles(step).length" class="sources">
+                </CollapsibleSources>
+                <CollapsibleSources v-else-if="sourceTitles(step).length" :count="sourceTitles(step).length">
                   <span v-for="title in sourceTitles(step)" :key="title" class="source" :title="title">{{ title }}</span>
-                </div>
+                </CollapsibleSources>
               </div>
             </li>
           </ol>
@@ -334,12 +335,6 @@ function degraded(step: ActivityStep): boolean {
 }
 .fact.state { color: var(--k-ink); }
 .fact.degraded { color: var(--k-warn); }
-.sources {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 2px;
-}
 .source {
   max-width: 220px;
   overflow: hidden;

@@ -21,27 +21,31 @@ const DEFAULT_HIGHLIGHT_MS = 2600;
 const AMBIGUITY_TOLERANCE = 2000;
 
 let activeCleanup: (() => void) | undefined;
-let citationHighlightTimer: ReturnType<typeof window.setTimeout> | undefined;
+/** 用户与页面交互（点击、按键、滚轮、触摸）即视为已看到定位，立即清除高亮。 */
+const DISMISS_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchmove'] as const;
 
 type HighlightRegistry = Map<string, unknown>;
 
-function highlightRegistry(): { highlights: HighlightRegistry; Highlight: new (range: Range) => unknown } | null {
+function highlightRegistry(): { highlights: HighlightRegistry; Highlight: new (range: Range) => { clear?: () => void } } | null {
   const api = (globalThis as unknown as {
     CSS?: { highlights?: HighlightRegistry };
-    Highlight?: new (range: Range) => unknown;
+    Highlight?: new (range: Range) => { clear?: () => void };
   });
   if (api.CSS?.highlights && api.Highlight) return { highlights: api.CSS.highlights, Highlight: api.Highlight };
   return null;
 }
 
-/*索引偏移量基于纯文本；在保留 DOM 位置的前提下规范化版面空白。 */
-export function locateChunk(container: Element, options: LocateChunkOptions): ChunkLocation {
-  const { excerpt, charStart = 0, highlightMs = DEFAULT_HIGHLIGHT_MS } = options;
-  activeCleanup?.();
-  activeCleanup = undefined;
-  const noop: ChunkLocation = { status: 'missing', cleanup: () => {} };
-  if (!excerpt.trim()) return noop;
+export type QuoteRangeResult =
+  | { status: 'located'; range: Range; first: Text }
+  | { status: 'missing' | 'ambiguous' };
 
+/**
+ * 在正文 DOM 中查找引文对应的文本范围：比较时忽略空白（版面空白与纯文本偏移不一致），
+ * 多处命中时取最接近 charStart 的一处；距离超过容差视为无法验证。
+ */
+export function findQuoteRange(container: Element, quote: string, charStart = 0, tolerance = AMBIGUITY_TOLERANCE): QuoteRangeResult {
+  const needle = quote.replace(/\s/g, '');
+  if (!needle) return { status: 'missing' };
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   const positions: { node: Text; offset: number }[] = [];
   let combined = ''; let current: Node | null;
@@ -52,32 +56,41 @@ export function locateChunk(container: Element, options: LocateChunkOptions): Ch
       combined += node.data[offset]; positions.push({ node, offset });
     }
   }
-  const quote = excerpt.replace(/\s/g, '');
   const matches: number[] = [];
-  for (let at = combined.indexOf(quote); at >= 0; at = combined.indexOf(quote, at + 1)) matches.push(at);
-  if (!matches.length) return noop;
+  for (let at = combined.indexOf(needle); at >= 0; at = combined.indexOf(needle, at + 1)) matches.push(at);
+  if (!matches.length) return { status: 'missing' };
 
   let start: number;
   if (matches.length === 1) {
     start = matches[0];
   } else {
     start = matches.reduce((best, at) => Math.abs(at - charStart) < Math.abs(best - charStart) ? at : best);
-    // 重复出现且字符位置无法验证时拒绝高亮，避免命中错误文本。
-    if (Math.abs(start - charStart) > AMBIGUITY_TOLERANCE) {
-      return { status: 'ambiguous', cleanup: () => {} };
-    }
+    // 重复出现且字符位置无法验证时拒绝定位，避免命中错误文本。
+    if (Math.abs(start - charStart) > tolerance) return { status: 'ambiguous' };
   }
-  const first = positions[start]; const last = positions[start + quote.length - 1];
-  if (!first || !last) return noop;
+  const first = positions[start]; const last = positions[start + needle.length - 1];
+  if (!first || !last) return { status: 'missing' };
   const range = document.createRange();
   range.setStart(first.node, first.offset); range.setEnd(last.node, last.offset + 1);
+  return { status: 'located', range, first: first.node };
+}
+
+/*索引偏移量基于纯文本；在保留 DOM 位置的前提下规范化版面空白。 */
+export function locateChunk(container: Element, options: LocateChunkOptions): ChunkLocation {
+  const { excerpt, charStart = 0, highlightMs = DEFAULT_HIGHLIGHT_MS } = options;
+  activeCleanup?.();
+  activeCleanup = undefined;
+  const found = findQuoteRange(container, excerpt, charStart);
+  if (found.status !== 'located') return { status: found.status, cleanup: () => {} };
+  const { range } = found;
+  const first = { node: found.first };
 
   let mark: HTMLElement | null = null;
+  let highlight: { clear?: () => void } | null = null;
   const registry = highlightRegistry();
   if (registry) {
-    if (citationHighlightTimer) window.clearTimeout(citationHighlightTimer);
-    registry.highlights.delete('kwiki-citation');
-    registry.highlights.set('kwiki-citation', new registry.Highlight(range));
+    highlight = new registry.Highlight(range);
+    registry.highlights.set('kwiki-citation', highlight);
   } else {
     // 无 Custom Highlight API 的浏览器：临时 mark 包裹范围，清理时无损还原文本。
     mark = document.createElement('mark');
@@ -91,12 +104,20 @@ export function locateChunk(container: Element, options: LocateChunkOptions): Ch
   }
 
   let cleaned = false;
+  // 每次高亮持有自己的定时器与监听，旧高亮的清理不会误伤新高亮
+  let timer: ReturnType<typeof window.setTimeout> | undefined;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    if (citationHighlightTimer) window.clearTimeout(citationHighlightTimer);
-    citationHighlightTimer = undefined;
-    if (registry) registry.highlights.delete('kwiki-citation');
+    if (timer) window.clearTimeout(timer);
+    timer = undefined;
+    for (const type of DISMISS_EVENTS) window.removeEventListener(type, cleanup, true);
+    if (registry && highlight) {
+      // 先清空范围再移除注册：确保浏览器重绘，即便注册表已被替换也不残留
+      highlight.clear?.();
+      if (registry.highlights.get('kwiki-citation') === highlight) registry.highlights.delete('kwiki-citation');
+    }
+    highlight = null;
     if (mark?.parentNode) {
       while (mark.firstChild) mark.parentNode.insertBefore(mark.firstChild, mark);
       mark.remove();
@@ -105,7 +126,8 @@ export function locateChunk(container: Element, options: LocateChunkOptions): Ch
     if (activeCleanup === cleanup) activeCleanup = undefined;
   };
   activeCleanup = cleanup;
-  citationHighlightTimer = window.setTimeout(cleanup, highlightMs);
+  timer = window.setTimeout(cleanup, highlightMs);
+  for (const type of DISMISS_EVENTS) window.addEventListener(type, cleanup, { capture: true, passive: true });
   first.node.parentElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   return { status: 'located', cleanup };
 }

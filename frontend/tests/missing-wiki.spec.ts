@@ -52,7 +52,7 @@ describe('失效 Wiki 引用', () => {
 
     const screen = render(ConversationMessages, { global: { plugins: [router] } });
     await flushPromises();
-    await fireEvent.click(screen.getByRole('button', { name: '[0] 已删除页面' }));
+    await fireEvent.click(screen.getByRole('button', { name: '引用 1：已删除页面' }));
     await flushPromises();
 
     expect(missingToast.showMissingWikiToast).toHaveBeenCalledOnce();
