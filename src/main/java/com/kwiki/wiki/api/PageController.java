@@ -129,6 +129,28 @@ public class PageController {
                 .body(TransDTO.success(sourcePreviews.previewLink(user, kbId, pageId)));
     }
 
+    /** 页面检索索引状态；可选依赖，未装配（离线测试）时视为已就绪。 */
+    private PageIndexStatusService indexStatuses;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setIndexStatuses(PageIndexStatusService indexStatuses) {
+        this.indexStatuses = indexStatuses;
+    }
+
+    /** 阅读页轮询：发布后索引（视觉摘要、ES 分块）建立完成前提示“索引建立中”。 */
+    @GetMapping("/{pageId}/index-status")
+    ResponseEntity<TransDTO<PageIndexStatusService.PageIndexStatus>> indexStatus(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable long kbId,
+            @PathVariable long pageId) {
+        PageIndexStatusService.PageIndexStatus status = indexStatuses == null
+                ? new PageIndexStatusService.PageIndexStatus(PageIndexStatusService.IndexStatus.READY)
+                : indexStatuses.status(user, kbId, pageId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .body(TransDTO.success(status));
+    }
+
     /** 片段图片 → 来源 PDF 页码；可选依赖，未装配（离线测试）时接口返回 404。 */
     private SourceImageLocator imageLocator;
 

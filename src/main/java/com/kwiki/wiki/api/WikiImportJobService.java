@@ -54,6 +54,14 @@ public class WikiImportJobService {
         this.cleanup = cleanup;
     }
 
+    /** 已发布页面的检索索引状态；可选依赖，未装配时不返回索引状态。 */
+    private PageIndexStatusService indexStatuses;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setIndexStatuses(PageIndexStatusService indexStatuses) {
+        this.indexStatuses = indexStatuses;
+    }
+
     /*把已完成的浏览器上传加入队列。解析在现有的持久化工作线程中执行。 */
     @org.springframework.transaction.annotation.Transactional
     public ImportJobView submitStored(CurrentUser user, long kbId, Long parentId, String attachmentUuid,
@@ -103,8 +111,18 @@ public class WikiImportJobService {
         requireDb();
         authorization.require(user, kbId, WikiAction.READ_PAGE);
         int bounded = Math.max(1, Math.min(limit, 100));
-        return jdbc.query("SELECT id, uuid, created_by, kb_id, parent_id, source_attachment_id, idempotency_key, file_name, content_type, audience_mode, state, page_id, revision_id, attempt_count, last_error, warnings_json, created_at, updated_at FROM wiki_import_job WHERE created_by = ? AND kb_id = ? ORDER BY id DESC LIMIT " + bounded,
+        List<ImportJobView> jobs = jdbc.query("SELECT id, uuid, created_by, kb_id, parent_id, source_attachment_id, idempotency_key, file_name, content_type, audience_mode, state, page_id, revision_id, attempt_count, last_error, warnings_json, created_at, updated_at FROM wiki_import_job WHERE created_by = ? AND kb_id = ? ORDER BY id DESC LIMIT " + bounded,
                 (rs, n) -> view(new ImportRow(rs.getLong(1), rs.getString(2), rs.getLong(3), rs.getLong(4), nullableLong(rs.getObject(5)), nullableLong(rs.getObject(6)), rs.getString(7), rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11), nullableLong(rs.getObject(12)), nullableLong(rs.getObject(13)), rs.getInt(14), rs.getString(15), rs.getString(16), rs.getTimestamp(17).toInstant(), rs.getTimestamp(18).toInstant())), user.id(), kbId);
+        return withIndexStates(jobs);
+    }
+
+    /** 导入成功只代表页面已发布；视觉摘要与 ES 分块仍在异步建立，列表需继续提示。 */
+    private List<ImportJobView> withIndexStates(List<ImportJobView> jobs) {
+        if (indexStatuses == null) return jobs;
+        List<Long> pageIds = jobs.stream().filter(job -> "SUCCEEDED".equals(job.state()) && job.pageId() != null).map(ImportJobView::pageId).distinct().toList();
+        if (pageIds.isEmpty()) return jobs;
+        var states = indexStatuses.statuses(pageIds);
+        return jobs.stream().map(job -> job.pageId() == null || !states.containsKey(job.pageId()) ? job : job.withIndexState(states.get(job.pageId()).name())).toList();
     }
 
     public ImportJobView retry(CurrentUser user, long jobId) {
@@ -216,7 +234,7 @@ public class WikiImportJobService {
     }
 
     private ImportJobView view(ImportRow row) {
-        return new ImportJobView(row.id(), row.uuid(), row.state(), row.pageId(), row.revisionId(), row.fileName(), row.audienceMode(), parseWarnings(row.warningsJson()), row.attempts(), row.lastError(), row.createdAt(), row.updatedAt(), sourceMissing(row));
+        return new ImportJobView(row.id(), row.uuid(), row.state(), row.pageId(), row.revisionId(), row.fileName(), row.audienceMode(), parseWarnings(row.warningsJson()), row.attempts(), row.lastError(), row.createdAt(), row.updatedAt(), sourceMissing(row), null);
     }
 
     private static boolean sourceMissing(ImportRow row) {
@@ -232,5 +250,9 @@ public class WikiImportJobService {
     private static Long nullableLong(Object value) { return value == null ? null : ((Number) value).longValue(); }
 
     private record ImportRow(long id, String uuid, long createdBy, long kbId, Long parentId, Long attachmentId, String idempotencyKey, String fileName, String contentType, String audienceMode, String state, Long pageId, Long revisionId, int attempts, String lastError, String warningsJson, Instant createdAt, Instant updatedAt) {}
-    public record ImportJobView(long jobId, String uuid, String state, Long pageId, Long revisionId, String fileName, String audienceMode, List<String> warnings, int attempts, String error, Instant createdAt, Instant updatedAt, boolean sourceMissing) {}
+    public record ImportJobView(long jobId, String uuid, String state, Long pageId, Long revisionId, String fileName, String audienceMode, List<String> warnings, int attempts, String error, Instant createdAt, Instant updatedAt, boolean sourceMissing, String indexState) {
+        ImportJobView withIndexState(String value) {
+            return new ImportJobView(jobId, uuid, state, pageId, revisionId, fileName, audienceMode, warnings, attempts, error, createdAt, updatedAt, sourceMissing, value);
+        }
+    }
 }

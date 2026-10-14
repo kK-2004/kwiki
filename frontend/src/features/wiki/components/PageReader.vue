@@ -20,6 +20,15 @@
       <span>{{ anchorResolution.message }}</span>
     </div>
     <p v-if="chunkNotice" role="status" class="anchor-notice">{{ chunkNotice }}</p>
+    <p v-if="indexStatus === 'INDEXING'" role="status" class="anchor-notice warning" data-testid="page-index-status">
+      <i class="i-lucide-loader-circle index-spin" aria-hidden="true"></i>
+      <strong>索引建立中</strong>
+      <span>页面已可阅读，图片摘要与检索索引仍在构建，完成前搜索和 AI 问答暂无法引用本页内容。</span>
+    </p>
+    <p v-else-if="indexStatus === 'FAILED'" role="status" class="anchor-notice warning" data-testid="page-index-status">
+      <strong>索引建立失败</strong>
+      <span>搜索和 AI 问答暂无法引用本页内容，请联系管理员重试索引任务。</span>
+    </p>
     <MediaMountRegion
       v-show="!sourceFormat || readerTab === 'parsed'"
       ref="contentRef"
@@ -327,7 +336,44 @@ async function askQuestion() {
   } catch (error) { if ((error as { name?: string })?.name !== 'AbortError') questionError.value = '问 AI 失败，请重试'; } finally { if (questionController.value === controller) questionController.value = null; asking.value = false; }
 }
 watch([() => props.anchorResolution?.anchorId, () => page.value?.revisionNo], () => { void locateAnchor(); }, { immediate: true });
-onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort(); });
+/**
+ * 发布后检索索引（视觉摘要、ES 分块）异步建立：建立中每 5 秒轮询一次，
+ * 就绪或失败即停止；页面/修订切换以票据作废旧轮询。
+ */
+const INDEX_STATUS_POLL_MS = 5000;
+const indexStatus = ref<'INDEXING' | 'READY' | 'FAILED' | null>(null);
+let indexStatusTicket = 0;
+let indexStatusTimer: ReturnType<typeof setTimeout> | null = null;
+
+function stopIndexStatusPolling() {
+  indexStatusTicket++;
+  if (indexStatusTimer) clearTimeout(indexStatusTimer);
+  indexStatusTimer = null;
+}
+
+async function pollIndexStatus(run: number) {
+  if (!props.kbId || !props.pageId) return;
+  try {
+    const value = await api.json<{ status: 'INDEXING' | 'READY' | 'FAILED' }>(
+      `/knowledge-bases/${props.kbId}/pages/${props.pageId}/index-status`);
+    if (run !== indexStatusTicket) return;
+    indexStatus.value = value.status;
+  } catch {
+    // 状态查询失败不阻断阅读；建立中时下一轮继续尝试，否则不再提示。
+    if (run !== indexStatusTicket) return;
+  }
+  if (indexStatus.value === 'INDEXING') {
+    indexStatusTimer = setTimeout(() => void pollIndexStatus(run), INDEX_STATUS_POLL_MS);
+  }
+}
+
+watch(() => [props.kbId, props.pageId, page.value?.revisionNo], () => {
+  stopIndexStatusPolling();
+  indexStatus.value = null;
+  if (props.kbId && props.pageId && page.value) void pollIndexStatus(indexStatusTicket);
+}, { immediate: true });
+
+onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort(); stopIndexStatusPolling(); });
 </script>
 
 <style scoped>
@@ -359,6 +405,8 @@ onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort();
   margin-left: max(0px, calc((100% - 760px) / 2));
 }
 .anchor-notice { display:flex; gap:8px; align-items:baseline; margin-block:18px 10px; padding:10px 12px; border:1px solid color-mix(in srgb, var(--k-green) 30%, transparent); border-radius:var(--k-r); background:var(--k-green-soft); color:var(--k-green-deep); font-size:13px; }
+.index-spin { align-self:center; animation:index-spin 1s linear infinite; }
+@keyframes index-spin { to { transform:rotate(360deg); } }
 .anchor-notice.warning { border-color:color-mix(in srgb, var(--k-warn) 30%, transparent); background:var(--k-warn-soft); color:var(--k-warn); }
 .selection-notice { margin-block:10px; padding:9px 12px; border-radius:var(--k-r); background:var(--k-warn-soft); color:var(--k-warn); font-size:13px; }
 .back {
