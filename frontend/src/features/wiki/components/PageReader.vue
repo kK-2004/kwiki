@@ -47,8 +47,17 @@
       :source="page.sourceDocument!"
       :target-page="sourceTargetPage"
     />
+    <SelectionCommentLayer
+      v-if="props.kbId && props.pageId"
+      ref="commentLayer"
+      :kb-id="props.kbId"
+      :page-id="props.pageId"
+      :container="contentEl"
+      :content-key="`${resolvedHtml.length}:${readerTab}`"
+      :focus-comment-id="props.focusCommentId"
+    />
     <p v-if="selectionNotice" class="selection-notice" role="status">{{ selectionNotice }}</p>
-    <div v-if="selectionText" class="selection-toolbar" :style="selectionToolbarStyle">
+    <div v-if="selectionText" class="selection-toolbar" :style="selectionToolbarStyle" @mousedown.prevent>
       <button type="button" @click="questionOpen = true">问 AI</button>
       <button type="button" @click="startComment">评论</button>
     </div>
@@ -77,6 +86,7 @@ import type { CitationEntry } from '../sse';
 import { parseExcerpt, plainExcerpt } from '../imageBlocks';
 import type { TreeNodeDto } from '../api';
 import MediaMountRegion from './MediaMountRegion.vue';
+import SelectionCommentLayer from './SelectionCommentLayer.vue';
 import SourcePreview from './SourcePreview.vue';
 import { createMediaPreviewResolver } from './mediaResolver';
 import type { MediaSourceResolver } from '@kk-2004/ui-components/components/KMediaViewer';
@@ -88,8 +98,9 @@ const props = defineProps<{
   kbId?: number;
   pageId?: number;
   anchorResolution?: { anchorId: number; status: string; quote: string; message: string; currentRevision: boolean } | null;
+  /** 通知跳转的评论；属于划线评论时打开对应划线的评论列表。 */
+  focusCommentId?: number | null;
 }>();
-const emit = defineEmits<{ comment: [text: string] }>();
 
 const store = useWikiStore();
 const route = useRoute();
@@ -100,6 +111,8 @@ const chunkNotice = ref('');
 /** 引用片段为 PDF 图片时，源文件页签打开后跳转的页码。 */
 const sourceTargetPage = ref<number | null>(null);
 const contentRef = ref<InstanceType<typeof MediaMountRegion> | null>(null);
+const contentEl = computed(() => { const el = contentRef.value?.$el; return el instanceof Element ? el : null; });
+const commentLayer = ref<InstanceType<typeof SelectionCommentLayer> | null>(null);
 
 function formatDateTime(value: string) {
   const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(value);
@@ -299,9 +312,34 @@ function captureSelection(event: MouseEvent) {
   selectionText.value = text; selectionToolbarStyle.value = { left: `${Math.max(8, rect.left)}px`, top: `${Math.max(8, rect.top - 42)}px` };
 }
 function clearSelection() { selectionText.value = ''; closeQuestion(); }
-function closeQuestion() { questionController.value?.abort(); questionController.value = null; asking.value = false; questionOpen.value = false; }
+/** 选区被取消（点击空白处等）或移出正文时收起划词工具栏；问 AI 弹窗打开期间保留引用文本。 */
+function onSelectionChange() {
+  if (!selectionText.value || questionOpen.value) return;
+  const selection = window.getSelection();
+  const container = contentRef.value?.$el;
+  const inside = selection && !selection.isCollapsed && selection.rangeCount > 0 && container instanceof Element
+    && container.contains(selection.getRangeAt(0).commonAncestorContainer);
+  if (!inside) selectionText.value = '';
+}
+document.addEventListener('selectionchange', onSelectionChange);
+/** 工具栏是 fixed 定位：正文滚动时跟随选区重新定位。 */
+function onScroll() {
+  if (!selectionText.value) return;
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return;
+  const rect = selection.getRangeAt(0).getBoundingClientRect();
+  selectionToolbarStyle.value = { left: `${Math.max(8, rect.left)}px`, top: `${Math.max(8, rect.top - 42)}px` };
+}
+document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+function closeQuestion() { questionController.value?.abort(); questionController.value = null; asking.value = false; questionOpen.value = false; onSelectionChange(); }
 function stopQuestion() { questionController.value?.abort(); questionController.value = null; asking.value = false; }
-function startComment() { if (selectionText.value) emit('comment', selectionText.value); clearSelection(); }
+/** 划线评论：在选区旁弹出评论框（与页面底部的整页评论相互独立）。 */
+function startComment() {
+  const selection = window.getSelection();
+  const text = selectionText.value;
+  if (text && selection?.rangeCount) commentLayer.value?.openComposer(text, selection.getRangeAt(0));
+  clearSelection();
+}
 async function locateAnchor() {
   const anchor = props.anchorResolution;
   if (!anchor?.currentRevision || !anchor.quote) return;
@@ -384,12 +422,13 @@ watch(outlineJump, async (jump) => {
   container.querySelectorAll<HTMLElement>(OUTLINE_SELECTOR)[jump.index]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
-onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort(); stopIndexStatusPolling(); });
+onBeforeUnmount(() => { document.removeEventListener('selectionchange', onSelectionChange); document.removeEventListener('scroll', onScroll, { capture: true }); invalidateCitation(); questionController.value?.abort(); stopIndexStatusPolling(); });
 </script>
 
 <style scoped>
 /* 引用高亮：用警示色混入透明，两种主题下都能看清且不遮挡文字颜色 */
 :global(::highlight(kwiki-citation)) { background: color-mix(in srgb, var(--k-warn) 32%, transparent); color: inherit; }
+:global(::highlight(kwiki-comment-active)) { background-color: color-mix(in srgb, var(--k-green) 22%, transparent); }
 :global(mark[data-kwiki-citation]) { background: color-mix(in srgb, var(--k-warn) 32%, transparent); color: inherit; border-radius: 2px; }
 .source-tabs { display: flex; width: fit-content; gap: 2px; margin: 20px 0 4px; padding: 3px; border: 1px solid var(--k-line); border-radius: var(--k-r); background: var(--k-surface); }
 .source-tab { height: 30px; border: 0; border-radius: var(--k-r-sm); padding: 0 14px; background: none; font: inherit; font-size: 13px; color: var(--k-muted); cursor: pointer; }
@@ -398,6 +437,7 @@ onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort();
 .source-preview-area { margin: 8px 0 18px; min-height: 60vh; display: flex; }
 /* 阅读区：外层占满 .document 宽度（源文件预览需要全宽），左右留白由 .document 提供 */
 .reader {
+  position: relative;
   padding: 12px 0 0;
   color: var(--k-ink);
 }

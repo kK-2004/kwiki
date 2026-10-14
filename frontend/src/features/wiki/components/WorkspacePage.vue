@@ -10,8 +10,8 @@
       @confirm="archivePage"
     />
 
-    <PageReader v-if="mode !== 'edit'" :kb-id="numericKbId ?? undefined" :page-id="numericPageId ?? undefined" :anchor-resolution="anchorResolution" :chunk-key="typeof route.query.chunk === 'string' ? route.query.chunk : undefined" @comment="beginSelectionComment" />
-    <WikiInteractionPanel v-if="mode !== 'edit' && numericKbId && numericPageId" :kb-id="numericKbId" :page-id="numericPageId" :selection-text="selectionForComment" :anchor-id="selectionAnchorId" :focus-comment-id="commentId" />
+    <PageReader v-if="mode !== 'edit'" :kb-id="numericKbId ?? undefined" :page-id="numericPageId ?? undefined" :anchor-resolution="anchorResolution" :chunk-key="typeof route.query.chunk === 'string' ? route.query.chunk : undefined" :focus-comment-id="commentId" />
+    <WikiInteractionPanel v-if="mode !== 'edit' && numericKbId && numericPageId" :kb-id="numericKbId" :page-id="numericPageId" :focus-comment-id="commentId" />
     <PageEditor
       v-if="mode === 'edit' && numericKbId && numericPageId"
       :kb-id="numericKbId"
@@ -53,8 +53,6 @@ const route = useRoute();
 const mode = ref<'read' | 'edit' | 'history'>('read');
 const revisions = ref<Array<{ revisionNo: number; changeNote?: string; createdAt: string }>>([]);
 const citationTarget = ref<CitationEntry | null>(null);
-const selectionForComment = ref('');
-const selectionAnchorId = ref<number | null>(null);
 const anchorResolution = ref<{ anchorId: number; status: string; quote: string; message: string; currentRevision: boolean } | null>(null);
 const commentId = computed(() => { const raw = Array.isArray(route.query.comment) ? route.query.comment[0] : route.query.comment; const value = raw ? Number(raw) : 0; return value > 0 ? value : null; });
 
@@ -100,8 +98,6 @@ function loadCurrentPage() {
   } else {
     store.selectPage(null);
     anchorResolution.value = null;
-    selectionForComment.value = '';
-    selectionAnchorId.value = null;
   }
 }
 onMounted(loadCurrentPage);
@@ -133,14 +129,6 @@ async function onRestore(revisionNo: number) {
 
 function onCitation(citation: CitationEntry) {
   citationTarget.value = citation;
-}
-async function beginSelectionComment(text: string) {
-  selectionForComment.value = text;
-  selectionAnchorId.value = null;
-  if (numericKbId.value && numericPageId.value) {
-    try { const anchor = await api.post<{ id: number }>(`/knowledge-bases/${numericKbId.value}/pages/${numericPageId.value}/anchors`, { selectedText: text }); selectionAnchorId.value = anchor.id; } catch { /* 即使没有锚点，评论仍可发布 */ }
-  }
-  requestAnimationFrame(() => document.querySelector('[data-testid="wiki-interactions"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 }
 
 const archiveDialogOpen = ref(false);

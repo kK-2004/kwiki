@@ -2,7 +2,7 @@
   <section class="interactions" aria-label="文档互动" data-testid="wiki-interactions">
     <div class="interaction-heading">
       <h3>评论</h3>
-      <span>{{ stats?.comments ?? comments.length }} 条</span>
+      <span>{{ pageCommentCount }} 条</span>
     </div>
     <div class="stats" v-if="stats">
       <button type="button" :aria-pressed="liked" @click="toggleLike">{{ liked ? '已点赞' : '点赞' }} <span>{{ stats.likes }}</span></button>
@@ -28,7 +28,7 @@
       </div>
     </form>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <div v-if="comments.length" class="comment-tree">
+    <div v-if="roots.length" class="comment-tree">
       <article v-for="root in roots" :key="root.id" :data-comment-id="root.id" class="comment-root" :class="{ focused: focusCommentId === root.id }">
         <CommentItem :comment="root" @reply="replyTo = $event" @delete="removeComment" @like="likeComment" />
         <div class="replies"><div v-for="reply in replies(root.id)" :key="reply.id" :data-comment-id="reply.id" :class="{ focused: focusCommentId === reply.id }"><CommentItem :comment="reply" @reply="replyTo = $event" @delete="removeComment" @like="likeComment" /></div></div>
@@ -42,9 +42,9 @@
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api } from '../api';
 
-interface Comment { id: number; authorId: number; authorUsername: string; body: string; parentId: number | null; replyTo: number | null; likes: number; liked: boolean; deleted?: boolean; createdAt: string; }
+interface Comment { id: number; authorId: number; authorUsername: string; body: string; parentId: number | null; replyTo: number | null; anchorId?: number | null; likes: number; liked: boolean; deleted?: boolean; createdAt: string; }
 interface MentionCandidate { id: number; username: string; displayName?: string; }
-const props = defineProps<{ kbId: number; pageId: number; selectionText?: string; anchorId?: number | null; focusCommentId?: number | null }>();
+const props = defineProps<{ kbId: number; pageId: number; focusCommentId?: number | null }>();
 const stats = ref<{ likes: number; favorites: number; comments: number } | null>(null);
 const liked = ref(false); const favorite = ref(false); const comments = ref<Comment[]>([]); const draft = ref(''); const replyTo = ref<number | null>(null); const saving = ref(false); const error = ref('');
 const editor = ref<HTMLTextAreaElement | null>(null);
@@ -52,10 +52,11 @@ const mentionCandidates = ref<MentionCandidate[]>([]);
 const selectedMentions = ref<MentionCandidate[]>([]);
 const mentionOpen = ref(false); const mentionIndex = ref(0); const mentionStart = ref(-1);
 let mentionTimer: ReturnType<typeof setTimeout> | undefined; let mentionRequest = 0; let mentionAbort: AbortController | null = null;
-const roots = computed(() => comments.value.filter((comment) => comment.parentId == null));
+// 划线评论（带 anchorId 的一级评论及其回复）在正文旁单独展示，底部只显示整页评论
+const roots = computed(() => comments.value.filter((comment) => comment.parentId == null && comment.anchorId == null));
+const pageCommentCount = computed(() => { const ids = new Set(roots.value.map((root) => root.id)); return comments.value.filter((comment) => !comment.deleted && (ids.has(comment.id) || (comment.parentId != null && ids.has(comment.parentId)))).length; });
 function replies(rootId: number) { return comments.value.filter((comment) => comment.parentId === rootId); }
 const base = computed(() => `/knowledge-bases/${props.kbId}/pages/${props.pageId}`);
-watch(() => props.selectionText, (text) => { if (text) draft.value = `引用：“${text}”\n`; }, { immediate: true });
 async function load() { try { const [state, rows] = await Promise.all([api.json<{ liked: boolean; favorite: boolean; statistics: { likes: number; favorites: number; comments: number } }>(`${base.value}/statistics`), api.json<Comment[]>(`${base.value}/comments`)]); stats.value = state.statistics; liked.value = state.liked; favorite.value = state.favorite; comments.value = rows; } catch { /* 互动服务不可用时也不替换页面正文内容 */ } }
 watch(() => [props.focusCommentId, comments.value.length], async () => { if (!props.focusCommentId || !comments.value.some((item) => item.id === props.focusCommentId)) return; await nextTick(); document.querySelector(`[data-comment-id="${props.focusCommentId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, { immediate: true });
 async function toggleLike() { const state = await (liked.value ? api.delete(`${base.value}/likes`) : api.put(`${base.value}/likes`, {})); applyState(state); }
@@ -106,7 +107,7 @@ function selectMention(candidate: MentionCandidate) {
   void nextTick(() => { editor.value?.focus(); const cursor = start + candidate.username.length + 2; editor.value?.setSelectionRange(cursor, cursor); });
 }
 function closeMentions() { mentionOpen.value = false; mentionCandidates.value = []; mentionStart.value = -1; mentionAbort?.abort(); }
-async function submitComment() { if (!draft.value.trim()) return; saving.value = true; error.value = ''; try { const mentionUserIds = selectedMentions.value.filter((item) => draft.value.includes(`@${item.username}`)).map((item) => item.id); await api.post(`${base.value}/comments`, { body: draft.value.trim(), replyTo: replyTo.value || undefined, anchorId: props.anchorId || undefined, mentionUserIds }, undefined, { 'Idempotency-Key': crypto.randomUUID() }); draft.value = ''; selectedMentions.value = []; replyTo.value = null; await load(); } catch { error.value = '评论保存失败，请重试'; } finally { saving.value = false; } }
+async function submitComment() { if (!draft.value.trim()) return; saving.value = true; error.value = ''; try { const mentionUserIds = selectedMentions.value.filter((item) => draft.value.includes(`@${item.username}`)).map((item) => item.id); await api.post(`${base.value}/comments`, { body: draft.value.trim(), replyTo: replyTo.value || undefined, mentionUserIds }, undefined, { 'Idempotency-Key': crypto.randomUUID() }); draft.value = ''; selectedMentions.value = []; replyTo.value = null; await load(); } catch { error.value = '评论保存失败，请重试'; } finally { saving.value = false; } }
 async function removeComment(id: number) { try { await api.delete(`${base.value}/comments/${id}`); await load(); } catch { error.value = '评论删除失败，请重试'; } }
 async function likeComment(id: number, active: boolean) { try { await (active ? api.delete(`${base.value}/comments/${id}/likes`) : api.put(`${base.value}/comments/${id}/likes`, {})); await load(); } catch { error.value = '评论点赞失败，请重试'; } }
 onMounted(load);
