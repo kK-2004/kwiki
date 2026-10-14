@@ -107,8 +107,9 @@ public class InvitationService {
         if (!"PENDING".equals(row.get("status"))) throw new IllegalArgumentException("join request already reviewed");
         long userId = number(row.get("user_id"));
         if (approve) {
-            var invitation = jdbc.queryForMap("SELECT expires_at, revoked_at FROM resource_invitation WHERE id = ?", row.get("invitation_id"));
-            if (invitation.get("revoked_at") != null || !((java.sql.Timestamp) invitation.get("expires_at")).toInstant().isAfter(Instant.now())) throw new IllegalArgumentException("invitation is no longer valid");
+            boolean stillValid = Boolean.TRUE.equals(jdbc.query("SELECT expires_at, revoked_at FROM resource_invitation WHERE id = ?",
+                    (rs, n) -> rs.getTimestamp(2) == null && rs.getTimestamp(1).toInstant().isAfter(Instant.now()), row.get("invitation_id")).stream().findFirst().orElse(false));
+            if (!stillValid) throw new IllegalArgumentException("invitation is no longer valid");
             grant(type, resourceId, userId, String.valueOf(row.get("role")), actor.id());
             long kbId = "KB".equals(type) ? resourceId : jdbc.queryForObject("SELECT kb_id FROM wiki_page WHERE id = ?", Long.class, resourceId);
             scopeVersions.bump(kbId); scopeCache.invalidate(userId);

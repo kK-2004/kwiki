@@ -50,6 +50,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue';
 import { api } from '../wiki/api';
+import { markInviteHandled } from './invitationLink';
 
 type ResourceType = 'KB' | 'PAGE';
 interface Invitation { id: number; role: 'VIEWER' | 'EDITOR'; expiresAt: string; revokedAt?: string | null; createdAt: string; }
@@ -89,6 +90,7 @@ async function createInvitation() {
   saving.value = true; error.value = ''; copied.value = false;
   try {
     const result = await api.post<{ token: string }>('/invitations', { resourceType: props.resourceType, resourceId: props.resourceId, role: form.value.role, ttlSeconds: Number(form.value.ttlDays) * 86400 });
+    markInviteHandled(result.token); // 生成者复制自己的链接回到页面时不弹加入提示
     createdLink.value = `${window.location.origin}${window.location.pathname}#/invite/${encodeURIComponent(result.token)}`;
     await reload();
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '邀请链接生成失败'; }

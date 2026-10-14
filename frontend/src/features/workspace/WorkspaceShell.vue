@@ -35,6 +35,7 @@
     <div v-if="mobileOpen" class="nav-backdrop" @click="mobileOpen = false" />
     <div class="workspace-body"><slot /></div>
     <ConversationLauncher />
+    <InviteClipboardPrompt />
   </div>
 </template>
 <script setup lang="ts">
@@ -44,6 +45,7 @@ import { useAuthStore } from '../auth/store';
 import { useWikiStore } from '../wiki/store';
 import { useConversationStore } from './conversationStore';
 import ConversationLauncher from './ConversationLauncher.vue';
+import InviteClipboardPrompt from './InviteClipboardPrompt.vue';
 import ThemeSwitcher from '../../theme/ThemeSwitcher.vue';
 const route = useRoute(); const router = useRouter(); const auth = useAuthStore(); const wiki = useWikiStore(); const conversation = useConversationStore();
 const collapsed = ref(false); const mobileOpen = ref(false);

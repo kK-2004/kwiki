@@ -6,10 +6,11 @@
 import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../wiki/api';
+import { markInviteHandled } from './invitationLink';
 interface Invite { resourceType: string; resourceId: number; role: string; expiresAt: string; }
 const route = useRoute(); const router = useRouter(); const invite = ref<Invite | null>(null); const loading = ref(false); const accepting = ref(false); const error = ref(''); const result = ref(''); const token = String(route.params.token);
 async function load() { loading.value = true; try { invite.value = await api.json<Invite>(`/invitations/${encodeURIComponent(token)}`); } catch { error.value = '邀请链接无效、已过期或已撤销'; } finally { loading.value = false; } }
-async function accept() { accepting.value = true; try { const value = await api.post<{ status: string }>(`/invitations/${encodeURIComponent(token)}/accept`); result.value = value.status === 'PENDING' ? '已提交申请，等待管理员审核。' : '已加入，正在打开知识库。'; if (value.status === 'ACCEPTED' && invite.value?.resourceType === 'KB') setTimeout(() => router.push({ name: 'knowledge-bases' }), 300); } catch { error.value = '接受邀请失败，请稍后重试'; } finally { accepting.value = false; } }
+async function accept() { accepting.value = true; try { const value = await api.post<{ status: string }>(`/invitations/${encodeURIComponent(token)}/accept`); markInviteHandled(token); result.value = value.status === 'PENDING' ? '已提交申请，等待管理员审核。' : '已加入，正在打开知识库。'; if (value.status === 'ACCEPTED' && invite.value?.resourceType === 'KB') setTimeout(() => router.push({ name: 'knowledge-bases' }), 300); } catch { error.value = '接受邀请失败，请稍后重试'; } finally { accepting.value = false; } }
 function format(value: string) { try { return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)); } catch { return value; } }
 onMounted(load);
 </script>
