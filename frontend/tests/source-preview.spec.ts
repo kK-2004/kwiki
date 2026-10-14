@@ -9,6 +9,7 @@ import { createTestingPinia } from './test-pinia';
 import { useWikiStore } from '../src/features/wiki/store';
 import { useAuthStore } from '../src/features/auth/store';
 import { clearSourceCache } from '../src/features/wiki/sourceCache';
+import { jumpToHeading } from '../src/features/wiki/pageOutline';
 
 type SourceSummary = { format: 'PDF' | 'DOCX'; fileName: string; byteSize: number; attachmentUuid: string };
 
@@ -99,6 +100,20 @@ describe('PageReader 来源页签可见性', () => {
     expect(sourceTab.getAttribute('aria-selected')).toBe('true');
     expect(view.getByRole('tab', { name: '解析文本' }).getAttribute('aria-selected')).toBe('false');
     expect(view.getByTestId('source-preview')).toBeTruthy();
+    view.unmount();
+  });
+
+  it('目录大纲跳转：从 PDF 源文件切回解析文本并滚动到对应标题', async () => {
+    stubFetch(() => okBlob);
+    const { view, store } = makeReader('PDF');
+    store.page = { ...store.page!, html: '<h1>总览</h1><p>正文</p><h2>第二节</h2><p>更多</p>' };
+    await flush();
+    const scrolled: string[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.textContent ?? ''); };
+    jumpToHeading(1);
+    await flush();
+    expect(view.getByRole('tab', { name: '解析文本' }).getAttribute('aria-selected')).toBe('true');
+    expect(scrolled).toContain('第二节');
     view.unmount();
   });
 

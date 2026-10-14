@@ -72,6 +72,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useWikiStore, normalizedError } from '../store';
 import { api, getAuthToken, setAuthToken } from '../api';
 import { locateChunk, clearCitationHighlight, type ChunkLocation } from './locateChunk';
+import { OUTLINE_SELECTOR, outlineJump } from '../pageOutline';
 import type { CitationEntry } from '../sse';
 import { parseExcerpt, plainExcerpt } from '../imageBlocks';
 import type { TreeNodeDto } from '../api';
@@ -373,6 +374,16 @@ watch(() => [props.kbId, props.pageId, page.value?.revisionNo], () => {
   if (props.kbId && props.pageId && page.value) void pollIndexStatus(indexStatusTicket);
 }, { immediate: true });
 
+// 目录树大纲跳转：标题只存在于解析文本中，查看源文件时先切回解析文本再滚动
+watch(outlineJump, async (jump) => {
+  if (!jump) return;
+  readerTab.value = 'parsed';
+  await nextTick();
+  const container = contentRef.value?.$el;
+  if (!(container instanceof Element)) return;
+  container.querySelectorAll<HTMLElement>(OUTLINE_SELECTOR)[jump.index]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
 onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort(); stopIndexStatusPolling(); });
 </script>
 
@@ -390,6 +401,7 @@ onBeforeUnmount(() => { invalidateCitation(); questionController.value?.abort();
   padding: 12px 0 0;
   color: var(--k-ink);
 }
+.markdown.article :deep(:is(h1, h2, h3, h4)) { scroll-margin-top: 16px; }
 /* 文字部分限制在 760px 居中窄栏 */
 .title-row,
 .anchor-notice,
