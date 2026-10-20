@@ -32,8 +32,8 @@
 ### 2.2 语料导入
 
 - 转换产物：`src/main/resources/eval/corpus/dragonball-zh/{domain}-{docId}.md`，附 `NOTICE.md`（署名与许可）。
-- 页面标题：Finance 用 `company_name`；Law 用 `court_name-doc_id`；Medical 用 `hospital_patient_name-doc_id`（Law/Medical 存在同名主体，需带 doc_id 去重）。正文为原始 `content`，不改写、不加标题，保证评测的就是原始文档的切块效果。
-- 接口：`POST /api/v1/admin/eval/corpus/import?kbId={kbId}&corpus=dragonball-zh`，管理员专用。逐篇复用 `WikiImportJobService` 的现有导入链路（与真实用户走相同的解析、分块、索引）；按标题幂等，已存在的页面跳过。返回导入作业列表，调用方可轮询索引状态。
+- 页面标题：统一为 `{主体名}-{doc_id}`，主体名 Finance 取 `company_name`、Law 取 `court_name`、Medical 取 `hospital_patient_name`（Finance 中 doc 4 与 doc 24 同为「创新科技有限公司」，必须带 doc_id 去重）。正文为原始 `content`，不改写、不加标题，保证评测的就是原始文档的切块效果。
+- 接口：`POST /api/v1/admin/eval/corpus/import?kbId={kbId}&corpus=dragonball-zh`，管理员专用。逐篇调用 `WikiTreeService.createNode`（`TYPE_PAGE`）→ `PageRevisionService.saveDraft` → `publish`，与用户手动建页走同一条发布与索引链路（`publish` 在同事务内入队索引任务）；按标题幂等，已存在的页面跳过。返回创建/跳过的页面列表；索引是否完成由评测启动前的就绪检查（`PageIndexStatusService`）判断。
 - 后续用户补充的 PDF/多模态文档通过普通上传进入同一评测 KB，无需额外适配（评测按关键词匹配，不依赖文档 ID 映射）。
 
 ### 2.3 测试集文件
@@ -64,6 +64,7 @@
 
 - 从中文 query 中按 `query_type` 分层抽 200 题；领域比例接近语料比例（Finance:Law:Medical ≈ 4:3:4）；负样本约 8%（16 题）。
 - 嵌套：先抽 200，再从中按同样的分层比例抽 100，再从 100 中抽 50。三个集合题型分布一致。
+- 排除来源文档含同名主体文档（doc 4、doc 24）的题，避免标准答案歧义；排除非负样本中 `references` 为空的题。
 - 抽样使用固定随机种子，抽样脚本与种子写入 `src/main/resources/eval/datasets/README.md`，可复现。
 - 关键词提炼规则（由 Claude 生成，逐题人工可审）：
   1. 只取回答该题必需的信息单元：数字（含单位）、日期、主体名、事件/措施短语；每题 2~6 组；
@@ -90,8 +91,8 @@
 | `bm25@50` | BM25 单路 Top-50 子块正文拼接 | 关键词分支能否搜到 |
 | `vector@50` | 向量单路 Top-50 子块正文拼接 | 语义分支能否搜到 |
 | `pool@50` | 上两者并集 | 候选池上限 |
-| `fused@8` | RRF 后 BASE Top-8 子块 | 基础阶段排序质量 |
-| `fused@20` | RRF 后 EXPANDED Top-20 子块 | 扩大阶段排序质量 |
+| `fused@8` | 与 QA 基础阶段一致：两路各 Top-20（`base-branch-topk`）RRF 后取 Top-8（`base-final-topk`） | 基础阶段排序质量 |
+| `fused@20` | 与 QA 扩大阶段一致：两路各 Top-50 RRF 后取 Top-20（`expanded-final-topk`） | 扩大阶段排序质量 |
 | `context` | 完整 QA 链路最终送入生成的上下文（parent 或 child，含改写、图增强、阶梯扩展后的结果） | 实际喂给模型的证据 |
 | `answer` | 生成的回答文本 | 回答召回率 |
 
@@ -101,15 +102,15 @@
 
 ### 3.3 首次丢失层归因
 
-对每个非负样本中未在 `answer` 命中的关键词组，按顺序判断首次丢失位置：
+对每个非负样本中未在 `answer` 命中的关键词组，按以下顺序判定（先看端到端，再回溯基线）：
 
-1. 不在 `pool@50` → `RECALL_MISS`（分词/嵌入/切块导致搜不到）；
-2. 在 `pool@50`、不在 `fused@20` → `RANK_MISS_20`；
-3. 在 `fused@20`、不在 `fused@8` → `RANK_MISS_8`；
-4. 在 `fused@8` 或 `fused@20`、不在 `context` → `CONTEXT_MISS`（阶梯未扩展、父块裁剪或预算截断）；
-5. 在 `context`、不在 `answer` → `GENERATION_MISS`。
+1. 在 `context`、不在 `answer` → `GENERATION_MISS`；
+2. 不在 `context`，且不在 `pool@50` → `RECALL_MISS`（分词/嵌入/切块导致搜不到）；
+3. 不在 `context`，在 `pool@50`、不在 `fused@20` → `RANK_MISS_20`；
+4. 不在 `context`，在 `fused@20`、不在 `fused@8` → `RANK_MISS_8`；
+5. 不在 `context`，但在 `fused@8` → `CONTEXT_MISS`（阶梯未扩展、父块裁剪或预算截断）。
 
-另记录 `CONTEXT_GAIN`：基线各层都未命中但 `context` 命中（改写/图增强补回）。归因明细写入 trace metadata，并按 `category × 丢失层` 汇总进 run 报告，作为后续改进分析的主要依据。
+另记录 `CONTEXT_GAIN`：不在 `pool@50` 但在 `context` 命中（改写/图增强补回）的关键词组数。归因明细写入 trace metadata，并按 `category × 丢失层` 汇总进 run 报告，作为后续改进分析的主要依据。
 
 ## 4. 架构
 
@@ -139,10 +140,10 @@ eval/EvalReportPort ◀────────────────── ev
 
 ### 4.2 运行观测扩展点 `RunObserver`
 
-- 位置：`com.kwiki.rag.orchestration.RunObserver`，事件为不可变 record：`RewriteObserved`、`StageObserved`（attemptStage、子块 key、命中数）、`GraphObserved`（新增子块）、`ContextObserved`（最终上下文块 key 与文本）、`AnswerObserved`（终态、回答文本）。
-- 挂载：`RunContext` 新增可选 `observer` 字段（与现有 `thinkingListener` 同模式），默认 `RunObserver.NOOP`；`LangGraphAgenticWorkflow` 在改写、子块召回、图增强、父块回取、生成完成处调用 `run.observe(event)`。
+- 位置：`com.kwiki.rag.orchestration.RunObserver`，事件为不可变 record：`RewriteObserved`（新 query、轮次）、`ChildrenObserved`（轮次、attemptStage、子块 key、是否经图增强）、`ContextObserved`（轮次、attemptStage、生成所用 query、送入生成的上下文全文）。回答文本与终态直接从工作流 SSE 事件（`token`/`done`/`error`）读取，不另设事件。
+- 挂载：`RunContext` 新增可选 `observer` 字段（与现有 `thinkingListener` 同模式），默认 `RunObserver.NOOP`；`LangGraphAgenticWorkflow` 在改写完成、子块召回（含图增强后）、生成前拼好上下文处调用 `run.observe(event)`。`context` 层取最后一次 `ContextObserved`。
 - 入口：`AgenticWorkflowPort` 新增带 `RunObserver` 参数的 `answerInSession` 默认方法，原有调用方不变。
-- 约束：观测者只读；回调异常被捕获并计数，不影响主链路；NOOP 时不构造事件 payload。
+- 约束：观测者只读；回调异常被捕获并记 WARN 日志，不影响主链路；NOOP 时不构造事件 payload。
 
 ### 4.3 Langfuse 客户端 `infrastructure/langfuse`
 
@@ -170,12 +171,12 @@ eval/EvalReportPort ◀────────────────── ev
 |---|---|
 | `POST /api/v1/admin/eval/corpus/import?kbId=&corpus=dragonball-zh` | 导入语料到评测 KB（幂等） |
 | `POST /api/v1/admin/eval/datasets/sync` | 将 jsonl 按 tier 同步为三个 Langfuse dataset（幂等） |
-| `POST /api/v1/admin/eval/runs` | body `{dataset: "50q"\|"100q"\|"200q", kbId, runName?, localOnly?}`，异步启动，返回 runId |
+| `POST /api/v1/admin/eval/runs` | body `{dataset: "50q"\|"100q"\|"200q", kbId, runName?, notes?, localOnly?}`，异步启动，返回 runId |
 | `GET /api/v1/admin/eval/runs/{runId}` | 进度与汇总指标 |
 
 - 全部要求管理员角色；检索范围 = 触发管理员的权限 ∩ `{kbId}`，复用 `AuthorizationScopeResolver`，不新增权限路径。
 - 同一时刻只允许一个 run（Redis 分布式锁）。
-- `runName` 缺省为 `{dataset}-{yyyyMMdd-HHmm}`；run metadata 记录索引版本、chunker、索引 schema、embedding 模型、answer 模型、git commit（`GitProperties` 可用时，否则为 `unknown`）、配置快照（TopK、阶梯、图开关），便于在 Langfuse 中对比。
+- `runName` 缺省为 `{dataset}-{yyyyMMdd-HHmm}`；run metadata 记录配置快照（QA 各阶段 TopK、父块上限、图增强是否启用、评测并发）与请求中的自由文本 `notes`（如「ik 分词 + contextual chunk」），便于在 Langfuse 中对比。
 - run 状态保存在内存与本地报告文件中，不新增数据库表；应用重启后进行中的 run 视为中断。
 
 ## 6. 错误处理
