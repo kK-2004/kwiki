@@ -1,0 +1,4 @@
+{"id":"t-1","source":"dragonball","tier":50,"category":"事实性问题","domain":"Finance","query":"绿源环保2017年的二氧化碳排放量是多少？","keywords":[["10,000吨","1万吨"]],"negative":false,"sourceDocIds":[5],"keypoints":["排放量为10,000吨"]}
+
+{"id":"t-2","source":"dragonball","tier":100,"category":"无关无解问","domain":"Finance","query":"绿源环保在2017年12月设立了什么子公司？","keywords":[],"negative":true,"sourceDocIds":[5],"keypoints":["无法回答"]}
+{"id":"t-3","source":"dragonball","tier":200,"category":"多跳推理问题","domain":"Law","query":"甲案判决依据是什么？","keywords":[["第一条"],["罚款"]],"negative":false,"sourceDocIds":[50],"keypoints":[]}
