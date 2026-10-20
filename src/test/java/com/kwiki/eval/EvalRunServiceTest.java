@@ -2,6 +2,7 @@ package com.kwiki.eval;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
+import com.kwiki.rag.orchestration.RunObserver;
 import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.rag.retrieval.QaRetrievalBudgets;
 import com.kwiki.security.CurrentUser;
@@ -40,7 +41,15 @@ class EvalRunServiceTest {
     final InMemoryReport report = new InMemoryReport();
 
     static ChunkHit hit(String key, String content) {
-        return new ChunkHit(key, "P" + key, 7, "PAGE", 1, 1L, "heading", 0, content.length(), content);
+        return hit(key, 1L, content);
+    }
+
+    static ChunkHit hit(String key, long pageId, String content) {
+        return new ChunkHit(key, "P" + key, 7, "PAGE", pageId, 1L, "heading", 0, content.length(), content);
+    }
+
+    static RunObserver.ContextSegment segment(long pageId, String text) {
+        return new RunObserver.ContextSegment("PAGE", pageId, text);
     }
 
     static EvalCase positive(String id, String query) {
@@ -59,6 +68,7 @@ class EvalRunServiceTest {
     }
 
     void stubCases() {
+        when(corpus.pageDocIds(admin, 7L, EvalCorpusService.DEFAULT_CORPUS)).thenReturn(Map.of(1L, 5));
         var hit = hit("C1", "排放量为10,000吨");
         when(loader.load()).thenReturn(List.of(
                 positive("p-1", "排放量是多少"),
@@ -71,9 +81,11 @@ class EvalRunServiceTest {
         when(baseline.probe(eq("设立了什么子公司"), any())).thenReturn(new BaselineRetrievalProbe.Result(
                 List.of(), List.of(), List.of(), List.of(), List.of()));
         when(workflow.run(eq(admin), eq(7L), eq("排放量是多少"), any(Duration.class))).thenReturn(
-                new WorkflowProbe.Result("completed", null, "排放量为1万吨", "排放量为10,000吨", List.of()));
+                new WorkflowProbe.Result("completed", null, "排放量为1万吨", "排放量为10,000吨",
+                        List.of(segment(1L, "排放量为10,000吨")), List.of()));
         when(workflow.run(eq(admin), eq(7L), eq("设立了什么子公司"), any(Duration.class))).thenReturn(
-                new WorkflowProbe.Result("insufficient", null, "知识库中没有相关信息，我无法进行回答", "", List.of()));
+                new WorkflowProbe.Result("insufficient", null, "知识库中没有相关信息，我无法进行回答", "",
+                        List.of(), List.of()));
     }
 
     @Test
@@ -100,6 +112,59 @@ class EvalRunServiceTest {
         Path file = Path.of(status.reportPath());
         assertThat(file).exists();
         assertThat(Files.readString(file)).contains("\"runName\" : \"run-a\"").contains("p-err");
+    }
+
+    @Test
+    void keywordsInNonSourceDocumentsDoNotCountAsHits() throws Exception {
+        // 页面 1 → doc 5（本题来源），页面 2 → doc 6（同领域别家公司，模板相同、数字相同）
+        when(corpus.pageDocIds(admin, 7L, EvalCorpusService.DEFAULT_CORPUS)).thenReturn(Map.of(1L, 5, 2L, 6));
+        when(loader.load()).thenReturn(List.of(positive("p-1", "排放量是多少")));
+        var source = hit("C1", 1L, "本公司披露了年度环境信息");
+        var other = hit("C2", 2L, "排放量为10,000吨");
+        when(baseline.probe(eq("排放量是多少"), any())).thenReturn(new BaselineRetrievalProbe.Result(
+                List.of(source, other), List.of(other), List.of(source, other), List.of(source, other),
+                List.of()));
+        when(workflow.run(eq(admin), eq(7L), eq("排放量是多少"), any(Duration.class))).thenReturn(
+                new WorkflowProbe.Result("completed", null, "排放量为10000吨", "本公司披露了年度环境信息\n排放量为10,000吨",
+                        List.of(segment(1L, "本公司披露了年度环境信息"), segment(2L, "排放量为10,000吨")),
+                        List.of()));
+
+        var status = service().runNow(admin, new EvalRunService.StartRequest("50q", 7L, "run-src", null, false));
+
+        EvalSummary summary = status.summary();
+        assertThat(summary.overall().get("bm25@50").coverage()).isZero();
+        assertThat(summary.overall().get("pool@50").coverage()).isZero();
+        assertThat(summary.overall().get("fused@20").coverage()).isZero();
+        assertThat(summary.overall().get("context").coverage()).isZero();
+        assertThat(summary.overall().get("answer").coverage()).as("回答层仍按纯文本匹配").isEqualTo(1.0);
+        var trace = report.traces.getFirst();
+        assertThat(trace.spans()).filteredOn(span -> span.name().equals("pool@50")).singleElement()
+                .satisfies(span -> assertThat(span.output()).containsEntry("nonSourceFiltered", 1));
+        assertThat(trace.spans()).filteredOn(span -> span.name().equals("context")).singleElement()
+                .satisfies(span -> assertThat(span.output()).containsEntry("nonSourceFiltered", 1)
+                        .containsEntry("matched", List.of()));
+        assertThat(trace.spans()).filteredOn(span -> span.name().equals("answer")).singleElement()
+                .satisfies(span -> assertThat(span.output()).doesNotContainKey("nonSourceFiltered"));
+        assertThat(Files.readString(Path.of(status.reportPath()))).contains("\"nonSourceFiltered\"");
+    }
+
+    @Test
+    void customCasesWithoutSourceDocsMatchAnyChunk() {
+        var evalCase = new EvalCase("c-1", "custom", 50, "事实性问题", "", "排放量是多少",
+                List.of(List.of("10000吨")), false, List.of(), List.of());
+        var other = hit("C2", 2L, "排放量为10,000吨");
+        when(baseline.probe(eq("排放量是多少"), any())).thenReturn(new BaselineRetrievalProbe.Result(
+                List.of(other), List.of(), List.of(other), List.of(other), List.of()));
+        when(workflow.run(eq(admin), eq(7L), eq("排放量是多少"), any(Duration.class))).thenReturn(
+                new WorkflowProbe.Result("completed", null, "", "排放量为10,000吨",
+                        List.of(segment(2L, "排放量为10,000吨")), List.of()));
+
+        var result = service().evaluate(admin, 7L, null, Map.of(), evalCase);
+
+        assertThat(result.score().matched(EvalLayer.POOL_50)).containsExactly(0);
+        assertThat(result.score().matched(EvalLayer.CONTEXT)).containsExactly(0);
+        assertThat(result.nonSourceFiltered()).containsEntry(EvalLayer.BM25_50, 0)
+                .containsEntry(EvalLayer.CONTEXT, 0);
     }
 
     @Test
@@ -147,7 +212,7 @@ class EvalRunServiceTest {
         var gate = new CountDownLatch(1);
         when(workflow.run(eq(admin), eq(7L), eq("排放量是多少"), any(Duration.class))).thenAnswer(invocation -> {
             gate.await(5, TimeUnit.SECONDS);
-            return new WorkflowProbe.Result("completed", null, "", "", List.of());
+            return new WorkflowProbe.Result("completed", null, "", "", List.of(), List.of());
         });
         var service = service();
 

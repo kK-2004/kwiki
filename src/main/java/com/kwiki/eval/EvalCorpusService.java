@@ -15,8 +15,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -28,6 +30,7 @@ import java.util.regex.Pattern;
 public class EvalCorpusService {
 
     static final String CORPUS_ROOT = "eval/corpus/";
+    public static final String DEFAULT_CORPUS = "dragonball-zh";
     private static final Pattern CORPUS_NAME = Pattern.compile("[a-z0-9-]+");
 
     public record ManifestEntry(String file, String title, String domain, int docId) {
@@ -82,6 +85,21 @@ public class EvalCorpusService {
         if (notReady > 0) {
             throw new EvalException(409, "corpus-not-ready: " + notReady + " pages not indexed");
         }
+    }
+
+    /**
+     * 评测 KB 中页面 id → 语料 doc_id。页面标题与 manifest 标题（{主体名}-{doc_id}）一致才映射，
+     * 不在 manifest 中的页面不出现在结果里。
+     */
+    public Map<Long, Integer> pageDocIds(CurrentUser user, long kbId, String corpus) {
+        Map<String, Integer> byTitle = new HashMap<>();
+        manifest(corpus).forEach(entry -> byTitle.put(entry.title(), entry.docId()));
+        Map<Long, Integer> pageDocIds = new HashMap<>();
+        for (WikiTreeService.TreeNodeView page : pages(tree.tree(user, kbId))) {
+            Integer docId = byTitle.get(page.title());
+            if (docId != null) pageDocIds.put(page.id(), docId);
+        }
+        return Map.copyOf(pageDocIds);
     }
 
     public List<ManifestEntry> manifest(String corpus) {

@@ -1,6 +1,7 @@
 package com.kwiki.eval;
 
 import com.kwiki.rag.answer.ChatPersistenceService;
+import com.kwiki.rag.orchestration.RunObserver;
 import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.rag.routing.KeywordRuleSet;
 import com.kwiki.rag.routing.RuleFirstRouter;
@@ -45,6 +46,8 @@ class WorkflowProbeTest {
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer()).isEqualTo("基于证据的回答 [P0]");
         assertThat(result.context()).contains("候选依据 C1");
+        assertThat(result.contextSegments()).containsExactly(
+                new RunObserver.ContextSegment("PAGE", 1, "候选依据 C1 使用容器部署"));
         assertThat(result.rewrites()).isEmpty();
     }
 

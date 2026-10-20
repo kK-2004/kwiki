@@ -26,7 +26,7 @@ class EvalSummariesTest {
         segments.put(EvalLayer.CONTEXT, List.of("甲乙"));
         segments.put(EvalLayer.ANSWER, answer);
         return new CaseResult(evalCase, LayerScorer.score(evalCase.keywords(), segments), null,
-                "completed", String.join("", answer), List.of(), Map.of(), null, 10);
+                "completed", String.join("", answer), List.of(), Map.of(), Map.of(), null, 10);
     }
 
     @Test
@@ -34,9 +34,9 @@ class EvalSummariesTest {
         var results = List.of(
                 scored(positive("a", "事实性问题", "Finance"), List.of("甲乙")),
                 scored(positive("b", "多跳推理问题", "Law"), List.of("甲")),
-                new CaseResult(negative("n"), null, true, "insufficient", "", List.of(), Map.of(), null, 5),
+                new CaseResult(negative("n"), null, true, "insufficient", "", List.of(), Map.of(), Map.of(), null, 5),
                 new CaseResult(positive("e", "事实性问题", "Finance"), null, null, null, "", List.of(),
-                        Map.of(), "timeout", 7));
+                        Map.of(), Map.of(), "timeout", 7));
 
         EvalSummary summary = EvalSummaries.summarize(results);
 
