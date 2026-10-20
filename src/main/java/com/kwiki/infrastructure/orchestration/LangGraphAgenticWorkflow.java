@@ -242,29 +242,37 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
 
     @Override
     public Flux<ChatStreamEvent> answer(CurrentUser user, String query, List<ChatTurn> conversationHistory) {
-        return streamAnswer(user, query, conversationHistory, true, Set.of(), Set.of(), RouteInput.NONE);
+        return streamAnswer(user, query, conversationHistory, true, Set.of(), Set.of(), RouteInput.NONE, RunObserver.NOOP);
     }
 
     @Override
     public Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, List<ChatTurn> conversationHistory) {
-        return streamAnswer(user, query, conversationHistory, false, Set.of(), Set.of(), RouteInput.NONE);
+        return streamAnswer(user, query, conversationHistory, false, Set.of(), Set.of(), RouteInput.NONE, RunObserver.NOOP);
     }
 
     @Override
     public Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, List<ChatTurn> conversationHistory,
                                                   Set<Long> kbIds, Set<Long> pageIds) {
-        return streamAnswer(user, query, conversationHistory, false, kbIds, pageIds, RouteInput.NONE);
+        return streamAnswer(user, query, conversationHistory, false, kbIds, pageIds, RouteInput.NONE, RunObserver.NOOP);
     }
 
     @Override
     public Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, List<ChatTurn> conversationHistory,
                                                   Set<Long> kbIds, Set<Long> pageIds, RouteInput routeInput) {
         return streamAnswer(user, query, conversationHistory, false, kbIds, pageIds,
-                routeInput == null ? RouteInput.NONE : routeInput);
+                routeInput == null ? RouteInput.NONE : routeInput, RunObserver.NOOP);
+    }
+
+    @Override
+    public Flux<ChatStreamEvent> answerInSession(CurrentUser user, String query, List<ChatTurn> conversationHistory,
+                                                  Set<Long> kbIds, Set<Long> pageIds, RouteInput routeInput,
+                                                  RunObserver observer) {
+        return streamAnswer(user, query, conversationHistory, false, kbIds, pageIds,
+                routeInput == null ? RouteInput.NONE : routeInput, observer);
     }
 
     private Flux<ChatStreamEvent> streamAnswer(CurrentUser user, String query, List<ChatTurn> conversationHistory, boolean persistConversation,
-                                                Set<Long> kbIds, Set<Long> pageIds, RouteInput routeInput) {
+                                                Set<Long> kbIds, Set<Long> pageIds, RouteInput routeInput, RunObserver observer) {
         Map<String, String> headers = new HashMap<>();
         String id =
                 Optional.ofNullable(org.slf4j.MDC.get("traceId"))
@@ -323,6 +331,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                                                                 versions::current,
                                                                                 limits,
                                                                                 headers);
+                                                                run.observer(observer);
                                                                 s =
                                                                         new Session(
                                                                                 run, user, query,
@@ -637,6 +646,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         }
         s.lastDegradations = outcome.degradations();
         s.children = trimToBudget(outcome.children(), budget.childCharBudget());
+        s.run.observe(() -> new RunObserver.ChildrenObserved(s.queryRound, s.stage.name(),
+                s.children.stream().map(ChildEvidence::chunkKey).toList(), false));
         s.parentEvidence = List.of();
         applyGraphEnhancement(s, budget);
         Map<String, Object> metrics = new LinkedHashMap<>();
@@ -736,6 +747,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 s.graphBudget, direct);
         if (enhancement.enhanced()) {
             s.children = trimToBudget(enhancement.mergedChildren(), budget.childCharBudget());
+            s.run.observe(() -> new RunObserver.ChildrenObserved(s.queryRound, s.stage.name(),
+                    s.children.stream().map(ChildEvidence::chunkKey).toList(), true));
         }
         if (!enhancement.degradations().isEmpty()) {
             var combined = new ArrayList<>(s.lastDegradations);
@@ -806,6 +819,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         String context = s.stage.isParentStage()
                 ? parentContext(s.parentEvidence)
                 : childContext(s.children);
+        s.run.observe(() -> new RunObserver.ContextObserved(s.queryRound, s.stage.name(), s.currentQuery, context));
         CandidateGenerator.Generated generated;
         s.run.thinkingListener(text -> s.emit("reasoning-summary", Map.of("stepId", step, "text", text)));
         try {
@@ -1155,6 +1169,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.rewriteHistory.add(newQuery);
         s.currentQuery = newQuery;
         s.queryRound++;
+        s.run.observe(() -> new RunObserver.RewriteObserved(s.queryRound, newQuery));
         s.stage = AttemptStage.BASE_CHILD; // 新一轮会重置基础 TopK
         s.usedParentKeys.clear();
         s.stageFailures.clear();

@@ -7,6 +7,10 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 import java.util.function.LongUnaryOperator;
+import java.util.function.Supplier;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** 可信的请求上下文。只在应用自身的工作范围内绑定，绝不反序列化它。 */
 public final class RunContext implements AutoCloseable {
@@ -59,6 +63,26 @@ public final class RunContext implements AutoCloseable {
     public void emitThinking(String text) {
         authorize();
         if (text != null && !text.isEmpty()) thinking.accept(text);
+    }
+
+    private static final Logger OBSERVER_LOG = LoggerFactory.getLogger(RunContext.class);
+
+    private volatile RunObserver observer = RunObserver.NOOP;
+
+    /** 安装运行观测者；null 恢复为 NOOP。 */
+    public void observer(RunObserver value) {
+        observer = value == null ? RunObserver.NOOP : value;
+    }
+
+    /** 观测者存在时才构造事件；观测者异常只记日志，绝不影响主链路。 */
+    public void observe(Supplier<RunObserver.Event> event) {
+        RunObserver current = observer;
+        if (current == RunObserver.NOOP) return;
+        try {
+            current.onEvent(event.get());
+        } catch (RuntimeException e) {
+            OBSERVER_LOG.warn("run observer failed requestId={} reason={}", requestId, e.toString());
+        }
     }
 
     public static RunContext current() {
