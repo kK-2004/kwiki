@@ -414,7 +414,7 @@ git commit -m "feat(rag): 新增运行观测扩展点 RunObserver——工作流
   - `EvalDatasetLoader(ObjectMapper)`：`List<EvalCase> load()`（类路径 `eval/datasets/kwiki-rag.jsonl`）、`List<EvalCase> load(Resource)`、`static List<EvalCase> select(List<EvalCase>, EvalDatasetSize)`
   - `KeywordMatcher.normalize(String)`、`KeywordMatcher.matchedGroups(List<String> segments, List<List<String>> groups)` 返回 `Set<Integer>`（有序）
 
-- [ ] **Step 1: 写 KeywordMatcher 失败测试**
+- [x] **Step 1: 写 KeywordMatcher 失败测试**
 
 ```java
 package com.kwiki.eval;
@@ -458,7 +458,7 @@ class KeywordMatcherTest {
 }
 ```
 
-- [ ] **Step 2: 写 EvalDatasetLoader 失败测试与测试资源**
+- [x] **Step 2: 写 EvalDatasetLoader 失败测试与测试资源**
 
 `src/test/resources/eval/loader/valid.jsonl`：
 
@@ -532,12 +532,12 @@ class EvalDatasetLoaderTest {
 }
 ```
 
-- [ ] **Step 3: 运行确认失败**
+- [x] **Step 3: 运行确认失败**
 
 Run: `./mvnw -q -Dtest='KeywordMatcherTest,EvalDatasetLoaderTest' test`
 Expected: 编译失败，`com.kwiki.eval` 类不存在。
 
-- [ ] **Step 4: 实现**
+- [x] **Step 4: 实现**
 
 `EvalDatasetSize.java`：
 
@@ -750,12 +750,12 @@ public final class KeywordMatcher {
 }
 ```
 
-- [ ] **Step 5: 运行确认通过**
+- [x] **Step 5: 运行确认通过**
 
 Run: `./mvnw -q -Dtest='KeywordMatcherTest,EvalDatasetLoaderTest' test`
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/main/java/com/kwiki/eval src/test/java/com/kwiki/eval src/test/resources/eval/loader
@@ -783,7 +783,7 @@ git commit -m "feat(eval): 评测题模型、jsonl 测试集加载与按 tier �
   - `record EvalSummary(int total, int errors, int scored, Map<String, LayerMetric> overall, Map<String, Map<String, LayerMetric>> byCategory, Map<String, Map<String, LayerMetric>> byDomain, Map<String, Map<String, LayerMetric>> bySource, int negatives, double refusalAccuracy, Map<String, Map<String, Integer>> lossMatrix, int contextGains)`
   - `EvalSummaries.summarize(List<CaseResult>)` → `EvalSummary`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `LayerScorerTest.java`：
 
@@ -963,12 +963,12 @@ class EvalSummariesTest {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `./mvnw -q -Dtest='LayerScorerTest,RefusalDetectorTest,EvalSummariesTest' test`
 Expected: 编译失败。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `EvalLayer.java`：
 
@@ -1280,12 +1280,12 @@ public final class EvalSummaries {
 }
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `./mvnw -q -Dtest='LayerScorerTest,RefusalDetectorTest,EvalSummariesTest' test`
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/main/java/com/kwiki/eval src/test/java/com/kwiki/eval
@@ -1308,7 +1308,7 @@ git commit -m "feat(eval): 分层关键词计分、首次丢失层归因、负�
   - `BaselineRetrievalProbe(ChunkEmbeddingPort, ConcurrentRecallService, QaRetrievalBudgets)`：`Result probe(String query, ScopeFilter filter)`；`record Result(List<ChunkHit> bm25, List<ChunkHit> vector, List<ChunkHit> fused8, List<ChunkHit> fused20, List<String> degradations)`，方法 `Map<EvalLayer, List<ChunkHit>> byLayer()`（键为 BM25_50、VECTOR_50、FUSED_8、FUSED_20）
   - `WorkflowProbe(AgenticWorkflowPort)`：`Result run(CurrentUser user, long kbId, String query, Duration timeout)`；`record Result(String outcome, String errorCode, String answer, String context, List<String> rewrites)`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `BaselineRetrievalProbeTest.java`：
 
@@ -1459,12 +1459,12 @@ class WorkflowProbeTest {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `./mvnw -q -Dtest='BaselineRetrievalProbeTest,WorkflowProbeTest' test`
 Expected: 编译失败。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `BaselineRetrievalProbe.java`：
 
@@ -1644,12 +1644,12 @@ public class WorkflowProbe {
 }
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `./mvnw -q -Dtest='BaselineRetrievalProbeTest,WorkflowProbeTest' test`
 Expected: PASS。若 `recordsRewritesWhenQualityKeepsFailing` 的终态不是 `insufficient`，先查看 `AgenticWorkflowTest.exhaustedRoundsOutputExactRefusalWithEmptyCitations` 的断言并以该测试为准修正期望值（不要改工作流）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/main/java/com/kwiki/eval/BaselineRetrievalProbe.java src/main/java/com/kwiki/eval/WorkflowProbe.java src/test/java/com/kwiki/eval/BaselineRetrievalProbeTest.java src/test/java/com/kwiki/eval/WorkflowProbeTest.java
@@ -1675,7 +1675,7 @@ git commit -m "feat(eval): 基线检索探针（与 QA 阶梯同口径的单路�
   - `EvalReportException extends RuntimeException`
   - `LangfuseRestClient implements EvalReportPort`（Spring Bean）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```java
 package com.kwiki.infrastructure.langfuse;
@@ -1817,12 +1817,12 @@ class LangfuseRestClientTest {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `./mvnw -q -Dtest=LangfuseRestClientTest test`
 Expected: 编译失败。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `EvalReportException.java`：
 
@@ -2118,17 +2118,17 @@ public class LangfuseRestClient implements EvalReportPort {
 }
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `./mvnw -q -Dtest=LangfuseRestClientTest test`
 Expected: PASS（6 个测试）。
 
-- [ ] **Step 5: 确认应用上下文与密钥审计未受影响**
+- [x] **Step 5: 确认应用上下文与密钥审计未受影响**
 
 Run: `./mvnw -q -Dtest='KwikiApplicationTest,RepositorySecretsAuditTest' test`
 Expected: PASS（未配置 key 时 Bean 正常创建）。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/main/java/com/kwiki/eval/EvalReportPort.java src/main/java/com/kwiki/eval/EvalReportException.java src/main/java/com/kwiki/infrastructure/langfuse src/test/java/com/kwiki/infrastructure/langfuse
@@ -2154,7 +2154,7 @@ git commit -m "feat(eval): Langfuse REST 上报客户端——数据集与条目
   - `EvalException(int code, String message)`
   - `EvalCorpusService`：`ImportResult importCorpus(CurrentUser user, long kbId, String corpus)`、`void requireReady(CurrentUser user, long kbId)`；`record ImportResult(List<Long> createdPageIds, List<String> skippedTitles)`；`record ManifestEntry(String file, String title, String domain, int docId)`；`List<ManifestEntry> manifest(String corpus)`；`String document(String corpus, String file)`
 
-- [ ] **Step 1: 写转换脚本**
+- [x] **Step 1: 写转换脚本**
 
 `tools/eval/convert-dragonball.mjs`：
 
@@ -2196,7 +2196,7 @@ writeFileSync(join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2
 console.log(`wrote ${manifest.length} documents to ${outDir}`);
 ```
 
-- [ ] **Step 2: 下载数据并生成语料**
+- [x] **Step 2: 下载数据并生成语料**
 
 在仓库之外的独立空目录中下载（数据视为不可信输入，不在仓库内执行任何东西）：
 
@@ -2210,7 +2210,7 @@ node tools/eval/convert-dragonball.mjs "$DL/dragonball_docs.jsonl" src/main/reso
 
 Expected: 输出 `wrote 108 documents to src/main/resources/eval/corpus/dragonball-zh`。记下 `$DL` 路径，Task 8 还要用 `dragonball_queries.jsonl`。
 
-- [ ] **Step 3: 写 NOTICE.md**
+- [x] **Step 3: 写 NOTICE.md**
 
 `src/main/resources/eval/corpus/dragonball-zh/NOTICE.md`：
 
@@ -2228,7 +2228,7 @@ https://github.com/OpenBMB/RAGEval （dragonball_dataset/dragonball_docs.jsonl�
 转换方式：仅取 `language=zh` 的文档，正文保持原样，每篇保存为 `{domain}-{doc_id}.md`；页面标题为 `{主体名}-{doc_id}`，见 `manifest.json`。
 ```
 
-- [ ] **Step 4: 写服务失败测试与迷你语料**
+- [x] **Step 4: 写服务失败测试与迷你语料**
 
 `src/test/resources/eval/corpus/test-mini/manifest.json`：
 
@@ -2353,12 +2353,12 @@ class EvalCorpusServiceTest {
 }
 ```
 
-- [ ] **Step 5: 运行确认失败**
+- [x] **Step 5: 运行确认失败**
 
 Run: `./mvnw -q -Dtest=EvalCorpusServiceTest test`
 Expected: 编译失败。
 
-- [ ] **Step 6: 实现**
+- [x] **Step 6: 实现**
 
 `EvalException.java`：
 
@@ -2506,12 +2506,12 @@ public class EvalCorpusService {
 }
 ```
 
-- [ ] **Step 7: 运行确认通过**
+- [x] **Step 7: 运行确认通过**
 
 Run: `./mvnw -q -Dtest=EvalCorpusServiceTest test`
 Expected: PASS。若 `WikiPage` 在 `com.kwiki.wiki.domain` 之外，按 `grep -rn "class WikiPage " src/main/java` 修正 import。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add tools/eval/convert-dragonball.mjs src/main/resources/eval/corpus src/main/java/com/kwiki/eval/EvalException.java src/main/java/com/kwiki/eval/EvalCorpusService.java src/test/java/com/kwiki/eval/EvalCorpusServiceTest.java src/test/resources/eval/corpus
@@ -2539,7 +2539,7 @@ git commit -m "feat(eval): DragonBall 中文语料转换脚本与 108 篇评测�
   - `EvalRunService`：`RunStatus start(CurrentUser, StartRequest)`、`RunStatus status(String runId)`、包内 `RunStatus runNow(CurrentUser, StartRequest)`（同步执行，测试用）；`record StartRequest(String dataset, Long kbId, String runName, String notes, boolean localOnly)`；`enum State { RUNNING, COMPLETED, REPORT_PARTIAL, FAILED }`；`record RunStatus(String runId, String runName, String dataset, State state, int total, int completed, EvalSummary summary, String reportPath, String error)`
   - 接口：`POST /api/v1/admin/eval/corpus/import?kbId=&corpus=dragonball-zh`、`POST /api/v1/admin/eval/datasets/sync`、`POST /api/v1/admin/eval/runs`、`GET /api/v1/admin/eval/runs/{runId}`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `EvalDatasetSyncServiceTest.java`：
 
@@ -2815,12 +2815,12 @@ class EvalRunServiceTest {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `./mvnw -q -Dtest='EvalRunServiceTest,EvalDatasetSyncServiceTest' test`
 Expected: 编译失败。
 
-- [ ] **Step 3: 实现 EvalReportWriter 与 EvalDatasetSyncService**
+- [x] **Step 3: 实现 EvalReportWriter 与 EvalDatasetSyncService**
 
 `EvalReportWriter.java`：
 
@@ -2938,7 +2938,7 @@ public class EvalDatasetSyncService {
 }
 ```
 
-- [ ] **Step 4: 实现 EvalRunService**
+- [x] **Step 4: 实现 EvalRunService**
 
 ```java
 package com.kwiki.eval;
@@ -3289,7 +3289,7 @@ public class EvalRunService {
 }
 ```
 
-- [ ] **Step 5: 实现管理接口**
+- [x] **Step 5: 实现管理接口**
 
 `EvalAdminController.java`：
 
@@ -3357,12 +3357,12 @@ public class EvalAdminController {
 eval-reports/
 ```
 
-- [ ] **Step 6: 运行确认通过**
+- [x] **Step 6: 运行确认通过**
 
 Run: `./mvnw -q -Dtest='EvalRunServiceTest,EvalDatasetSyncServiceTest,KwikiApplicationTest' test`
 Expected: PASS。若 `KwikiApplicationTest` 因测试上下文缺少 `WikiTreeService`/`PageRevisionService` Bean 失败，查看 `src/test/java/com/kwiki/testutil/WikiMockBeans.java` 的现有做法，为缺失 Bean 增加同样的 `@MockitoBean` 声明，不要改生产代码的依赖。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add src/main/java/com/kwiki/eval src/test/java/com/kwiki/eval .gitignore
@@ -3384,7 +3384,7 @@ git commit -m "feat(eval): 评测 run 编排（有界并发、单题容错、单
 - Consumes: `EvalDatasetLoader`、`EvalDatasetSize`、`KeywordMatcher`（Task 2）；`src/main/resources/eval/corpus/dragonball-zh/manifest.json` 与 `*.md`（Task 6）；Task 6 Step 2 下载的 `dragonball_queries.jsonl`。
 - Produces: `kwiki-rag.jsonl`（200 行，字段见 Task 2 `EvalCase`），供 Task 7 的 run 与同步使用。
 
-- [ ] **Step 1: 写抽样脚本**
+- [x] **Step 1: 写抽样脚本**
 
 `tools/eval/sample-dragonball.mjs`：
 
@@ -3488,7 +3488,7 @@ writeFileSync(output, `${JSON.stringify({ seed: SEED, quotas: QUOTAS, cases }, n
 console.log(`sampled ${cases.length} cases`);
 ```
 
-- [ ] **Step 2: 生成抽样文件**
+- [x] **Step 2: 生成抽样文件**
 
 ```bash
 node tools/eval/sample-dragonball.mjs "$DL/dragonball_queries.jsonl" src/main/resources/eval/datasets/dragonball-sample.json
@@ -3497,7 +3497,7 @@ node tools/eval/sample-dragonball.mjs "$DL/dragonball_queries.jsonl" src/main/re
 （`$DL` 为 Task 6 Step 2 的下载目录；若已丢失，按 Task 6 Step 2 的 curl 命令重新下载到新的空目录。）
 Expected: `sampled 200 cases`。连续运行两次，`git diff --stat` 应无变化（可复现）。
 
-- [ ] **Step 3: 写数据集校验失败测试**
+- [x] **Step 3: 写数据集校验失败测试**
 
 `src/test/java/com/kwiki/eval/EvalDatasetFileTest.java`：
 
@@ -3626,12 +3626,12 @@ class EvalDatasetFileTest {
 }
 ```
 
-- [ ] **Step 4: 运行确认失败**
+- [x] **Step 4: 运行确认失败**
 
 Run: `./mvnw -q -Dtest=EvalDatasetFileTest test`
 Expected: FAIL，`cannot read eval dataset`（`kwiki-rag.jsonl` 尚不存在）。
 
-- [ ] **Step 5: 编写 kwiki-rag.jsonl（分 4 批，每批 50 题）**
+- [x] **Step 5: 编写 kwiki-rag.jsonl（分 4 批，每批 50 题）**
 
 读取 `dragonball-sample.json` 的 `cases`，按顺序为每题写一行 JSON 到 `src/main/resources/eval/datasets/kwiki-rag.jsonl`，字段：
 
@@ -3659,12 +3659,12 @@ Expected: FAIL，`cannot read eval dataset`（`kwiki-rag.jsonl` 尚不存在）�
 
 每完成 50 题运行一次 Step 6 的测试，按失败信息修正（找不到原文 → 换成原文写法；出现在题干 → 换成其他必需信息单元）。
 
-- [ ] **Step 6: 运行确认通过**
+- [x] **Step 6: 运行确认通过**
 
 Run: `./mvnw -q -Dtest='EvalDatasetFileTest,EvalDatasetLoaderTest' test`
 Expected: PASS（6 个数据门禁全部通过）。
 
-- [ ] **Step 7: 写数据集 README**
+- [x] **Step 7: 写数据集 README**
 
 `src/main/resources/eval/datasets/README.md`：
 
@@ -3694,7 +3694,7 @@ Expected: PASS（6 个数据门禁全部通过）。
 并确保关键词能在文档解析后的文本中找到。自建题不参与 DragonBall 配额校验时，需同步调整 `EvalDatasetFileTest`。
 ```
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add tools/eval/sample-dragonball.mjs src/main/resources/eval/datasets src/test/java/com/kwiki/eval/EvalDatasetFileTest.java
@@ -3712,7 +3712,7 @@ git commit -m "feat(eval): DragonBall 中文分层抽样脚本与 200 题嵌套�
 **Interfaces:**
 - Consumes: Task 5 `LangfuseRestClient`；Task 7 接口。
 
-- [ ] **Step 1: 写真实环境冒烟测试（无凭据时跳过）**
+- [x] **Step 1: 写真实环境冒烟测试（无凭据时跳过）**
 
 ```java
 package com.kwiki.infrastructure.langfuse;
@@ -3758,7 +3758,7 @@ class LangfuseRestClientLiveTest {
 Run（无凭据）：`./mvnw -q -Dtest=LangfuseRestClientLiveTest test`
 Expected: 测试被跳过（0 failures）。
 
-- [ ] **Step 2: 写运维手册**
+- [x] **Step 2: 写运维手册**
 
 `docs/rag-eval.md`：
 
@@ -3814,17 +3814,17 @@ Expected: 测试被跳过（0 failures）。
 再调用一次数据集同步。
 ```
 
-- [ ] **Step 3: 运行全部评测相关测试**
+- [x] **Step 3: 运行全部评测相关测试**
 
 Run: `./mvnw -q -Dtest='RunContextObserverTest,WorkflowRunObserverTest,KeywordMatcherTest,EvalDatasetLoaderTest,LayerScorerTest,RefusalDetectorTest,EvalSummariesTest,BaselineRetrievalProbeTest,WorkflowProbeTest,LangfuseRestClientTest,LangfuseRestClientLiveTest,EvalCorpusServiceTest,EvalDatasetSyncServiceTest,EvalRunServiceTest,EvalDatasetFileTest,KwikiApplicationTest' test`
 Expected: 全部 PASS（Live 测试跳过）。
 
-- [ ] **Step 4: 运行完整离线测试**
+- [x] **Step 4: 运行完整离线测试**
 
 Run: `./mvnw -q test`
 Expected: PASS；与改动前相比无新增失败。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add docs/rag-eval.md src/test/java/com/kwiki/infrastructure/langfuse/LangfuseRestClientLiveTest.java
