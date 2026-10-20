@@ -1,0 +1,4 @@
+[
+  { "file": "a.md", "title": "甲公司-1", "domain": "Finance", "docId": 1 },
+  { "file": "b.md", "title": "乙法院-2", "domain": "Law", "docId": 2 }
+]
