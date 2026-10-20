@@ -29,3 +29,5 @@ Thumbs.db
 # ---- AI 工具本地目录 ----
 .codex/
 .superpowers/
+
+eval-reports/
