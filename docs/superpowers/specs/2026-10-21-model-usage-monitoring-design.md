@@ -106,16 +106,16 @@ CREATE TABLE model_usage_call (
 
 ## 5. 查询接口（`/api/v1/admin/model-usage`，`hasRole('ADMIN')`）
 
-时间参数均为 ISO-8601 instant（前端按浏览器本地时区换算当天起止）。`sources` 为逗号分隔，缺省为全部；`users` 为逗号分隔的用户 id（`0` 表示系统），缺省为全部。下列接口都接受 `users`。
+时间参数均为 ISO-8601 instant（前端按浏览器本地时区换算当天起止）；`tzOffsetMinutes` 为浏览器相对 UTC 的偏移（东八区为 480），用于让「按天/按小时」分桶对齐本地零点。`sources` 为逗号分隔，缺省为全部；`users` 为逗号分隔的用户 id（`0` 表示系统），缺省为全部。
 
 | 接口 | 说明 |
 |---|---|
 | `GET /users?from&to&sources` | 范围内有调用的用户：`[{userId, displayName, totalTokens}]`，按用量降序；`userId=0` 显示为「系统」；显示名关联 `app_user.display_name` |
-| `GET /dimensions?from&to&sources&users` | 返回范围内出现过的组合：`steps: [{step, label, models: [{provider, model}]}]` 与 `models: [{provider, model, steps: [{step, label}]}]` |
-| `GET /series?from&to&sources&groupBy&selection&metric&bucket` | `groupBy=step\|model`；`selection` 为选中的叶子（`step:provider:model` 三元组列表，JSON 编码），为空表示全部；`metric=total\|input\|output\|calls\|failures`；`bucket=auto\|5m\|1h\|1d`（auto：范围 ≤ 1 天用 5m，≤ 7 天用 1h，否则 1d）。返回 `buckets: [instant]` 与 `series: [{key, label, values: [long]}]`，缺失桶补 0。groupBy=step 时每个步骤一条线（勾选到模型时按「步骤 / 模型」拆线）；groupBy=model 时每个模型一条线（勾选到步骤时按「模型 / 步骤」拆线） |
-| `GET /summary?from&to&sources&groupBy&selection` | 汇总卡片：总 token、输入、输出、调用数、失败数、失败率、平均耗时；明细行按所选维度聚合同样字段 |
+| `GET /series?from&to&sources&users&bucket&tzOffsetMinutes` | `bucket=auto\|5m\|1h\|1d`（auto：范围 ≤ 1 天用 5m，≤ 7 天用 1h，否则 1d；桶数超过 2,000 时自动升粒度）。返回 `bucketSeconds`、`buckets: [epochMillis]` 与按「步骤 × provider × 模型」的最细粒度序列 `series: [{step, stepLabel, provider, model, calls[], failures[], inputTokens[], outputTokens[], latencyMs[]}]`，缺失桶补 0 |
 
-5m 粒度由分钟表按 `FLOOR(UNIX_TIMESTAMP(bucket_start)/300)` 聚合；查询单次最多返回 2,000 个时间桶，超出时自动升粒度。
+两棵维度树（步骤 → 模型；provider/模型 → 步骤，节点均按总 token 降序）、折线分组、汇总卡片与明细表都由前端基于 `/series` 的同一份数据计算：切换指标、勾选维度不需重新请求，计算逻辑为纯函数便于测试。
+
+分桶 SQL 使用 `TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', bucket_start)` 计算秒数（不依赖数据库会话时区），写入时以 UTC 的 `LocalDateTime` 绑定参数。
 
 ## 6. 管理端「模型用量」页面
 
@@ -130,7 +130,8 @@ CREATE TABLE model_usage_call (
   - 图表类型：折线 / 堆叠面积。
 - 主体：汇总卡片 → 趋势图 → 明细表（按列排序）。
 - 单位自适应 `formatTokens(n)`：`< 1000` 原样；`< 1e6` 为 `k`；`< 1e9` 为 `M`；否则 `B`；保留 3 位有效数字（如 `12.3k`、`4.56M`、`1.20B`）。卡片、图表坐标轴与提示框、明细表统一使用。
-- 选择记在 `localStorage`，刷新后恢复；当天视图每 60 秒自动刷新。
+- 时间预设、来源、用户、指标、维度与图表类型记在 `localStorage`，刷新后恢复；维度树每次加载数据后默认全选；当天视图每 60 秒自动刷新。
+- 折线分组规则：某个一级节点（步骤或模型）下的叶子全部勾选时合并为一条线（按一级节点命名），部分勾选时每个勾选的叶子各一条线（「步骤 / 模型」或「模型 / 步骤」）；汇总卡片与明细表只统计勾选的叶子。
 
 ## 7. 错误处理
 
@@ -140,6 +141,6 @@ CREATE TABLE model_usage_call (
 
 ## 8. 测试
 
-- 后端单测：来源判定顺序；用户 id 取值（线上、评测、后台为 0）与按用户过滤；监听器解析 token、记录失败、取 requestId；embedding usage 解析与缺失处理；预聚合与 upsert 累加（同分钟同组合）；series 分桶、补 0、自动升粒度；dimensions 两棵树；清理只删过期行。
-- 集成：`ModelUsageFlusher` 对 MySQL 的 upsert 语句在 external-it 下验证；离线测试用 H2 兼容模式或 JdbcTemplate mock 校验 SQL。
-- 前端：`formatTokens` 边界值；树勾选 → `selection` 参数转换；页面渲染（图表组件 mock）；默认今天与本地时区起止。
+- 后端单测：来源判定顺序；用户 id 取值（线上、评测、后台为 0）；监听器解析 token、记录失败、取 requestId；embedding usage 解析与缺失处理；预聚合（同分钟同组合累加）；series 分桶、对齐时区、补 0、自动升粒度；SQL 与参数绑定（mock JdbcOperations）；清理分批删除。
+- 集成：仓储的 upsert、分桶查询、用户查询与清理在提供 `KWIKI_IT_MYSQL_URL` 时针对真实 MySQL 验证（沿用 `V3MigrationContractTest` 的写法）。
+- 前端：`formatTokens` 边界值；由序列构建两棵树；按勾选状态合并/拆分折线；汇总与明细计算；页面渲染（图表组件 mock）；默认今天与本地时区起止。
