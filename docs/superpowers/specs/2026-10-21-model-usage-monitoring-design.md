@@ -1,0 +1,139 @@
+# 模型 token 用量监控设计
+
+日期：2026-10-21
+状态：待评审
+
+## 1. 目标与范围
+
+在管理端提供 LLM 与 embedding 的 token 用量监控：按调用来源（线上 / 评测 / 后台）区分，按步骤（`ModelPurpose` 与 embedding 步骤）× 具体模型、以及 provider-模型两个维度统计，支持任意时间范围的趋势图，默认显示当天。
+
+不在本期：费用（单价）换算、告警、按用户/知识库拆分。
+
+## 2. 维度定义
+
+| 维度 | 取值 |
+|---|---|
+| 来源 `source` | `ONLINE`（用户请求）、`EVAL`（RAG 评测）、`BACKGROUND`（索引、图谱构建等非用户请求） |
+| 步骤 `step` | `ModelPurpose` 全部 11 个枚举名（ROUTER、REWRITE、AGENT_PLANNER、RETRIEVAL_PLANNER、DIRECT_ANSWER、QUALITY_ANALYZER、ANSWER、SELECTION_QUESTION、GRAPH_EXTRACTION、GRAPH_SUMMARY、VISION_SUMMARY），外加 `QUERY_EMBEDDING`（查询向量）、`INDEX_EMBEDDING`（索引向量）；中文名取 `ModelPurpose.label()`，embedding 两项为「查询向量」「索引向量」 |
+| provider | 模型目录中的 provider 名称（`ModelProvider.name()`） |
+| 模型 `model` | `modelName` |
+
+指标：调用数、失败数、输入 token、输出 token、总 token（输入 + 输出）、总耗时（毫秒）。embedding 只有输入 token；provider 未返回用量时 token 记 0，调用数照常累加。
+
+## 3. 采集
+
+### 3.1 对话模型
+
+- `ClientSpec` 新增 `step`（`ModelPurpose` 名）与 `providerName`，二者纳入 `fingerprint()`：同一模型用于不同步骤时各有独立客户端实例（最多 11 个），使监听器在构造时即知道步骤、provider 与模型。
+- `OpenAiModelClientFactory` 为对话与流式客户端挂载 `ModelUsageListener`（与已有的 `ModelCallErrorLogger` 并列）：
+  - `onRequest`：在调用线程上用 `ModelUsageContext.currentSource()` 判定来源，连同 `System.nanoTime()` 存入 `attributes`；
+  - `onResponse`：读取 `chatResponse().tokenUsage()` 的输入/输出 token，计算耗时，提交一条成功记录；
+  - `onError`：提交一条失败记录，带异常简单类名。
+- requestId：`onRequest` 时若 `RunContext.current()` 存在，取其 `requestId` 存入 `attributes`，随明细落库。
+
+### 3.2 embedding
+
+- `QwenEmbeddingClient.EmbeddingResponse` 增加 `usage`（`prompt_tokens`、`total_tokens`，缺失时为 null），每次批量请求（含重试成功后）提交一条记录；失败时提交失败记录。
+- 步骤由 `ModelUsageContext` 的步骤覆盖决定：`IndexingWorker` 调用 `pipeline.embeddings().embed(...)` 与图谱社区索引写入（`CommunityIndexWriter`）时设为 `INDEX_EMBEDDING`；未设置时默认 `QUERY_EMBEDDING`。
+- `QwenEmbeddingClient` 由 `ModelClientFactory.embedding(...)` 构造，构造参数增加 provider 名与 `ModelUsageRecorder`。
+
+### 3.3 来源判定 `ModelUsageContext`
+
+线程级上下文（`ThreadLocal`，`try-with-resources` 作用域），判定顺序：
+
+1. 显式作用域：`ModelUsageContext.open(source[, stepOverride])` 设置的来源；
+2. `RunContext.current()` 存在：取 `RunContext.usageSource()`（默认 `ONLINE`）；
+3. 否则 `BACKGROUND`。
+
+设置点：
+
+- 评测：`EvalRunService` 执行每题时打开 `EVAL` 作用域（覆盖基线检索的查询向量）；工作流在 agentic 线程上运行，因此 `AgenticWorkflowPort.answerInSession(..., RunObserver observer)` 的评测调用需让 `RunContext` 带上 `EVAL`：`RunObserver` 新增默认方法 `UsageSource usageSource()`（默认 `ONLINE`），`WorkflowProbe` 传入的观测者返回 `EVAL`，`LangGraphAgenticWorkflow` 在创建 `RunContext` 后据此设置。
+- 后台：索引任务（`IndexingWorker`）、图谱构建（`GraphBuildExecutor`）、多模态图片摘要在各自入口打开 `BACKGROUND` 作用域；即使漏设，规则 3 也会归为后台。
+
+## 4. 存储（Flyway `V43__model_usage.sql`）
+
+```sql
+CREATE TABLE model_usage_minute (
+  bucket_start   DATETIME     NOT NULL,           -- UTC，截断到分钟
+  source         VARCHAR(16)  NOT NULL,
+  step           VARCHAR(32)  NOT NULL,
+  provider       VARCHAR(128) NOT NULL,
+  model          VARCHAR(128) NOT NULL,
+  calls          BIGINT       NOT NULL DEFAULT 0,
+  failures       BIGINT       NOT NULL DEFAULT 0,
+  input_tokens   BIGINT       NOT NULL DEFAULT 0,
+  output_tokens  BIGINT       NOT NULL DEFAULT 0,
+  latency_ms     BIGINT       NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket_start, source, step, provider, model),
+  KEY idx_usage_minute_step (step, bucket_start),
+  KEY idx_usage_minute_model (provider, model, bucket_start)
+);
+
+CREATE TABLE model_usage_call (
+  id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  occurred_at    DATETIME(3)  NOT NULL,            -- UTC
+  source         VARCHAR(16)  NOT NULL,
+  step           VARCHAR(32)  NOT NULL,
+  provider       VARCHAR(128) NOT NULL,
+  model          VARCHAR(128) NOT NULL,
+  request_id     VARCHAR(64)  NULL,
+  input_tokens   INT          NOT NULL DEFAULT 0,
+  output_tokens  INT          NOT NULL DEFAULT 0,
+  latency_ms     INT          NOT NULL DEFAULT 0,
+  status         VARCHAR(16)  NOT NULL,            -- SUCCESS / FAILED
+  error_type     VARCHAR(128) NULL,
+  KEY idx_usage_call_time (occurred_at),
+  KEY idx_usage_call_request (request_id)
+);
+```
+
+迁移版本号以实现时 `db-migration` 技能核对结果为准。
+
+### 4.1 写入
+
+- `ModelUsageRecorder.record(UsageEvent)`：放入有界内存队列（容量 50,000，满时丢弃并计数 `kwiki_model_usage_dropped_total`），绝不阻塞模型调用。
+- `ModelUsageFlusher`：每 10 秒取空队列，在内存按分钟组合预聚合后对 `model_usage_minute` 执行 `INSERT … ON DUPLICATE KEY UPDATE col = col + VALUES(col)`；明细批量插入 `model_usage_call`。写库失败记 WARN 与指标，数据丢弃（不重试，避免重复累加）。
+- 应用关闭时执行一次最终 flush。
+- 进程崩溃最多丢失最近 10 秒的数据，可接受。
+
+### 4.2 清理
+
+`ModelUsageRetentionJob` 每天 03:30（服务器时区）在 Redis 分布式锁 `model-usage-retention` 下执行：删除 `bucket_start` 早于 180 天的聚合行、`occurred_at` 早于 7 天的明细行，分批删除（每批 10,000 行）。保留天数配置：`kwiki.model-usage.retention-days`（默认 180）、`kwiki.model-usage.call-retention-days`（默认 7），用 `@Value` 默认值，实际值放 Nacos。
+
+## 5. 查询接口（`/api/v1/admin/model-usage`，`hasRole('ADMIN')`）
+
+时间参数均为 ISO-8601 instant（前端按浏览器本地时区换算当天起止）。`sources` 为逗号分隔，缺省为全部。
+
+| 接口 | 说明 |
+|---|---|
+| `GET /dimensions?from&to&sources` | 返回范围内出现过的组合：`steps: [{step, label, models: [{provider, model}]}]` 与 `models: [{provider, model, steps: [{step, label}]}]` |
+| `GET /series?from&to&sources&groupBy&selection&metric&bucket` | `groupBy=step\|model`；`selection` 为选中的叶子（`step:provider:model` 三元组列表，JSON 编码），为空表示全部；`metric=total\|input\|output\|calls\|failures`；`bucket=auto\|5m\|1h\|1d`（auto：范围 ≤ 1 天用 5m，≤ 7 天用 1h，否则 1d）。返回 `buckets: [instant]` 与 `series: [{key, label, values: [long]}]`，缺失桶补 0。groupBy=step 时每个步骤一条线（勾选到模型时按「步骤 / 模型」拆线）；groupBy=model 时每个模型一条线（勾选到步骤时按「模型 / 步骤」拆线） |
+| `GET /summary?from&to&sources&groupBy&selection` | 汇总卡片：总 token、输入、输出、调用数、失败数、失败率、平均耗时；明细行按所选维度聚合同样字段 |
+
+5m 粒度由分钟表按 `FLOOR(UNIX_TIMESTAMP(bucket_start)/300)` 聚合；查询单次最多返回 2,000 个时间桶，超出时自动升粒度。
+
+## 6. 管理端「模型用量」页面
+
+- 依赖：新增 `echarts` 与 `vue-echarts`，按需引入折线图、图例、提示框、数据缩放组件。
+- 路由 `/admin/model-usage`，侧边栏「模型用量」。
+- 控制栏：
+  - 时间：今天（默认）/ 昨天 / 近 7 天 / 近 30 天 / 自定义（`el-date-picker` datetimerange）；
+  - 来源：线上 / 评测 / 后台（多选，默认全选）；
+  - 指标：总 token / 输入 / 输出 / 调用数 / 失败数；
+  - 维度：「按步骤」与「按模型」切换，各配一个可勾选的 `el-tree`（步骤 → 模型；provider/模型 → 步骤），默认全选；
+  - 图表类型：折线 / 堆叠面积。
+- 主体：汇总卡片 → 趋势图 → 明细表（按列排序）。
+- 单位自适应 `formatTokens(n)`：`< 1000` 原样；`< 1e6` 为 `k`；`< 1e9` 为 `M`；否则 `B`；保留 3 位有效数字（如 `12.3k`、`4.56M`、`1.20B`）。卡片、图表坐标轴与提示框、明细表统一使用。
+- 选择记在 `localStorage`，刷新后恢复；当天视图每 60 秒自动刷新。
+
+## 7. 错误处理
+
+- 采集侧任何异常（解析用量、入队）只记 DEBUG/指标，不影响模型调用结果。
+- 查询参数非法（时间倒置、范围超过 366 天、未知 metric）返回 400 与稳定错误码。
+- 数据库不可用时查询接口返回 503；采集侧 flush 失败按 4.1 处理。
+
+## 8. 测试
+
+- 后端单测：来源判定顺序；监听器解析 token、记录失败、取 requestId；embedding usage 解析与缺失处理；预聚合与 upsert 累加（同分钟同组合）；series 分桶、补 0、自动升粒度；dimensions 两棵树；清理只删过期行。
+- 集成：`ModelUsageFlusher` 对 MySQL 的 upsert 语句在 external-it 下验证；离线测试用 H2 兼容模式或 JdbcTemplate mock 校验 SQL。
+- 前端：`formatTokens` 边界值；树勾选 → `selection` 参数转换；页面渲染（图表组件 mock）；默认今天与本地时区起止。
