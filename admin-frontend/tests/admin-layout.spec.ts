@@ -9,7 +9,7 @@ vi.mock("../src/auth", () => ({ useAuth: () => ({ user: { username: "root", admi
 
 async function mount() {
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: { template: "<div/>" } }, { path: "/gray-releases", component: { template: "<div/>" } }, { path: "/knowledge-graphs", component: { template: "<div/>" } }, { path: "/models", component: { template: "<div/>" } }, { path: "/rag-eval", component: { template: "<div/>" } }, { path: "/login", component: { template: "<div/>" } }] });
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: { template: "<div/>" } }, { path: "/gray-releases", component: { template: "<div/>" } }, { path: "/knowledge-graphs", component: { template: "<div/>" } }, { path: "/models", component: { template: "<div/>" } }, { path: "/rag-eval", component: { template: "<div/>" } }, { path: "/model-usage", component: { template: "<div/>" } }, { path: "/login", component: { template: "<div/>" } }] });
   await router.push("/knowledge-graphs");
   render(AdminLayout, { slots: { default: "<p>页面内容</p>" }, global: { plugins: [createPinia(), router] } });
   return router;
@@ -22,6 +22,7 @@ describe("AdminLayout", () => {
     expect(screen.getByRole("link", { name: /灰度发布/ }).getAttribute("href")).toContain("/gray-releases");
     expect(screen.getByRole("link", { name: /知识图谱/ }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: /RAG 评测/ }).getAttribute("href")).toContain("/rag-eval");
+    expect(screen.getByRole("link", { name: /模型用量/ }).getAttribute("href")).toContain("/model-usage");
     expect(screen.getByText("页面内容")).toBeTruthy();
   });
 
