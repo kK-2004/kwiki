@@ -35,8 +35,19 @@ public class WorkflowProbe {
 
     public Result run(CurrentUser user, long kbId, String query, Duration timeout) {
         List<RunObserver.Event> observed = new CopyOnWriteArrayList<>();
+        RunObserver evalObserver = new RunObserver() {
+            @Override
+            public void onEvent(Event event) {
+                observed.add(event);
+            }
+
+            @Override
+            public com.kwiki.usage.UsageSource usageSource() {
+                return com.kwiki.usage.UsageSource.EVAL;
+            }
+        };
         List<ChatStreamEvent> events = workflow.answerInSession(user, query, List.of(), Set.of(kbId), Set.of(),
-                RouteInput.NONE, observed::add).collectList().block(timeout);
+                RouteInput.NONE, evalObserver).collectList().block(timeout);
         StringBuilder answer = new StringBuilder();
         String outcome = null;
         String error = null;

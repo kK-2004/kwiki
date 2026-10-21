@@ -148,4 +148,30 @@ class WorkflowRunObserverTest {
 
         assertThat(stream.getLast().payloadMap()).containsEntry("outcome", "completed");
     }
+
+    @Test
+    void observerUsageSourceIsAppliedToTheRunContext() {
+        var harness = harness();
+        harness.bm25.hits = List.of(hit("C1", "候选依据 C1"));
+        harness.vector.hits = harness.bm25.hits;
+        harness.answer.scripted.add("基于证据的回答 [P0]");
+        List<com.kwiki.usage.UsageSource> seen = new CopyOnWriteArrayList<>();
+        RunObserver evalObserver = new RunObserver() {
+            @Override
+            public void onEvent(Event event) {
+                RunContext current = RunContext.current();
+                if (current != null) seen.add(current.usageSource());
+            }
+
+            @Override
+            public com.kwiki.usage.UsageSource usageSource() {
+                return com.kwiki.usage.UsageSource.EVAL;
+            }
+        };
+
+        harness.workflow.answerInSession(user, "什么是部署方式", List.of(), Set.of(), Set.of(),
+                RouteInput.NONE, evalObserver).collectList().block(Duration.ofSeconds(10));
+
+        assertThat(seen).isNotEmpty().containsOnly(com.kwiki.usage.UsageSource.EVAL);
+    }
 }

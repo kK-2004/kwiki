@@ -1,5 +1,6 @@
 package com.kwiki.rag.orchestration;
 
+import com.kwiki.usage.UsageSource;
 import com.kwiki.wiki.access.AuthorizationScope;
 
 import java.time.*;
@@ -52,6 +53,17 @@ public final class RunContext implements AutoCloseable {
         this.traceHeaders = Map.copyOf(traceHeaders);
         this.clock = clock;
         this.deadline = clock.instant().plus(limits.timeout());
+    }
+
+    private volatile UsageSource usageSource = UsageSource.ONLINE;
+
+    /** 本次运行的用量来源（评测运行为 EVAL）。 */
+    public UsageSource usageSource() {
+        return usageSource;
+    }
+
+    public void usageSource(UsageSource value) {
+        usageSource = value == null ? UsageSource.ONLINE : value;
     }
 
     private volatile java.util.function.Consumer<String> thinking = text -> {};

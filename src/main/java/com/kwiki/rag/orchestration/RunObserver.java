@@ -14,6 +14,11 @@ public interface RunObserver {
 
     void onEvent(Event event);
 
+    /** 观测者所代表的用量来源；评测的观测者返回 EVAL，工作流据此标记本次运行。 */
+    default com.kwiki.usage.UsageSource usageSource() {
+        return com.kwiki.usage.UsageSource.ONLINE;
+    }
+
     /** 观测事件的标记接口。 */
     interface Event { }
 

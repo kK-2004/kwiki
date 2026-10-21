@@ -332,6 +332,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                                                                 limits,
                                                                                 headers);
                                                                 run.observer(observer);
+                                                                run.usageSource(observer.usageSource());
                                                                 s =
                                                                         new Session(
                                                                                 run, user, query,

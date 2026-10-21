@@ -460,8 +460,14 @@ public class EvalRunService {
                         EvalCase evalCase) {
         long started = System.nanoTime();
         try {
-            BaselineRetrievalProbe.Result base = baseline.probe(evalCase.query(), filter);
-            WorkflowProbe.Result run = workflow.run(user, kbId, evalCase.query(), CASE_TIMEOUT);
+            // 评测线程上的基线检索查询向量也计入评测，用户为触发评测的管理员
+            BaselineRetrievalProbe.Result base;
+            WorkflowProbe.Result run;
+            try (var usage = com.kwiki.usage.ModelUsageContext.open(
+                    com.kwiki.usage.UsageSource.EVAL, user.id())) {
+                base = baseline.probe(evalCase.query(), filter);
+                run = workflow.run(user, kbId, evalCase.query(), CASE_TIMEOUT);
+            }
             SourceDocFilter source = new SourceDocFilter(pageDocIds, evalCase);
             Map<EvalLayer, List<String>> segments = new EnumMap<>(EvalLayer.class);
             Map<EvalLayer, List<String>> keys = new EnumMap<>(EvalLayer.class);
