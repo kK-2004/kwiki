@@ -28,7 +28,25 @@ public interface RunObserver {
         }
     }
 
-    /** 即将送入生成模型的上下文全文。 */
-    record ContextObserved(int queryRound, String attemptStage, String query, String context)
-            implements Event { }
+    /**
+     * 即将送入生成模型的上下文：context 为全文（供展示），segments 为按证据拆分的片段
+     * （子块阶段每个子块一段，父块阶段每个父块正文一段），带来源资源身份。
+     */
+    record ContextObserved(int queryRound, String attemptStage, String query, String context,
+                           List<ContextSegment> segments) implements Event {
+        public ContextObserved {
+            segments = segments == null ? List.of() : List.copyOf(segments);
+        }
+
+        public ContextObserved(int queryRound, String attemptStage, String query, String context) {
+            this(queryRound, attemptStage, query, context, List.of());
+        }
+    }
+
+    /** 上下文中的一段证据及其来源资源。 */
+    record ContextSegment(String resourceType, long resourceId, String text) {
+        public ContextSegment {
+            text = text == null ? "" : text;
+        }
+    }
 }

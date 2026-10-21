@@ -1,6 +1,7 @@
 package com.kwiki.eval;
 
 import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
+import com.kwiki.rag.orchestration.RunObserver;
 import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.rag.retrieval.QaRetrievalBudgets;
 import com.kwiki.rag.retrieval.ScopeFilter;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,10 +35,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 /**
  * 一次评测 run 的编排：校验 → 语料就绪检查 → 单实例互斥 → 逐题（有界并发）跑基线检索与完整工作流 →
- * 分层计分 → 上报 Langfuse → 写本地报告。单题失败只记错误继续；上报失败标记 REPORT_PARTIAL。
+ * 分层计分（chunk 与 context 层只认来自该题来源文档的片段）→ 上报 Langfuse → 写本地报告。单题失败只记错误继续；上报失败标记 REPORT_PARTIAL。
  * run 状态只在内存中，应用重启后进行中的 run 视为中断。
  */
 @Service
@@ -190,8 +193,10 @@ public class EvalRunService {
                 }
             }
             ScopeFilter filter = ScopeFilter.from(scopes.resolve(user, Set.of(request.kbId()), Set.of()));
+            Map<Long, Integer> pageDocIds = corpus.pageDocIds(user, request.kbId(), EvalCorpusService.DEFAULT_CORPUS);
             Map<String, Object> config = configSnapshot(request, state);
-            List<CaseResult> results = evaluateAll(user, request, prepared, filter, config);
+            config.put("sourceDocPages", pageDocIds.size());
+            List<CaseResult> results = evaluateAll(user, request, prepared, filter, pageDocIds, config);
             EvalSummary summary = EvalSummaries.summarize(results);
             boolean partial = false;
             if (!request.localOnly()) {
@@ -222,7 +227,8 @@ public class EvalRunService {
     }
 
     private List<CaseResult> evaluateAll(CurrentUser user, StartRequest request, Prepared prepared,
-                                         ScopeFilter filter, Map<String, Object> config) throws Exception {
+                                         ScopeFilter filter, Map<Long, Integer> pageDocIds,
+                                         Map<String, Object> config) throws Exception {
         List<EvalCase> cases = prepared.cases;
         CaseResult[] results = new CaseResult[cases.size()];
         ExecutorService pool = Executors.newFixedThreadPool(concurrency,
@@ -232,7 +238,7 @@ public class EvalRunService {
             for (int i = 0; i < cases.size(); i++) {
                 int index = i;
                 futures.add(pool.submit(() -> {
-                    CaseResult result = evaluate(user, request.kbId(), filter, cases.get(index));
+                    CaseResult result = evaluate(user, request.kbId(), filter, pageDocIds, cases.get(index));
                     results[index] = result;
                     if (!request.localOnly()) {
                         report.recordTrace(trace(prepared.state, cases.get(index), result, config));
@@ -247,26 +253,41 @@ public class EvalRunService {
         return List.of(results);
     }
 
-    CaseResult evaluate(CurrentUser user, long kbId, ScopeFilter filter, EvalCase evalCase) {
+    CaseResult evaluate(CurrentUser user, long kbId, ScopeFilter filter, Map<Long, Integer> pageDocIds,
+                        EvalCase evalCase) {
         long started = System.nanoTime();
         try {
             BaselineRetrievalProbe.Result base = baseline.probe(evalCase.query(), filter);
             WorkflowProbe.Result run = workflow.run(user, kbId, evalCase.query(), CASE_TIMEOUT);
+            SourceDocFilter source = new SourceDocFilter(pageDocIds, evalCase);
             Map<EvalLayer, List<String>> segments = new EnumMap<>(EvalLayer.class);
             Map<EvalLayer, List<String>> keys = new EnumMap<>(EvalLayer.class);
+            Map<EvalLayer, Integer> filtered = new EnumMap<>(EvalLayer.class);
+            Set<String> poolFiltered = new HashSet<>();
             base.byLayer().forEach((layer, hits) -> {
-                segments.put(layer, hits.stream().map(ChunkHit::content).toList());
+                Map<Boolean, List<ChunkHit>> split = hits.stream().collect(Collectors.partitioningBy(
+                        hit -> source.admits(hit.resourceType(), hit.resourceId())));
+                segments.put(layer, split.get(true).stream().map(ChunkHit::content).toList());
                 keys.put(layer, hits.stream().map(ChunkHit::chunkKey).toList());
+                filtered.put(layer, split.get(false).size());
+                if (layer == EvalLayer.BM25_50 || layer == EvalLayer.VECTOR_50) {
+                    split.get(false).forEach(hit -> poolFiltered.add(hit.chunkKey()));
+                }
             });
-            segments.put(EvalLayer.CONTEXT, List.of(run.context() == null ? "" : run.context()));
+            filtered.put(EvalLayer.POOL_50, poolFiltered.size());
+            List<String> context = run.contextSegments().stream()
+                    .filter(segment -> source.admits(segment.resourceType(), segment.resourceId()))
+                    .map(RunObserver.ContextSegment::text).toList();
+            segments.put(EvalLayer.CONTEXT, context);
+            filtered.put(EvalLayer.CONTEXT, run.contextSegments().size() - context.size());
             segments.put(EvalLayer.ANSWER, List.of(run.answer() == null ? "" : run.answer()));
             CaseScore score = evalCase.negative() ? null : LayerScorer.score(evalCase.keywords(), segments);
             Boolean refused = evalCase.negative() ? refusal.refused(run.outcome(), run.answer()) : null;
             return new CaseResult(evalCase, score, refused, run.outcome(), run.answer(), run.rewrites(), keys,
-                    run.errorCode(), elapsedMs(started));
+                    filtered, run.errorCode(), elapsedMs(started));
         } catch (RuntimeException e) {
             String reason = e.getClass().getSimpleName() + ": " + e.getMessage();
-            return new CaseResult(evalCase, null, null, null, "", List.of(), Map.of(),
+            return new CaseResult(evalCase, null, null, null, "", List.of(), Map.of(), Map.of(),
                     reason.length() > 300 ? reason.substring(0, 300) : reason, elapsedMs(started));
         }
     }
@@ -288,6 +309,9 @@ public class EvalRunService {
                 Map<String, Object> output = new LinkedHashMap<>();
                 output.put("matched", aliases(evalCase, result.score().matched(layer)));
                 output.put("chunkKeys", result.chunkKeys().getOrDefault(layer, List.of()));
+                if (layer != EvalLayer.ANSWER) {
+                    output.put("nonSourceFiltered", result.nonSourceFiltered().getOrDefault(layer, 0));
+                }
                 spans.add(new EvalReportPort.SpanRecord(
                         UUID.nameUUIDFromBytes((traceId + ":" + layer.metric()).getBytes(StandardCharsets.UTF_8))
                                 .toString(),

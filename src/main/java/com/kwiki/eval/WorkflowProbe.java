@@ -15,13 +15,16 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * 以不落会话的方式跑一次完整 QA 工作流（限定评测知识库），从 SSE 事件取回答与终态，
- * 从运行观测取最后一次送入生成的上下文与改写历史。
+ * 从运行观测取最后一次送入生成的上下文（全文与按证据拆分的片段）与改写历史。
  */
 @Component
 public class WorkflowProbe {
 
     public record Result(String outcome, String errorCode, String answer, String context,
-                         List<String> rewrites) {
+                         List<RunObserver.ContextSegment> contextSegments, List<String> rewrites) {
+        public Result {
+            contextSegments = contextSegments == null ? List.of() : List.copyOf(contextSegments);
+        }
     }
 
     private final AgenticWorkflowPort workflow;
@@ -46,11 +49,14 @@ public class WorkflowProbe {
             }
         }
         String context = "";
+        List<RunObserver.ContextSegment> segments = List.of();
         List<String> rewrites = new ArrayList<>();
         for (RunObserver.Event event : observed) {
-            if (event instanceof RunObserver.ContextObserved contextEvent) context = contextEvent.context();
-            else if (event instanceof RunObserver.RewriteObserved rewrite) rewrites.add(rewrite.newQuery());
+            if (event instanceof RunObserver.ContextObserved contextEvent) {
+                context = contextEvent.context();
+                segments = contextEvent.segments();
+            } else if (event instanceof RunObserver.RewriteObserved rewrite) rewrites.add(rewrite.newQuery());
         }
-        return new Result(outcome, error, answer.toString(), context, List.copyOf(rewrites));
+        return new Result(outcome, error, answer.toString(), context, segments, List.copyOf(rewrites));
     }
 }

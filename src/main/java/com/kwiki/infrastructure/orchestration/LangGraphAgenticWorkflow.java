@@ -819,7 +819,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         String context = s.stage.isParentStage()
                 ? parentContext(s.parentEvidence)
                 : childContext(s.children);
-        s.run.observe(() -> new RunObserver.ContextObserved(s.queryRound, s.stage.name(), s.currentQuery, context));
+        s.run.observe(() -> new RunObserver.ContextObserved(s.queryRound, s.stage.name(), s.currentQuery, context,
+                contextSegments(s.stage.isParentStage(), s.children, s.parentEvidence)));
         CandidateGenerator.Generated generated;
         s.run.thinkingListener(text -> s.emit("reasoning-summary", Map.of("stepId", step, "text", text)));
         try {
@@ -1274,6 +1275,16 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                     .append(children.get(i).content()).append("\n");
         }
         return context.toString();
+    }
+
+    private static List<RunObserver.ContextSegment> contextSegments(boolean parentStage,
+                                                                    List<ChildEvidence> children,
+                                                                    List<ParentEvidence> parents) {
+        return parentStage
+                ? parents.stream().map(parent -> new RunObserver.ContextSegment(
+                        parent.resourceType(), parent.resourceId(), parent.body())).toList()
+                : children.stream().map(child -> new RunObserver.ContextSegment(
+                        child.resourceType(), child.resourceId(), child.content())).toList();
     }
 
     private String parentContext(List<ParentEvidence> parents) {

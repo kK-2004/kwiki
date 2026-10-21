@@ -88,13 +88,21 @@
 
 | 层 | 被匹配文本 | 含义 |
 |---|---|---|
-| `bm25@50` | BM25 单路 Top-50 子块正文拼接 | 关键词分支能否搜到 |
-| `vector@50` | 向量单路 Top-50 子块正文拼接 | 语义分支能否搜到 |
+| `bm25@50` | BM25 单路 Top-50 中来源文档的子块正文 | 关键词分支能否搜到 |
+| `vector@50` | 向量单路 Top-50 中来源文档的子块正文 | 语义分支能否搜到 |
 | `pool@50` | 上两者并集 | 候选池上限 |
 | `fused@8` | 与 QA 基础阶段一致：两路各 Top-20（`base-branch-topk`）RRF 后取 Top-8（`base-final-topk`） | 基础阶段排序质量 |
 | `fused@20` | 与 QA 扩大阶段一致：两路各 Top-50 RRF 后取 Top-20（`expanded-final-topk`） | 扩大阶段排序质量 |
-| `context` | 完整 QA 链路最终送入生成的上下文（parent 或 child，含改写、图增强、阶梯扩展后的结果） | 实际喂给模型的证据 |
+| `context` | 完整 QA 链路最终送入生成的上下文中来源文档的证据段（parent 或 child，含改写、图增强、阶梯扩展后的结果） | 实际喂给模型的证据 |
 | `answer` | 生成的回答文本 | 回答召回率 |
+
+**按来源文档计分**：DragonBall 同领域文档按同一模板生成，关键词（如「2亿元」「三年」「血常规」）在大量文档中重复（410 个关键词组中 222 个出现在同领域 10% 以上的文档里，64 个超过 30%），只看文本会把别家公司/别的案件的同类段落也算作命中，使 chunk 层召回虚高。因此 `bm25@50 … fused@20` 与 `context` 层只匹配来自该题 `sourceDocIds` 的片段：
+
+- 页面 → doc_id：评测 KB 页面标题为 `{主体名}-{doc_id}`，每个 run 开始时用目录树与语料 manifest 标题一一对应得到 `pageId → docId`（`EvalCorpusService.pageDocIds`）；
+- 基线层：`ChunkHit.resourceType()=="PAGE"` 且 `resourceId` 映射到的 doc_id 属于 `sourceDocIds` 才参与匹配；
+- `context` 层：工作流的 `ContextObserved` 除全文 `context`（仅供展示）外，带按证据拆分的 `segments`（子块阶段每个子块一段、父块阶段每个父块正文一段，含 `resourceType`/`resourceId`），按同一规则过滤；
+- `answer` 层仍是纯文本匹配；`sourceDocIds` 为空（`source=custom` 自建题）时各层都不过滤；
+- 每题每层（answer 除外）记录被排除的非来源片段数 `nonSourceFiltered`（`pool@50` 为两路去重后的数量），写入本地报告逐题明细与 Langfuse 对应层 span 的 output，用于观察同模板干扰的程度。
 
 `bm25@50 … fused@20` 使用原始 query（不改写），直接调用 `ChildRecallPort` 与 `StandardRrfFusion`，衡量检索基线；`context`、`answer` 来自完整工作流，衡量端到端效果。两组差值即改写、图增强、阶梯扩展带来的增益。
 

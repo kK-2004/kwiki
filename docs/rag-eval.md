@@ -32,6 +32,11 @@
 
 - 每层两个指标：`coverage@{层}`（关键词覆盖率均值）、`fullHit@{层}`（全部关键词命中的题占比）。
 - 层：`bm25@50`、`vector@50`、`pool@50`、`fused@8`、`fused@20`（原始 query 基线），`context`、`answer`（完整工作流）。
+- 按来源文档计分：同领域文档模板相同、关键词大量重复，因此 chunk 层与 `context` 层只认来自该题 `sourceDocIds`
+  对应页面（标题 `{主体名}-{doc_id}` 与语料 manifest 对应）的片段，别家文档的同类段落即使含关键词也不算命中；
+  `answer` 层仍按回答全文匹配；自建题（`sourceDocIds` 为空）不过滤。
+- `nonSourceFiltered`：每层被排除的非来源片段数（本地报告逐题 `nonSourceFiltered`、Langfuse 各层 span output），
+  数值高说明检索被同模板文档干扰严重。
 - 首次丢失层（trace metadata `losses` 与报告 `lossMatrix`）：
   `GENERATION_MISS`（上下文有、回答无）、`RECALL_MISS`（两路 Top-50 都没有）、`RANK_MISS_20`、`RANK_MISS_8`、`CONTEXT_MISS`（在 Top-8 却没进最终上下文）。
 - `contextGains`：基线候选池没有、但改写/图增强后进入上下文的关键词组数。

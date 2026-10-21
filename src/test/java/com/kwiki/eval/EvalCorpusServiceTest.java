@@ -63,6 +63,16 @@ class EvalCorpusServiceTest {
     }
 
     @Test
+    void mapsPagesToDocIdsByManifestTitle() {
+        when(tree.tree(admin, 9L)).thenReturn(List.of(
+                new WikiTreeService.TreeNodeView(50L, "u50", "目录", WikiPage.TYPE_FOLDER,
+                        List.of(node(100L, "甲公司-1"))),
+                node(101L, "乙法院-2"), node(102L, "手工页面")));
+
+        assertThat(service().pageDocIds(admin, 9L, "test-mini")).isEqualTo(java.util.Map.of(100L, 1, 101L, 2));
+    }
+
+    @Test
     void rejectsCorpusNamesThatCouldEscapeTheResourceRoot() {
         assertThatThrownBy(() -> service().importCorpus(admin, 9L, "../secrets"))
                 .isInstanceOf(EvalException.class);
