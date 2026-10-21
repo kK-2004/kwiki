@@ -5,10 +5,11 @@ import { api, ApiError, type EvalDataset, type EvalImportResult, type EvalRunSta
 import { useAuth } from "../auth";
 import {
   EVAL_DATASETS, EVAL_LAYERS, LOSS_LAYERS, RUN_STATE_LABELS,
-  domainLabel, evalErrorMessage, groupRows, layerRows, lossRows, percent, progressPercent,
+  canCancel, canDelete, canDownload, canResume, domainLabel, downloadJson, evalErrorMessage, formatTime,
+  groupRows, layerRows, lossRows, percent, progressPercent, runErrorMessage,
 } from "../evalReport";
 
-/** run 状态只在后端内存中，刷新页面后靠记住的 runId 恢复。 */
+/** run 状态与逐题结果保存在服务端（Redis），页面记住当前查看的 runId，刷新后恢复。 */
 const RUN_KEY = "kwiki_admin_eval_run";
 const KB_KEY = "kwiki_admin_eval_kb";
 
@@ -28,6 +29,12 @@ const run = ref<EvalRunStatus | null>(null);
 const expired = ref(false);
 const groupBy = ref<"category" | "domain">("category");
 const groupMetric = ref<"coverage" | "fullHit">("coverage");
+const history = ref<EvalRunStatus[]>([]);
+const historyLoading = ref(false);
+const acting = ref(false);
+type ConfirmAction = "cancel" | "resume" | "delete";
+const confirm = reactive({ visible: false, action: "cancel" as ConfirmAction, run: null as EvalRunStatus | null, langfuse: true });
+const CONFIRM_TITLES: Record<ConfirmAction, string> = { cancel: "中断评测", resume: "继续评测", delete: "删除评测" };
 let timer: number | undefined;
 let pollDelay = 3000;
 let disposed = false;
@@ -104,6 +111,7 @@ async function start() {
     ElMessage.success("评测已启动");
     pollDelay = 3000;
     schedule();
+    void loadHistory();
   } catch (error) {
     if (!handleAuth(error)) ElMessage.error(evalErrorMessage(error, "启动评测失败"));
   } finally {
@@ -132,7 +140,9 @@ async function poll() {
   try {
     const status = await api.evalRunStatus(id);
     if (id !== runId.value) return;
+    const finished = run.value?.state === "RUNNING" && status.state !== "RUNNING";
     run.value = status;
+    if (finished) void loadHistory();
     expired.value = false;
     pollDelay = 3000;
   } catch (error) {
@@ -157,8 +167,76 @@ function schedule(retry = false) {
   timer = window.setTimeout(() => void poll(), pollDelay);
 }
 
+async function loadHistory() {
+  historyLoading.value = true;
+  try {
+    history.value = await api.evalListRuns();
+  } catch (error) {
+    if (!handleAuth(error)) ElMessage.error(evalErrorMessage(error, "加载历史评测失败"));
+  } finally {
+    historyLoading.value = false;
+  }
+}
+
+/** 在「运行状态」中查看某个历史 run。 */
+function view(target: EvalRunStatus) {
+  remember(target);
+  pollDelay = 3000;
+  void poll();
+}
+
+function ask(action: ConfirmAction, target: EvalRunStatus) {
+  confirm.action = action;
+  confirm.run = target;
+  confirm.langfuse = !target.localOnly;
+  confirm.visible = true;
+}
+
+async function confirmAction() {
+  const target = confirm.run;
+  if (!target) return;
+  acting.value = true;
+  try {
+    if (confirm.action === "cancel") {
+      const status = await api.evalCancelRun(target.runId);
+      if (runId.value === target.runId) run.value = status;
+      ElMessage.success(status.state === "RUNNING" ? "已发送中断请求，稍后生效" : "评测已中断");
+      if (runId.value === target.runId) schedule();
+    } else if (confirm.action === "resume") {
+      const status = await api.evalResumeRun(target.runId);
+      remember(status);
+      ElMessage.success("评测已继续");
+      pollDelay = 3000;
+      schedule();
+    } else {
+      const result = await api.evalDeleteRun(target.runId, confirm.langfuse && !target.localOnly);
+      if (runId.value === target.runId) forget();
+      if (result.langfuseError) {
+        ElMessage.warning(`本地记录已删除，但 Langfuse 删除失败：${result.langfuseError}，请到 Langfuse 控制台手动清理`);
+      } else {
+        ElMessage.success(result.langfuseDeleted ? "已删除（Langfuse 数据异步删除中）" : "已删除");
+      }
+    }
+    confirm.visible = false;
+  } catch (error) {
+    if (!handleAuth(error)) ElMessage.error(evalErrorMessage(error, `${CONFIRM_TITLES[confirm.action]}失败`));
+  } finally {
+    acting.value = false;
+    void loadHistory();
+  }
+}
+
+async function download(target: EvalRunStatus) {
+  try {
+    downloadJson(target.runName, await api.evalRunReport(target.runId));
+  } catch (error) {
+    if (!handleAuth(error)) ElMessage.error(evalErrorMessage(error, "下载报告失败"));
+  }
+}
+
 onMounted(() => {
   void loadKnowledgeBases();
+  void loadHistory();
   if (runId.value) void poll();
 });
 onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
@@ -171,7 +249,7 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
         <h1>RAG 评测</h1>
         <p class="muted">
           基于 DragonBall 中文语料与 50/100/200 题嵌套测试集，按关键词逐层统计召回（BM25、向量、候选池、融合排序、最终上下文与回答），
-          结果写入 Langfuse 并在服务端落本地 JSON 报告。建议使用专用知识库，只放公开评测数据。
+          结果写入 Langfuse，运行状态与逐题结果保存在服务端，可随时中断、继续或下载 JSON 报告。建议使用专用知识库，只放公开评测数据。
         </p>
       </div>
     </section>
@@ -219,7 +297,7 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
         </el-form-item>
         <el-form-item label="仅本地">
           <el-switch v-model="form.localOnly" aria-label="仅本地" />
-          <span class="hint switch-hint">开启后不上报 Langfuse，只写本地报告（未配置 Langfuse 时必须开启）</span>
+          <span class="hint switch-hint">开启后不上报 Langfuse，结果只保存在服务端（未配置 Langfuse 时必须开启）</span>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :disabled="!kbId || running" :loading="starting" @click="start">开始评测</el-button>
@@ -228,26 +306,91 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
       </el-form>
     </section>
 
+    <section class="panel">
+      <header class="panel-head">
+        <h2>3. 历史评测</h2>
+        <div class="toggles">
+          <span class="hint">运行状态与逐题结果保存在服务端，重启后可继续未完成的评测。</span>
+          <el-button text size="small" :loading="historyLoading" @click="loadHistory">刷新</el-button>
+        </div>
+      </header>
+      <el-table :data="history" row-key="runId" size="small" empty-text="暂无评测记录">
+        <el-table-column label="名称" min-width="180">
+          <template #default="{ row }">
+            <strong>{{ row.runName }}</strong>
+            <el-tag v-if="row.localOnly" size="small" type="info" class="inline-tag">仅本地</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="测试集" prop="dataset" width="80" />
+        <el-table-column label="状态" width="150">
+          <template #default="{ row }">
+            <el-tag :type="RUN_STATE_LABELS[row.state as EvalRunStatus['state']].type" size="small">{{ RUN_STATE_LABELS[row.state as EvalRunStatus['state']].label }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="进度" width="100">
+          <template #default="{ row }">{{ row.completed }} / {{ row.total }}</template>
+        </el-table-column>
+        <el-table-column label="创建时间" width="140">
+          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" min-width="260">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="view(row)">查看</el-button>
+            <el-button v-if="canCancel(row)" link type="warning" size="small" @click="ask('cancel', row)">中断</el-button>
+            <el-button v-if="canResume(row)" link type="primary" size="small" @click="ask('resume', row)">继续</el-button>
+            <el-button v-if="canDownload(row)" link size="small" @click="download(row)">下载 JSON</el-button>
+            <el-button v-if="canDelete(row)" link type="danger" size="small" @click="ask('delete', row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+
     <section class="panel" v-if="runId || expired">
       <header class="panel-head">
-        <h2>3. 运行状态</h2>
+        <h2>4. 运行状态</h2>
         <el-button text size="small" @click="forget">清除记录</el-button>
       </header>
       <el-alert v-if="expired" type="warning" :closable="false" show-icon
-        title="评测记录已失效"
-        description="运行状态只保存在服务端内存中，服务重启后无法再查询；本地 JSON 报告仍在服务端报告目录中。" />
+        title="评测记录不存在"
+        description="该评测可能已被删除；可在「历史评测」中查看其他记录。" />
       <template v-else-if="run">
         <div class="run-meta">
           <strong>{{ run.runName }}</strong>
           <el-tag :type="RUN_STATE_LABELS[run.state].type">{{ RUN_STATE_LABELS[run.state].label }}</el-tag>
           <span class="muted">测试集 {{ run.dataset }} · {{ run.completed }} / {{ run.total }} 题</span>
+          <span class="run-actions">
+            <el-button v-if="canCancel(run)" size="small" type="warning" plain @click="ask('cancel', run)">中断</el-button>
+            <el-button v-if="canResume(run)" size="small" type="primary" plain @click="ask('resume', run)">继续</el-button>
+            <el-button v-if="canDownload(run)" size="small" @click="download(run)">下载 JSON</el-button>
+            <el-button v-if="canDelete(run)" size="small" type="danger" plain @click="ask('delete', run)">删除</el-button>
+          </span>
         </div>
-        <el-progress :percentage="progressPercent(run)" :status="run.state === 'FAILED' ? 'exception' : run.state === 'RUNNING' ? undefined : 'success'" />
-        <el-alert v-if="run.error" class="run-error" :type="run.state === 'FAILED' ? 'error' : 'warning'" :closable="false" show-icon :title="run.error" />
-        <p v-if="run.reportPath" class="result">本地报告：<code>{{ run.reportPath }}</code></p>
+        <el-progress :percentage="progressPercent(run)" :status="run.state === 'FAILED' ? 'exception' : run.state === 'RUNNING' || run.state === 'CANCELLED' ? undefined : 'success'" />
+        <el-alert v-if="run.error" class="run-error" :type="run.state === 'FAILED' ? 'error' : 'warning'" :closable="false" show-icon :title="runErrorMessage(run.error) ?? ''" />
+        <el-alert v-if="run.reportPartial" class="run-error" type="warning" :closable="false" show-icon title="部分结果未能上报到 Langfuse，结果已完整保存在服务端，可下载 JSON 查看" />
       </template>
       <p v-else class="muted">正在查询评测状态…</p>
     </section>
+
+    <el-dialog v-model="confirm.visible" :title="CONFIRM_TITLES[confirm.action]" width="460px" append-to-body>
+      <template v-if="confirm.run">
+        <p v-if="confirm.action === 'cancel'">
+          确定中断「{{ confirm.run.runName }}」？正在执行的题会立即取消、不计入结果；已完成的 {{ confirm.run.completed }} 题会保留，之后可继续评测剩余题目。
+        </p>
+        <p v-else-if="confirm.action === 'resume'">
+          继续「{{ confirm.run.runName }}」：只评测尚未完成的 {{ Math.max(confirm.run.total - confirm.run.completed, 0) }} 题（中断时正在执行的题会重新召回、重新生成），沿用同一个运行名称，最终汇总包含全部题目。
+        </p>
+        <template v-else>
+          <p>确定删除「{{ confirm.run.runName }}」？服务端保存的运行状态与全部逐题结果将被删除，且不可恢复。</p>
+          <el-checkbox v-model="confirm.langfuse" :disabled="confirm.run.localOnly">同时删除 Langfuse 上的 trace 与 dataset run</el-checkbox>
+          <p class="hint">{{ confirm.run.localOnly ? "该评测为仅本地运行，没有上报 Langfuse。" : "Langfuse 删除为异步执行且不可恢复；不勾选则 Langfuse 上的数据保留。" }}</p>
+        </template>
+      </template>
+      <template #footer>
+        <el-button @click="confirm.visible = false">取消</el-button>
+        <el-button :type="confirm.action === 'delete' ? 'danger' : 'primary'" :loading="acting" @click="confirmAction">确定{{ CONFIRM_TITLES[confirm.action].slice(0, 2) }}</el-button>
+      </template>
+    </el-dialog>
 
     <template v-if="run && summary">
       <section class="cards">
@@ -411,6 +554,16 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
 
 .run-error {
   margin-top: 12px;
+}
+
+.run-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.inline-tag {
+  margin-left: 6px;
 }
 
 .bar-cell {

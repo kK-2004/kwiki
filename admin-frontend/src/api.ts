@@ -44,7 +44,9 @@ export interface ForceResetResult{deletedIndices:string[];purgedGraphTypes:strin
 export interface EvalLayerMetric{coverage:number;fullHit:number;cases:number}
 export interface EvalSummary{total:number;errors:number;scored:number;overall:Record<string,EvalLayerMetric>;byCategory:Record<string,Record<string,EvalLayerMetric>>;byDomain:Record<string,Record<string,EvalLayerMetric>>;bySource:Record<string,Record<string,EvalLayerMetric>>;negatives:number;refusalAccuracy:number;lossMatrix:Record<string,Record<string,number>>;contextGains:number}
 export type EvalDataset="50q"|"100q"|"200q";
-export interface EvalRunStatus{runId:string;runName:string;dataset:string;state:"RUNNING"|"COMPLETED"|"REPORT_PARTIAL"|"FAILED";total:number;completed:number;summary:EvalSummary|null;reportPath:string|null;error:string|null}
+export type EvalRunState="RUNNING"|"COMPLETED"|"REPORT_PARTIAL"|"CANCELLED"|"FAILED";
+export interface EvalRunStatus{runId:string;runName:string;dataset:string;state:EvalRunState;total:number;completed:number;summary:EvalSummary|null;error:string|null;localOnly:boolean;reportPartial:boolean;createdAt:string}
+export interface EvalDeleteResult{langfuseDeleted:boolean;langfuseError:string|null}
 export interface EvalStartRequest{dataset:EvalDataset;kbId:number;runName?:string;notes?:string;localOnly:boolean}
 export interface EvalImportResult{createdPageIds:number[];skippedTitles:string[]}
 export const FORCE_RESET_CONFIRMATION="RESET kwiki-chunks";
@@ -90,5 +92,10 @@ export const api={
   evalSyncDatasets:()=>request<{items:number;written:number;skipped:number}>("/admin/eval/datasets/sync",{method:"POST"}),
   evalStartRun:(body:EvalStartRequest)=>request<EvalRunStatus>("/admin/eval/runs",{method:"POST",body:JSON.stringify(body)}),
   evalRunStatus:(runId:string)=>request<EvalRunStatus>(`/admin/eval/runs/${encodeURIComponent(runId)}`),
+  evalListRuns:()=>request<EvalRunStatus[]>("/admin/eval/runs"),
+  evalCancelRun:(runId:string)=>request<EvalRunStatus>(`/admin/eval/runs/${encodeURIComponent(runId)}/cancel`,{method:"POST"}),
+  evalResumeRun:(runId:string)=>request<EvalRunStatus>(`/admin/eval/runs/${encodeURIComponent(runId)}/resume`,{method:"POST"}),
+  evalDeleteRun:(runId:string,langfuse:boolean)=>request<EvalDeleteResult>(`/admin/eval/runs/${encodeURIComponent(runId)}?langfuse=${langfuse}`,{method:"DELETE"}),
+  evalRunReport:(runId:string)=>request<Record<string,unknown>>(`/admin/eval/runs/${encodeURIComponent(runId)}/report`),
   graphSubmit:(payload:Record<string,unknown>)=>graphCommand<{batchId:number;chunkIndexSchema:string;communityIndexVersion:number;runIds:number[];replayed:boolean}>("/batches",payload)
 };

@@ -1,11 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/vue";
 import { createPinia } from "pinia";
 import ElementPlus from "element-plus";
 import { ApiError, type EvalRunStatus, type EvalSummary } from "../src/api";
-import { evalErrorMessage, groupRows, layerRows, lossRows, percent, progressPercent } from "../src/evalReport";
+import { canCancel, canDelete, canDownload, canResume, evalErrorMessage, groupRows, layerRows, lossRows, percent, progressPercent, runErrorMessage } from "../src/evalReport";
 
-const mocks = vi.hoisted(() => ({ adminKnowledgeBases: vi.fn(), evalImportCorpus: vi.fn(), evalSyncDatasets: vi.fn(), evalStartRun: vi.fn(), evalRunStatus: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  adminKnowledgeBases: vi.fn(), evalImportCorpus: vi.fn(), evalSyncDatasets: vi.fn(), evalStartRun: vi.fn(), evalRunStatus: vi.fn(),
+  evalListRuns: vi.fn(), evalCancelRun: vi.fn(), evalResumeRun: vi.fn(), evalDeleteRun: vi.fn(), evalRunReport: vi.fn(),
+}));
 vi.mock("../src/api", async original => {
   const actual = await original<typeof import("../src/api")>();
   return { ...actual, api: { ...actual.api, ...mocks } };
@@ -14,7 +17,8 @@ const logout = vi.hoisted(() => vi.fn());
 vi.mock("../src/auth", () => ({ useAuth: () => ({ logout }) }));
 import RagEvalView from "../src/views/RagEvalView.vue";
 
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+beforeEach(() => { mocks.evalListRuns.mockResolvedValue([]); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); });
 
 const metric = (coverage: number, fullHit: number, cases = 2) => ({ coverage, fullHit, cases });
 const layers = (coverage: number, fullHit: number, cases = 2) => Object.fromEntries(
@@ -25,8 +29,9 @@ const summary: EvalSummary = {
   byDomain: { Finance: layers(0.7, 0.3, 3) }, bySource: {},
   negatives: 1, refusalAccuracy: 1, lossMatrix: { 事实性问题: { RECALL_MISS: 2, GENERATION_MISS: 1 }, 多跳推理问题: { RANK_MISS_8: 3 } }, contextGains: 2,
 };
-const running: EvalRunStatus = { runId: "r-1", runName: "baseline-50q", dataset: "50q", state: "RUNNING", total: 50, completed: 10, summary: null, reportPath: null, error: null };
-const done: EvalRunStatus = { ...running, state: "COMPLETED", completed: 50, summary, reportPath: "./eval-reports/baseline-50q.json" };
+const running: EvalRunStatus = { runId: "r-1", runName: "baseline-50q", dataset: "50q", state: "RUNNING", total: 50, completed: 10, summary: null, error: null, localOnly: false, reportPartial: false, createdAt: "2026-10-21T02:00:00Z" };
+const done: EvalRunStatus = { ...running, state: "COMPLETED", completed: 50, summary };
+const cancelled: EvalRunStatus = { ...running, state: "CANCELLED", completed: 12, error: "cancelled" };
 const plugins = [createPinia(), ElementPlus];
 
 describe("evalReport", () => {
@@ -37,6 +42,19 @@ describe("evalReport", () => {
     expect(evalErrorMessage(new ApiError(200, "eval-busy"), "x")).toContain("已有评测正在运行");
     expect(evalErrorMessage(new ApiError(200, "其他错误"), "x")).toBe("其他错误");
     expect(evalErrorMessage(null, "兜底")).toBe("兜底");
+    expect(evalErrorMessage(new ApiError(409, "eval-run-running"), "x")).toContain("请先中断");
+    expect(evalErrorMessage(new ApiError(409, "eval-run-not-resumable"), "x")).toContain("已中断或失败");
+    expect(runErrorMessage("interrupted")).toContain("服务重启");
+    expect(runErrorMessage("cancelled")).toContain("手动中断");
+    expect(runErrorMessage(null)).toBeNull();
+  });
+
+  it("按状态决定可用操作", () => {
+    expect([canCancel(running), canResume(running), canDelete(running)]).toEqual([true, false, false]);
+    expect([canCancel(cancelled), canResume(cancelled), canDelete(cancelled)]).toEqual([false, true, true]);
+    expect(canResume({ state: "FAILED" })).toBe(true);
+    expect(canResume(done)).toBe(false);
+    expect(canDownload({ completed: 0 })).toBe(false);
   });
 
   it("格式化百分比与进度", () => {
@@ -107,7 +125,6 @@ describe("RAG 评测页", () => {
     render(RagEvalView, { global: { plugins } });
     await waitFor(() => expect(screen.getByText("已完成")).toBeTruthy());
     expect(mocks.evalRunStatus).toHaveBeenCalledWith("r-1");
-    expect(screen.getByText("./eval-reports/baseline-50q.json")).toBeTruthy();
     expect(screen.getByText("负样本拒答正确率")).toBeTruthy();
     // el-table 在下一帧才渲染行
     expect((await screen.findAllByText("fused@20")).length).toBeGreaterThan(0);
@@ -134,9 +151,88 @@ describe("RAG 评测页", () => {
     localStorage.setItem("kwiki_admin_eval_run", "gone");
     mocks.evalRunStatus.mockRejectedValue(new ApiError(200, "eval-run-not-found"));
     render(RagEvalView, { global: { plugins } });
-    await waitFor(() => expect(screen.getByText("评测记录已失效")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("评测记录不存在")).toBeTruthy());
     await fireEvent.click(screen.getByRole("button", { name: "清除记录" }));
     expect(localStorage.getItem("kwiki_admin_eval_run")).toBeNull();
-    expect(screen.queryByText("评测记录已失效")).toBeNull();
+    expect(screen.queryByText("评测记录不存在")).toBeNull();
+  });
+
+  it("历史列表：中断运行中的评测需确认", async () => {
+    mocks.adminKnowledgeBases.mockResolvedValue([]);
+    mocks.evalListRuns.mockResolvedValueOnce([running]).mockResolvedValue([cancelled]);
+    mocks.evalCancelRun.mockResolvedValue(cancelled);
+    render(RagEvalView, { global: { plugins } });
+    await screen.findByText("baseline-50q");
+    expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "中断" }));
+    await screen.findByText(/正在执行的题会立即取消/);
+    expect(mocks.evalCancelRun).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole("button", { name: "确定中断" }));
+    await waitFor(() => expect(mocks.evalCancelRun).toHaveBeenCalledWith("r-1"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "继续" })).toBeTruthy());
+  });
+
+  it("继续已中断的评测后开始轮询该 run", async () => {
+    mocks.adminKnowledgeBases.mockResolvedValue([]);
+    mocks.evalListRuns.mockResolvedValue([cancelled]);
+    mocks.evalResumeRun.mockResolvedValue({ ...cancelled, state: "RUNNING", error: null });
+    mocks.evalRunStatus.mockResolvedValue(done);
+    render(RagEvalView, { global: { plugins } });
+    await screen.findByText("baseline-50q");
+    await fireEvent.click(screen.getByRole("button", { name: "继续" }));
+    await screen.findByText(/只评测尚未完成的 38 题/);
+    await fireEvent.click(screen.getByRole("button", { name: "确定继续" }));
+    await waitFor(() => expect(mocks.evalResumeRun).toHaveBeenCalledWith("r-1"));
+    expect(localStorage.getItem("kwiki_admin_eval_run")).toBe("r-1");
+    await waitFor(() => expect(screen.getAllByText("运行中").length).toBeGreaterThan(0));
+  });
+
+  it("删除时可选择是否同时删除 Langfuse 数据，失败给出提示", async () => {
+    mocks.adminKnowledgeBases.mockResolvedValue([]);
+    localStorage.setItem("kwiki_admin_eval_run", "r-1");
+    mocks.evalRunStatus.mockResolvedValue(cancelled);
+    mocks.evalListRuns.mockResolvedValueOnce([cancelled]).mockResolvedValue([]);
+    mocks.evalDeleteRun.mockResolvedValue({ langfuseDeleted: false, langfuseError: "langfuse down" });
+    render(RagEvalView, { global: { plugins } });
+    await screen.findByText("已手动中断：已完成的题已保存，可继续评测剩余题目");
+    await fireEvent.click(screen.getAllByRole("button", { name: "删除" })[0]);
+    const checkbox = await screen.findByRole("checkbox", { name: "同时删除 Langfuse 上的 trace 与 dataset run" });
+    expect((checkbox as HTMLInputElement).checked).toBe(true);
+    await fireEvent.click(checkbox);
+    await fireEvent.click(checkbox);
+    await fireEvent.click(screen.getByRole("button", { name: "确定删除" }));
+    await waitFor(() => expect(mocks.evalDeleteRun).toHaveBeenCalledWith("r-1", true));
+    await waitFor(() => expect(localStorage.getItem("kwiki_admin_eval_run")).toBeNull());
+    await screen.findByText(/Langfuse 删除失败：langfuse down/);
+  });
+
+  it("仅本地的评测删除时不能勾选 Langfuse", async () => {
+    mocks.adminKnowledgeBases.mockResolvedValue([]);
+    mocks.evalListRuns.mockResolvedValue([{ ...done, localOnly: true }]);
+    mocks.evalDeleteRun.mockResolvedValue({ langfuseDeleted: false, langfuseError: null });
+    render(RagEvalView, { global: { plugins } });
+    await screen.findByText("baseline-50q");
+    await fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    const checkbox = await screen.findByRole("checkbox", { name: "同时删除 Langfuse 上的 trace 与 dataset run" });
+    expect((checkbox as HTMLInputElement).disabled).toBe(true);
+    await fireEvent.click(screen.getByRole("button", { name: "确定删除" }));
+    await waitFor(() => expect(mocks.evalDeleteRun).toHaveBeenCalledWith("r-1", false));
+  });
+
+  it("下载 JSON 从服务端取报告并生成文件", async () => {
+    mocks.adminKnowledgeBases.mockResolvedValue([]);
+    mocks.evalListRuns.mockResolvedValue([done]);
+    mocks.evalRunReport.mockResolvedValue({ runName: "baseline-50q", cases: [] });
+    const createObjectURL = vi.fn(() => "blob:report");
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(RagEvalView, { global: { plugins } });
+    await screen.findByText("baseline-50q");
+    await fireEvent.click(screen.getByRole("button", { name: "下载 JSON" }));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(mocks.evalRunReport).toHaveBeenCalledWith("r-1");
+    expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe("baseline-50q.json");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:report");
   });
 });

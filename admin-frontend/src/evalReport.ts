@@ -30,8 +30,45 @@ export const RUN_STATE_LABELS: Record<EvalRunStatus["state"], { label: string; t
   RUNNING: { label: "运行中", type: "primary" },
   COMPLETED: { label: "已完成", type: "success" },
   REPORT_PARTIAL: { label: "完成（上报不完整）", type: "warning" },
+  CANCELLED: { label: "已中断", type: "warning" },
   FAILED: { label: "失败", type: "danger" },
 };
+
+/** 中断、失败的 run 可继续；运行中的 run 可中断；非运行中的 run 可删除；有已完成题即可下载报告。 */
+export const canCancel = (run: Pick<EvalRunStatus, "state">) => run.state === "RUNNING";
+export const canResume = (run: Pick<EvalRunStatus, "state">) => run.state === "CANCELLED" || run.state === "FAILED";
+export const canDelete = (run: Pick<EvalRunStatus, "state">) => run.state !== "RUNNING";
+export const canDownload = (run: Pick<EvalRunStatus, "completed">) => run.completed > 0;
+
+/** run 的 error 字段（稳定码）→ 中文说明。 */
+export function runErrorMessage(error: string | null | undefined): string | null {
+  if (!error) return null;
+  if (error === "cancelled") return "已手动中断：已完成的题已保存，可继续评测剩余题目";
+  if (error === "interrupted") return "运行中断（服务重启或实例失联）：已完成的题已保存，可继续评测剩余题目";
+  if (error === "eval-busy") return "已有评测正在运行，本次未执行";
+  return error;
+}
+
+export function formatTime(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** 把报告 JSON 作为文件下载；文件名中的非法字符替换为下划线。 */
+export function downloadJson(name: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${name.replace(/[^\w.\-\u4e00-\u9fa5]/g, "_")}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 const DOMAIN_LABELS: Record<string, string> = { Finance: "金融", Law: "法律", Medical: "医疗" };
 export const domainLabel = (domain: string) => DOMAIN_LABELS[domain] ?? domain;
@@ -54,7 +91,13 @@ export function evalErrorMessage(error: unknown, fallback: string): string {
     case "eval-busy":
       return "已有评测正在运行，同一时刻只允许一个评测";
     case "eval-run-not-found":
-      return "评测记录已失效（服务重启后内存中的运行状态会丢失）";
+      return "评测记录不存在（可能已被删除）";
+    case "eval-run-not-running":
+      return "该评测已不在运行中";
+    case "eval-run-not-resumable":
+      return "只有已中断或失败的评测可以继续";
+    case "eval-run-running":
+      return "运行中的评测不能删除，请先中断";
     case "eval-dataset-empty":
       return "测试集为空，请检查数据集文件";
     case "unknown-dataset":
