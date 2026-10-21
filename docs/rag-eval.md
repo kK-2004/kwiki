@@ -11,6 +11,7 @@
 | `kwiki.langfuse.host` | `https://cloud.langfuse.com` | 美区为 `https://us.cloud.langfuse.com` |
 | `kwiki.langfuse.public-key` | 空 | Langfuse 项目 Public Key |
 | `kwiki.langfuse.secret-key` | 空 | Langfuse 项目 Secret Key（勿入仓库） |
+| `kwiki.langfuse.max-requests-per-minute` | `90` | 客户端主动限速；Langfuse Cloud 公共 API 默认 100 次/分钟，升级套餐后可调高 |
 | `kwiki.eval.concurrency` | `2` | 同时评测的题数（1~8），受模型限流约束 |
 | `kwiki.eval.report-dir` | `./eval-reports` | 本地报告目录 |
 | `kwiki.eval.refusal-phrases` | `无法回答,信息不足,未找到相关,没有相关信息` | 负样本拒答判定短语 |

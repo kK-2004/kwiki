@@ -39,7 +39,9 @@ public class EvalAdminController {
 
     @PostMapping("/datasets/sync")
     TransDTO<Map<String, Integer>> syncDatasets() {
-        return TransDTO.success(Map.of("items", datasets.sync()));
+        EvalDatasetSyncService.SyncResult result = datasets.sync();
+        return TransDTO.success(Map.of("items", result.items(), "written", result.written(),
+                "skipped", result.skipped()));
     }
 
     @PostMapping("/runs")

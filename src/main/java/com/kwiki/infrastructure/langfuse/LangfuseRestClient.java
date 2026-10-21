@@ -25,11 +25,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.function.LongConsumer;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
  * Langfuse 公共 API 客户端（datasets / dataset-items / ingestion / dataset-run-items）。
- * Basic 认证（publicKey:secretKey）；5xx、429 与网络错误按 500ms 起指数退避重试 3 次；
+ * Basic 认证（publicKey:secretKey）；所有请求按 {@code kwiki.langfuse.max-requests-per-minute} 主动限速
+ * （Langfuse Cloud 公共 API 默认 100 次/分钟）；429 按服务端 retryAfterSeconds / Retry-After 等待后重试，
+ * 最多 {@link #MAX_RATE_LIMIT_ATTEMPTS} 次；5xx 与网络错误按 500ms 起指数退避重试 {@link #MAX_ATTEMPTS} 次；
  * 未配置凭据时 {@link #available()} 为 false，调用方不应再发请求。密钥绝不写日志。
  */
 @Component
@@ -38,10 +43,17 @@ public class LangfuseRestClient implements EvalReportPort {
     private static final Logger log = LoggerFactory.getLogger(LangfuseRestClient.class);
     static final int MAX_ATTEMPTS = 3;
     static final int FLUSH_THRESHOLD = 20;
+    static final int MAX_RATE_LIMIT_ATTEMPTS = 8;
+    static final long MAX_RETRY_AFTER_MS = 60_000;
+    static final int LIST_PAGE_SIZE = 50;
 
     private final RestClient http;
     private final ObjectMapper mapper;
     private final LongConsumer sleeper;
+    private final LongSupplier nanoTime;
+    private final long minIntervalNanos;
+    private final Object paceLock = new Object();
+    private long nextAllowedNanos = Long.MIN_VALUE;
     private final boolean configured;
     private final List<TraceRecord> buffer = new ArrayList<>();
     private int failedTraces;
@@ -50,12 +62,19 @@ public class LangfuseRestClient implements EvalReportPort {
     public LangfuseRestClient(@Value("${kwiki.langfuse.host:https://cloud.langfuse.com}") String host,
                               @Value("${kwiki.langfuse.public-key:}") String publicKey,
                               @Value("${kwiki.langfuse.secret-key:}") String secretKey,
-                              ObjectMapper mapper) {
-        this(host, publicKey, secretKey, mapper, LangfuseRestClient::sleep);
+                              ObjectMapper mapper,
+                              @Value("${kwiki.langfuse.max-requests-per-minute:90}") int maxRequestsPerMinute) {
+        this(host, publicKey, secretKey, mapper, LangfuseRestClient::sleep, System::nanoTime, maxRequestsPerMinute);
+    }
+
+    /** 测试用：不限速。 */
+    LangfuseRestClient(String host, String publicKey, String secretKey, ObjectMapper mapper,
+                       LongConsumer sleeper) {
+        this(host, publicKey, secretKey, mapper, sleeper, System::nanoTime, 0);
     }
 
     LangfuseRestClient(String host, String publicKey, String secretKey, ObjectMapper mapper,
-                       LongConsumer sleeper) {
+                       LongConsumer sleeper, LongSupplier nanoTime, int maxRequestsPerMinute) {
         this.configured = publicKey != null && !publicKey.isBlank() && secretKey != null && !secretKey.isBlank();
         String token = Base64.getEncoder().encodeToString(
                 ((publicKey == null ? "" : publicKey) + ":" + (secretKey == null ? "" : secretKey))
@@ -73,6 +92,8 @@ public class LangfuseRestClient implements EvalReportPort {
                 .build();
         this.mapper = mapper;
         this.sleeper = sleeper;
+        this.nanoTime = nanoTime;
+        this.minIntervalNanos = maxRequestsPerMinute <= 0 ? 0 : TimeUnit.MINUTES.toNanos(1) / maxRequestsPerMinute;
     }
 
     @Override
@@ -98,6 +119,27 @@ public class LangfuseRestClient implements EvalReportPort {
         body.put("expectedOutput", expectedOutput);
         body.put("metadata", metadata);
         post("/api/public/dataset-items", body, false);
+    }
+
+    @Override
+    public Map<String, StoredItem> listItems(String datasetName) {
+        Map<String, StoredItem> items = new LinkedHashMap<>();
+        int totalPages = 1;
+        for (int page = 1; page <= totalPages && page <= 1000; page++) {
+            int current = page;
+            JsonNode response = send("GET /api/public/dataset-items", () -> http.get().uri(builder -> builder
+                    .path("/api/public/dataset-items")
+                    .queryParam("datasetName", datasetName)
+                    .queryParam("page", current)
+                    .queryParam("limit", LIST_PAGE_SIZE)
+                    .build()), false);
+            for (JsonNode item : response.path("data")) {
+                items.put(item.path("id").asText(), new StoredItem(
+                        item.path("input"), item.path("expectedOutput"), item.path("metadata")));
+            }
+            totalPages = response.path("meta").path("totalPages").asInt(current);
+        }
+        return items;
     }
 
     @Override
@@ -194,25 +236,75 @@ public class LangfuseRestClient implements EvalReportPort {
         } catch (JsonProcessingException e) {
             throw new EvalReportException("langfuse payload serialization failed", e);
         }
+        return send(path, () -> http.post().uri(path).body(payload), conflictIsSuccess);
+    }
+
+    /** 统一的限速与重试：429 按服务端提示等待，5xx/网络错误指数退避，二者分别计数。 */
+    private JsonNode send(String label, Supplier<RestClient.RequestHeadersSpec<?>> request,
+                          boolean conflictIsSuccess) {
         RuntimeException last = null;
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        int serverFailures = 0;
+        int rateLimited = 0;
+        while (true) {
+            pace();
             try {
-                String response = http.post().uri(path).body(payload).retrieve().body(String.class);
-                return response == null || response.isBlank() ? mapper.createObjectNode() : mapper.readTree(response);
+                // 按字节读取再以 UTF-8 解码：响应未声明字符集时 String 转换器会按 ISO-8859-1 解码中文
+                byte[] bytes = request.get().retrieve().body(byte[].class);
+                String response = bytes == null ? "" : new String(bytes, StandardCharsets.UTF_8);
+                return response.isBlank() ? mapper.createObjectNode() : mapper.readTree(response);
             } catch (HttpClientErrorException e) {
                 int status = e.getStatusCode().value();
                 if (conflictIsSuccess && status == 409) return mapper.createObjectNode();
-                if (status != 429) throw new EvalReportException("langfuse " + path + " rejected with " + status, e);
+                if (status != 429) throw new EvalReportException("langfuse " + label + " rejected with " + status, e);
                 last = e;
+                if (++rateLimited >= MAX_RATE_LIMIT_ATTEMPTS) break;
+                sleeper.accept(retryAfterMillis(e, rateLimited));
             } catch (HttpServerErrorException | ResourceAccessException e) {
                 last = e;
+                if (++serverFailures >= MAX_ATTEMPTS) break;
+                sleeper.accept(500L << (serverFailures - 1));
             } catch (JsonProcessingException e) {
-                throw new EvalReportException("langfuse " + path + " returned invalid json", e);
+                throw new EvalReportException("langfuse " + label + " returned invalid json", e);
             }
-            if (attempt < MAX_ATTEMPTS) sleeper.accept(500L << (attempt - 1));
         }
-        throw new EvalReportException("langfuse " + path + " failed after " + MAX_ATTEMPTS + " attempts: "
-                + last.getMessage(), last);
+        throw new EvalReportException("langfuse " + label + " failed after " + (serverFailures + rateLimited)
+                + " attempts: " + last.getMessage(), last);
+    }
+
+    /** 主动限速：相邻请求至少间隔 60s / maxRequestsPerMinute，多线程共享同一节拍。 */
+    private void pace() {
+        if (minIntervalNanos <= 0) return;
+        long waitNanos;
+        synchronized (paceLock) {
+            long now = nanoTime.getAsLong();
+            long start = Math.max(now, nextAllowedNanos);
+            nextAllowedNanos = start + minIntervalNanos;
+            waitNanos = start - now;
+        }
+        if (waitNanos > 0) sleeper.accept(TimeUnit.NANOSECONDS.toMillis(waitNanos));
+    }
+
+    /** 优先取响应体 details.retryAfterSeconds，其次 Retry-After 头，都没有则指数退避；限制在 1~60 秒。 */
+    private long retryAfterMillis(HttpClientErrorException e, int attempt) {
+        Long seconds = null;
+        try {
+            JsonNode hint = mapper.readTree(e.getResponseBodyAsString()).path("details").path("retryAfterSeconds");
+            if (hint.isNumber()) seconds = hint.asLong();
+        } catch (Exception ignored) {
+            // 响应体不是 JSON 时改用响应头
+        }
+        if (seconds == null && e.getResponseHeaders() != null) {
+            String header = e.getResponseHeaders().getFirst(HttpHeaders.RETRY_AFTER);
+            if (header != null) {
+                try {
+                    seconds = Long.parseLong(header.trim());
+                } catch (NumberFormatException ignored) {
+                    // HTTP 日期格式的 Retry-After 按退避处理
+                }
+            }
+        }
+        long millis = seconds == null ? 1000L << Math.min(attempt - 1, 5) : seconds * 1000;
+        return Math.max(1000, Math.min(millis, MAX_RETRY_AFTER_MS));
     }
 
     private static void sleep(long millis) {

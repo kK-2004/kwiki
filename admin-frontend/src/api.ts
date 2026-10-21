@@ -87,7 +87,7 @@ export const api={
   modelConfigStatus:()=>request<ModelConfigStatus>("/admin/models/status"),
   graphCommand,
   evalImportCorpus:(kbId:number,corpus="dragonball-zh")=>request<EvalImportResult>(`/admin/eval/corpus/import?kbId=${kbId}&corpus=${encodeURIComponent(corpus)}`,{method:"POST"}),
-  evalSyncDatasets:()=>request<{items:number}>("/admin/eval/datasets/sync",{method:"POST"}),
+  evalSyncDatasets:()=>request<{items:number;written:number;skipped:number}>("/admin/eval/datasets/sync",{method:"POST"}),
   evalStartRun:(body:EvalStartRequest)=>request<EvalRunStatus>("/admin/eval/runs",{method:"POST",body:JSON.stringify(body)}),
   evalRunStatus:(runId:string)=>request<EvalRunStatus>(`/admin/eval/runs/${encodeURIComponent(runId)}`),
   graphSubmit:(payload:Record<string,unknown>)=>graphCommand<{batchId:number;chunkIndexSchema:string;communityIndexVersion:number;runIds:number[];replayed:boolean}>("/batches",payload)

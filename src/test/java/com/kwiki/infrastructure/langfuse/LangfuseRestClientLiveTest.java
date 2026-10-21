@@ -20,7 +20,7 @@ class LangfuseRestClientLiveTest {
                 System.getenv().getOrDefault("KWIKI_IT_LANGFUSE_HOST", "https://cloud.langfuse.com"),
                 System.getenv("KWIKI_IT_LANGFUSE_PUBLIC_KEY"),
                 System.getenv("KWIKI_IT_LANGFUSE_SECRET_KEY"),
-                new ObjectMapper());
+                new ObjectMapper(), 90);
         String dataset = "kwiki-rag-smoke";
         String itemId = dataset + ":smoke-1";
         client.upsertDataset(dataset, "kwiki 冒烟测试");

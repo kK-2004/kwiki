@@ -19,7 +19,7 @@ const kbId = ref<number | null>(Number(localStorage.getItem(KB_KEY)) || null);
 const importing = ref(false);
 const importResult = ref<EvalImportResult | null>(null);
 const syncing = ref(false);
-const syncedItems = ref<number | null>(null);
+const syncResult = ref<{ items: number; written: number; skipped: number } | null>(null);
 const starting = ref(false);
 const form = reactive({ dataset: "50q" as EvalDataset, runName: "", notes: "", localOnly: false });
 
@@ -80,7 +80,7 @@ async function importCorpus() {
 async function syncDatasets() {
   syncing.value = true;
   try {
-    syncedItems.value = (await api.evalSyncDatasets()).items;
+    syncResult.value = await api.evalSyncDatasets();
     ElMessage.success("测试集已同步到 Langfuse");
   } catch (error) {
     if (!handleAuth(error)) ElMessage.error(evalErrorMessage(error, "同步测试集失败"));
@@ -196,7 +196,8 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
       <p v-if="importResult" class="result">
         语料导入：新建 <strong>{{ importResult.createdPageIds.length }}</strong> 篇，跳过（已存在）<strong>{{ importResult.skippedTitles.length }}</strong> 篇
       </p>
-      <p v-if="syncedItems !== null" class="result">已同步 <strong>{{ syncedItems }}</strong> 条测试题到 Langfuse 数据集（kwiki-rag-50q / 100q / 200q）</p>
+      <p v-if="syncing" class="hint">Langfuse 接口有限流（约 100 次/分钟），首次同步约 350 条需要 4~5 分钟，请保持页面打开；再次同步只写有变化的条目。</p>
+      <p v-if="syncResult" class="result">已同步 <strong>{{ syncResult.items }}</strong> 条测试题到 Langfuse 数据集（kwiki-rag-50q / 100q / 200q），其中新写入 <strong>{{ syncResult.written }}</strong> 条，内容未变跳过 <strong>{{ syncResult.skipped }}</strong> 条</p>
     </section>
 
     <section class="panel">

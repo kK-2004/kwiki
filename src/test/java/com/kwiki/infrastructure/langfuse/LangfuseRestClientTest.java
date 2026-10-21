@@ -135,4 +135,61 @@ class LangfuseRestClientTest {
 
         assertThatThrownBy(client::flush).isInstanceOf(EvalReportException.class);
     }
+    @Test
+    void rateLimitedRequestWaitsForRetryAfterThenSucceeds() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(429).setBody(
+                "{\"message\":\"Rate limit exceeded\",\"code\":\"rate_limited\",\"details\":{\"retryAfterSeconds\":2}}"));
+        server.enqueue(new MockResponse().setResponseCode(429).setHeader("Retry-After", "3"));
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{}"));
+
+        client.upsertItem("kwiki-rag-50q", "kwiki-rag-50q:db-1", Map.of("query", "问题"), Map.of(), Map.of());
+
+        assertThat(server.getRequestCount()).isEqualTo(3);
+        assertThat(sleeps).containsExactly(2000L, 3000L);
+    }
+
+    @Test
+    void rateLimitIsRetriedMoreTimesThanServerErrors() {
+        for (int i = 0; i < LangfuseRestClient.MAX_RATE_LIMIT_ATTEMPTS; i++) {
+            server.enqueue(new MockResponse().setResponseCode(429).setHeader("Retry-After", "1"));
+        }
+
+        assertThatThrownBy(() -> client.upsertItem("d", "d:1", Map.of(), Map.of(), Map.of()))
+                .isInstanceOf(EvalReportException.class).hasMessageContaining("429");
+        assertThat(server.getRequestCount()).isEqualTo(LangfuseRestClient.MAX_RATE_LIMIT_ATTEMPTS);
+    }
+
+    @Test
+    void requestsArePacedBelowTheConfiguredPerMinuteLimit() {
+        long[] now = {0};
+        var paced = new LangfuseRestClient(server.url("/").toString(), "pk-lf-test", "sk-lf-test", mapper,
+                millis -> { sleeps.add(millis); now[0] += millis * 1_000_000; }, () -> now[0], 60);
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{}"));
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{}"));
+
+        paced.upsertItem("d", "d:1", Map.of(), Map.of(), Map.of());
+        paced.upsertItem("d", "d:2", Map.of(), Map.of(), Map.of());
+
+        assertThat(sleeps).containsExactly(1000L); // 60 次/分钟 → 两次请求间隔 1 秒
+    }
+
+    @Test
+    void listItemsFollowsPagination() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(200).setBody(
+                "{\"data\":[{\"id\":\"d:1\",\"input\":{\"query\":\"一\"},\"expectedOutput\":{\"k\":1},\"metadata\":{\"tier\":50}}],"
+                        + "\"meta\":{\"page\":1,\"totalPages\":2}}"));
+        server.enqueue(new MockResponse().setResponseCode(200).setBody(
+                "{\"data\":[{\"id\":\"d:2\",\"input\":{\"query\":\"二\"},\"expectedOutput\":null,\"metadata\":null}],"
+                        + "\"meta\":{\"page\":2,\"totalPages\":2}}"));
+
+        Map<String, EvalReportPort.StoredItem> items = client.listItems("kwiki-rag-50q");
+
+        assertThat(items).containsOnlyKeys("d:1", "d:2");
+        assertThat(items.get("d:1").input().get("query").asText()).isEqualTo("一");
+        RecordedRequest first = server.takeRequest();
+        assertThat(first.getMethod()).isEqualTo("GET");
+        assertThat(first.getPath()).startsWith("/api/public/dataset-items?datasetName=kwiki-rag-50q").contains("page=1");
+        assertThat(server.takeRequest().getPath()).contains("page=2");
+    }
 }
+

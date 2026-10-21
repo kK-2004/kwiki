@@ -66,14 +66,14 @@ describe("RAG 评测页", () => {
     mocks.adminKnowledgeBases.mockResolvedValue([{ id: 7, name: "RAG 评测" }]);
     localStorage.setItem("kwiki_admin_eval_kb", "7");
     mocks.evalImportCorpus.mockResolvedValue({ createdPageIds: [1, 2, 3], skippedTitles: ["悟空-1"] });
-    mocks.evalSyncDatasets.mockResolvedValue({ items: 200 });
+    mocks.evalSyncDatasets.mockResolvedValue({ items: 350, written: 20, skipped: 330 });
     render(RagEvalView, { global: { plugins } });
     await waitFor(() => expect(mocks.adminKnowledgeBases).toHaveBeenCalled());
     await fireEvent.click(screen.getByRole("button", { name: "导入评测语料" }));
     await waitFor(() => expect(screen.getByText(/语料导入：新建/).textContent).toMatch(/新建 3 篇，跳过（已存在）1 篇/));
     expect(mocks.evalImportCorpus).toHaveBeenCalledWith(7);
     await fireEvent.click(screen.getByRole("button", { name: "同步测试集到 Langfuse" }));
-    await waitFor(() => expect(screen.getByText(/条测试题到 Langfuse/).textContent).toContain("200"));
+    await waitFor(() => expect(screen.getByText(/条测试题到 Langfuse/).textContent).toMatch(/已同步 350 条.*新写入 20 条.*跳过 330 条/));
   });
 
   it("知识库列表不可用时允许手动输入 kbId", async () => {

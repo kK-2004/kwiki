@@ -1,5 +1,7 @@
 package com.kwiki.eval;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +18,9 @@ public interface EvalReportPort {
     /** 以 itemId 幂等写入数据集条目。 */
     void upsertItem(String datasetName, String itemId, Map<String, Object> input,
                     Map<String, Object> expectedOutput, Map<String, Object> metadata);
+
+    /** 列出数据集中已有条目（itemId → 内容），用于跳过未变更条目；数据集不存在时返回空。 */
+    Map<String, StoredItem> listItems(String datasetName);
 
     /** 缓冲一条 trace（达到批量阈值时自动发送）。 */
     void recordTrace(TraceRecord trace);
@@ -39,6 +44,10 @@ public interface EvalReportPort {
 
     record SpanRecord(String id, String name, Instant start, Instant end,
                       Map<String, Object> input, Map<String, Object> output) {
+    }
+
+    /** Langfuse 上已存在的数据集条目内容。 */
+    record StoredItem(JsonNode input, JsonNode expectedOutput, JsonNode metadata) {
     }
 
     record ScoreRecord(String name, double value, String comment) {
