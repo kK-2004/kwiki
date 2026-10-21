@@ -134,7 +134,8 @@ public class DefaultModelRegistry implements ModelRegistry {
             double temperature = assignment.temperature() != null
                     ? assignment.temperature() : assignment.purpose().defaultTemperature();
             ClientSpec spec = new ClientSpec(provider.baseUrl(), apiKey, timeout, model.modelName(),
-                    temperature, maxTokens, assignment.thinking(), ModelExtra.passthrough(extra));
+                    temperature, maxTokens, assignment.thinking(), ModelExtra.passthrough(extra),
+                    provider.name(), assignment.purpose().name());
             String fingerprint = spec.fingerprint();
             RateLimiter limiter = provider.maxConcurrency() == null ? null
                     : limiters.computeIfAbsent(provider.id() + ":" + provider.maxConcurrency() + ":" + provider.qps(),

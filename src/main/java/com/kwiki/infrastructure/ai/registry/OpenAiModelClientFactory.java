@@ -3,16 +3,20 @@ package com.kwiki.infrastructure.ai.registry;
 import com.kwiki.indexing.pipeline.ChunkEmbeddingPort;
 import com.kwiki.infrastructure.ai.CancellableModelHttpClient;
 import com.kwiki.infrastructure.ai.QwenEmbeddingClient;
+import com.kwiki.usage.ModelUsageRecorder;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 
 import io.netty.channel.ChannelOption;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -48,13 +52,33 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
     private final WebClient.Builder webClientBuilder;
     private final Optional<io.micrometer.tracing.Tracer> tracer;
     private final Optional<io.micrometer.tracing.propagation.Propagator> propagator;
+    private final ModelUsageRecorder usageRecorder;
 
     public OpenAiModelClientFactory(WebClient.Builder webClientBuilder,
                                     Optional<io.micrometer.tracing.Tracer> tracer,
                                     Optional<io.micrometer.tracing.propagation.Propagator> propagator) {
+        this(webClientBuilder, tracer, propagator, null);
+    }
+
+    @Autowired
+    public OpenAiModelClientFactory(WebClient.Builder webClientBuilder,
+                                    Optional<io.micrometer.tracing.Tracer> tracer,
+                                    Optional<io.micrometer.tracing.propagation.Propagator> propagator,
+                                    ObjectProvider<ModelUsageRecorder> usageRecorder) {
         this.webClientBuilder = webClientBuilder;
         this.tracer = tracer;
         this.propagator = propagator;
+        this.usageRecorder = usageRecorder == null ? null : usageRecorder.getIfAvailable();
+    }
+
+    /** 错误日志始终挂载；用量监听器在装配了记录器时挂载。 */
+    private List<ChatModelListener> listeners(ClientSpec spec) {
+        List<ChatModelListener> listeners = new ArrayList<>();
+        listeners.add(new ModelCallErrorLogger(spec.baseUrl(), spec.modelName()));
+        if (usageRecorder != null) {
+            listeners.add(new ModelUsageListener(usageRecorder, spec.step(), spec.providerName(), spec.modelName()));
+        }
+        return listeners;
     }
 
     @Override
@@ -67,7 +91,7 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
                 .maxRetries(0)
                 .timeout(spec.timeout())
                 .httpClientBuilder(httpClient())
-                .listeners(List.of(new ModelCallErrorLogger(spec.baseUrl(), spec.modelName())));
+                .listeners(listeners(spec));
         if (spec.maxTokens() != null) builder.maxTokens(spec.maxTokens());
         if (!spec.customParameters().isEmpty()) builder.customParameters(spec.customParameters());
         return builder.build();
@@ -84,7 +108,7 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
                 .temperature(spec.temperature())
                 .timeout(spec.timeout())
                 .httpClientBuilder(httpClient())
-                .listeners(List.of(new ModelCallErrorLogger(spec.baseUrl(), spec.modelName())));
+                .listeners(listeners(spec));
         if (spec.maxTokens() != null) builder.maxTokens(spec.maxTokens());
         if (!spec.customParameters().isEmpty()) builder.customParameters(spec.customParameters());
         return builder.build();
