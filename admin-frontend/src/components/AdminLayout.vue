@@ -15,6 +15,9 @@
         <RouterLink to="/models" class="nav-item" active-class="active">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14M8 5v4M16 10v4M11 15v4" /></svg>模型配置
         </RouterLink>
+        <RouterLink to="/rag-eval" class="nav-item" active-class="active">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6M10 4v5l-5 9a1.5 1.5 0 0 0 1.3 2h11.4a1.5 1.5 0 0 0 1.3-2l-5-9V4M7.5 14h9" /></svg>RAG 评测
+        </RouterLink>
       </nav>
       <footer>
         <ThemeSwitcher />

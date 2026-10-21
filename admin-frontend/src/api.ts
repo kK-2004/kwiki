@@ -41,6 +41,12 @@ export interface PluginCatalog{schemas:SchemaOption[];parsers:ParserOption[];chu
 export interface GrayProgress{runId:number|null;runState:string|null;switchState:string|null;scanned:number;succeeded:number;failed:number;migrationPending:number;pendingTargets:number}
 export interface GrayRelease{id:number;name:string;parserVersion:string;parserLabel:string;indexVersionNumber:number;physicalName:string;status:"CREATED"|"SYNCING"|"SYNCED"|"SWITCHED"|"ENDED";lastError:string|null;createdBy:string;createdAt:string;switchedAt:string|null;endedAt:string|null;kbs:{kbId:number;name:string}[];progress:GrayProgress;allowedActions:{sync:boolean;switch:boolean;switchBack:boolean;end:boolean}}
 export interface ForceResetResult{deletedIndices:string[];purgedGraphTypes:string[];clearedRows:Record<string,number>;versionNumber:number;physicalName:string;migrationRunId:number|null;migrationError:string|null}
+export interface EvalLayerMetric{coverage:number;fullHit:number;cases:number}
+export interface EvalSummary{total:number;errors:number;scored:number;overall:Record<string,EvalLayerMetric>;byCategory:Record<string,Record<string,EvalLayerMetric>>;byDomain:Record<string,Record<string,EvalLayerMetric>>;bySource:Record<string,Record<string,EvalLayerMetric>>;negatives:number;refusalAccuracy:number;lossMatrix:Record<string,Record<string,number>>;contextGains:number}
+export type EvalDataset="50q"|"100q"|"200q";
+export interface EvalRunStatus{runId:string;runName:string;dataset:string;state:"RUNNING"|"COMPLETED"|"REPORT_PARTIAL"|"FAILED";total:number;completed:number;summary:EvalSummary|null;reportPath:string|null;error:string|null}
+export interface EvalStartRequest{dataset:EvalDataset;kbId:number;runName?:string;notes?:string;localOnly:boolean}
+export interface EvalImportResult{createdPageIds:number[];skippedTitles:string[]}
 export const FORCE_RESET_CONFIRMATION="RESET kwiki-chunks";
 export const api={
   login:(username:string,password:string)=>request<{token:string;tokenType:string;expiresInSeconds:number;user:{id:number;username:string;admin:boolean}}>("/auth/login",{method:"POST",body:JSON.stringify({username,password})}),
@@ -80,5 +86,9 @@ export const api={
   saveModelAssignments:(body:AssignmentRequest[])=>request<{version:number;assignments:AssignmentView[]}>("/admin/models/assignments",{method:"PUT",body:JSON.stringify(body)}),
   modelConfigStatus:()=>request<ModelConfigStatus>("/admin/models/status"),
   graphCommand,
+  evalImportCorpus:(kbId:number,corpus="dragonball-zh")=>request<EvalImportResult>(`/admin/eval/corpus/import?kbId=${kbId}&corpus=${encodeURIComponent(corpus)}`,{method:"POST"}),
+  evalSyncDatasets:()=>request<{items:number}>("/admin/eval/datasets/sync",{method:"POST"}),
+  evalStartRun:(body:EvalStartRequest)=>request<EvalRunStatus>("/admin/eval/runs",{method:"POST",body:JSON.stringify(body)}),
+  evalRunStatus:(runId:string)=>request<EvalRunStatus>(`/admin/eval/runs/${encodeURIComponent(runId)}`),
   graphSubmit:(payload:Record<string,unknown>)=>graphCommand<{batchId:number;chunkIndexSchema:string;communityIndexVersion:number;runIds:number[];replayed:boolean}>("/batches",payload)
 };

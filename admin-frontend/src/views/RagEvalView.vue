@@ -1,0 +1,425 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { ElMessage } from "element-plus";
+import { api, ApiError, type EvalDataset, type EvalImportResult, type EvalRunStatus } from "../api";
+import { useAuth } from "../auth";
+import {
+  EVAL_DATASETS, EVAL_LAYERS, LOSS_LAYERS, RUN_STATE_LABELS,
+  domainLabel, evalErrorMessage, groupRows, layerRows, lossRows, percent, progressPercent,
+} from "../evalReport";
+
+/** run 状态只在后端内存中，刷新页面后靠记住的 runId 恢复。 */
+const RUN_KEY = "kwiki_admin_eval_run";
+const KB_KEY = "kwiki_admin_eval_kb";
+
+const auth = useAuth();
+const knowledgeBases = ref<{ id: number; name: string }[]>([]);
+const kbLoaded = ref(false);
+const kbId = ref<number | null>(Number(localStorage.getItem(KB_KEY)) || null);
+const importing = ref(false);
+const importResult = ref<EvalImportResult | null>(null);
+const syncing = ref(false);
+const syncedItems = ref<number | null>(null);
+const starting = ref(false);
+const form = reactive({ dataset: "50q" as EvalDataset, runName: "", notes: "", localOnly: false });
+
+const runId = ref<string | null>(localStorage.getItem(RUN_KEY));
+const run = ref<EvalRunStatus | null>(null);
+const expired = ref(false);
+const groupBy = ref<"category" | "domain">("category");
+const groupMetric = ref<"coverage" | "fullHit">("coverage");
+let timer: number | undefined;
+let pollDelay = 3000;
+let disposed = false;
+
+const running = computed(() => run.value?.state === "RUNNING");
+const summary = computed(() => run.value?.summary ?? null);
+const overall = computed(() => layerRows(summary.value?.overall));
+const groups = computed(() => groupBy.value === "category"
+  ? groupRows(summary.value?.byCategory)
+  : groupRows(summary.value?.byDomain, domainLabel));
+const losses = computed(() => lossRows(summary.value?.lossMatrix));
+
+watch(kbId, value => {
+  if (value) localStorage.setItem(KB_KEY, String(value)); else localStorage.removeItem(KB_KEY);
+});
+
+function handleAuth(error: unknown) {
+  if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+    auth.logout();
+    location.assign("/admin/login");
+    return true;
+  }
+  return false;
+}
+
+async function loadKnowledgeBases() {
+  try {
+    knowledgeBases.value = await api.adminKnowledgeBases();
+  } catch (error) {
+    if (handleAuth(error)) return;
+    knowledgeBases.value = [];
+  } finally {
+    kbLoaded.value = true;
+  }
+}
+
+async function importCorpus() {
+  if (!kbId.value) return;
+  importing.value = true;
+  try {
+    importResult.value = await api.evalImportCorpus(kbId.value);
+    ElMessage.success("评测语料导入完成");
+  } catch (error) {
+    if (!handleAuth(error)) ElMessage.error(evalErrorMessage(error, "导入评测语料失败"));
+  } finally {
+    importing.value = false;
+  }
+}
+
+async function syncDatasets() {
+  syncing.value = true;
+  try {
+    syncedItems.value = (await api.evalSyncDatasets()).items;
+    ElMessage.success("测试集已同步到 Langfuse");
+  } catch (error) {
+    if (!handleAuth(error)) ElMessage.error(evalErrorMessage(error, "同步测试集失败"));
+  } finally {
+    syncing.value = false;
+  }
+}
+
+async function start() {
+  if (!kbId.value) return;
+  starting.value = true;
+  try {
+    const status = await api.evalStartRun({
+      dataset: form.dataset,
+      kbId: kbId.value,
+      runName: form.runName.trim() || undefined,
+      notes: form.notes.trim() || undefined,
+      localOnly: form.localOnly,
+    });
+    remember(status);
+    ElMessage.success("评测已启动");
+    pollDelay = 3000;
+    schedule();
+  } catch (error) {
+    if (!handleAuth(error)) ElMessage.error(evalErrorMessage(error, "启动评测失败"));
+  } finally {
+    starting.value = false;
+  }
+}
+
+function remember(status: EvalRunStatus) {
+  run.value = status;
+  runId.value = status.runId;
+  expired.value = false;
+  localStorage.setItem(RUN_KEY, status.runId);
+}
+
+function forget() {
+  window.clearTimeout(timer);
+  run.value = null;
+  runId.value = null;
+  expired.value = false;
+  localStorage.removeItem(RUN_KEY);
+}
+
+async function poll() {
+  const id = runId.value;
+  if (!id) return;
+  try {
+    const status = await api.evalRunStatus(id);
+    if (id !== runId.value) return;
+    run.value = status;
+    expired.value = false;
+    pollDelay = 3000;
+  } catch (error) {
+    if (handleAuth(error)) return;
+    if (error instanceof Error && error.message.startsWith("eval-run-not-found")) {
+      run.value = null;
+      expired.value = true;
+      return;
+    }
+    // 网络或服务端临时错误：退避重试，上限 30 秒
+    pollDelay = Math.min(pollDelay * 2, 30000);
+    schedule(true);
+    return;
+  }
+  schedule();
+}
+
+/** 只有运行中的 run（或查询临时失败需重试时）才续期轮询；页面卸载后不再续期。 */
+function schedule(retry = false) {
+  window.clearTimeout(timer);
+  if (disposed || !(retry || running.value)) return;
+  timer = window.setTimeout(() => void poll(), pollDelay);
+}
+
+onMounted(() => {
+  void loadKnowledgeBases();
+  if (runId.value) void poll();
+});
+onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
+</script>
+
+<template>
+  <main class="page">
+    <section class="hero">
+      <div>
+        <h1>RAG 评测</h1>
+        <p class="muted">
+          基于 DragonBall 中文语料与 50/100/200 题嵌套测试集，按关键词逐层统计召回（BM25、向量、候选池、融合排序、最终上下文与回答），
+          结果写入 Langfuse 并在服务端落本地 JSON 报告。建议使用专用知识库，只放公开评测数据。
+        </p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <header class="panel-head">
+        <h2>1. 准备语料与测试集</h2>
+        <span class="hint">导入幂等，可重复执行；导入后需等待索引完成再启动评测。</span>
+      </header>
+      <div class="row">
+        <label class="field-label">评测知识库</label>
+        <el-select v-if="knowledgeBases.length" v-model="kbId" filterable placeholder="选择知识库" style="width: 280px" aria-label="评测知识库">
+          <el-option v-for="kb in knowledgeBases" :key="kb.id" :label="`${kb.name}（#${kb.id}）`" :value="kb.id" />
+        </el-select>
+        <template v-else-if="kbLoaded">
+          <el-input-number v-model="kbId" :min="1" :controls="false" placeholder="输入 kbId" style="width: 180px" aria-label="知识库 ID" />
+          <span class="hint">未获取到知识库列表，请手动输入 kbId</span>
+        </template>
+        <el-button type="primary" :disabled="!kbId" :loading="importing" @click="importCorpus">导入评测语料</el-button>
+        <el-button :loading="syncing" @click="syncDatasets">同步测试集到 Langfuse</el-button>
+      </div>
+      <p v-if="importResult" class="result">
+        语料导入：新建 <strong>{{ importResult.createdPageIds.length }}</strong> 篇，跳过（已存在）<strong>{{ importResult.skippedTitles.length }}</strong> 篇
+      </p>
+      <p v-if="syncedItems !== null" class="result">已同步 <strong>{{ syncedItems }}</strong> 条测试题到 Langfuse 数据集（kwiki-rag-50q / 100q / 200q）</p>
+    </section>
+
+    <section class="panel">
+      <header class="panel-head">
+        <h2>2. 启动评测</h2>
+        <span class="hint">同一时刻只允许一个评测；每次检索改动后用相同测试集跑一次，并在备注里写清改动。</span>
+      </header>
+      <el-form label-width="96px" class="start-form" @submit.prevent>
+        <el-form-item label="测试集">
+          <el-radio-group v-model="form.dataset">
+            <el-radio-button v-for="item in EVAL_DATASETS" :key="item.value" :value="item.value">{{ item.label }}</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="运行名称">
+          <el-input v-model="form.runName" placeholder="留空自动生成，如 baseline-50q" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="form.notes" type="textarea" :rows="2" placeholder="本次改动说明，如「ik 分词」「rerank」" maxlength="500" />
+        </el-form-item>
+        <el-form-item label="仅本地">
+          <el-switch v-model="form.localOnly" aria-label="仅本地" />
+          <span class="hint switch-hint">开启后不上报 Langfuse，只写本地报告（未配置 Langfuse 时必须开启）</span>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :disabled="!kbId || running" :loading="starting" @click="start">开始评测</el-button>
+          <span v-if="!kbId" class="hint switch-hint">请先选择知识库</span>
+        </el-form-item>
+      </el-form>
+    </section>
+
+    <section class="panel" v-if="runId || expired">
+      <header class="panel-head">
+        <h2>3. 运行状态</h2>
+        <el-button text size="small" @click="forget">清除记录</el-button>
+      </header>
+      <el-alert v-if="expired" type="warning" :closable="false" show-icon
+        title="评测记录已失效"
+        description="运行状态只保存在服务端内存中，服务重启后无法再查询；本地 JSON 报告仍在服务端报告目录中。" />
+      <template v-else-if="run">
+        <div class="run-meta">
+          <strong>{{ run.runName }}</strong>
+          <el-tag :type="RUN_STATE_LABELS[run.state].type">{{ RUN_STATE_LABELS[run.state].label }}</el-tag>
+          <span class="muted">测试集 {{ run.dataset }} · {{ run.completed }} / {{ run.total }} 题</span>
+        </div>
+        <el-progress :percentage="progressPercent(run)" :status="run.state === 'FAILED' ? 'exception' : run.state === 'RUNNING' ? undefined : 'success'" />
+        <el-alert v-if="run.error" class="run-error" :type="run.state === 'FAILED' ? 'error' : 'warning'" :closable="false" show-icon :title="run.error" />
+        <p v-if="run.reportPath" class="result">本地报告：<code>{{ run.reportPath }}</code></p>
+      </template>
+      <p v-else class="muted">正在查询评测状态…</p>
+    </section>
+
+    <template v-if="run && summary">
+      <section class="cards">
+        <div class="metric">
+          <span class="metric-label">计分题数</span>
+          <strong>{{ summary.scored }} / {{ summary.total }}</strong>
+          <div class="hint">出错 {{ summary.errors }} 题（不计分）</div>
+        </div>
+        <div class="metric">
+          <span class="metric-label">负样本拒答正确率</span>
+          <strong>{{ summary.negatives ? percent(summary.refusalAccuracy) : "-" }}</strong>
+          <div class="hint">共 {{ summary.negatives }} 道无关无解题</div>
+        </div>
+        <div class="metric">
+          <span class="metric-label">回答覆盖率</span>
+          <strong>{{ percent(summary.overall?.answer?.coverage) }}</strong>
+          <div class="hint">完全命中 {{ percent(summary.overall?.answer?.fullHit) }}</div>
+        </div>
+        <div class="metric">
+          <span class="metric-label">上下文增益</span>
+          <strong>{{ summary.contextGains }}</strong>
+          <div class="hint">基线候选池没有、改写/图增强后进入上下文的关键词组</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2>各层召回</h2>
+          <span class="hint">覆盖率 = 关键词覆盖率均值；完全命中率 = 全部关键词都命中的题占比。chunk 层与上下文只认来源文档片段。</span>
+        </header>
+        <el-table :data="overall" row-key="key" size="small">
+          <el-table-column label="层" min-width="200">
+            <template #default="{ row }">
+              <strong>{{ row.key }}</strong>
+              <div class="muted">{{ row.label }} · {{ row.hint }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="覆盖率" width="160">
+            <template #default="{ row }">
+              <div class="bar-cell"><span>{{ percent(row.coverage) }}</span><el-progress :percentage="Math.round((row.coverage ?? 0) * 100)" :show-text="false" :stroke-width="6" /></div>
+            </template>
+          </el-table-column>
+          <el-table-column label="完全命中率" width="160">
+            <template #default="{ row }">
+              <div class="bar-cell"><span>{{ percent(row.fullHit) }}</span><el-progress :percentage="Math.round((row.fullHit ?? 0) * 100)" :show-text="false" :stroke-width="6" /></div>
+            </template>
+          </el-table-column>
+          <el-table-column label="题数" width="90" prop="cases" />
+        </el-table>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2>分组指标</h2>
+          <div class="toggles">
+            <el-radio-group v-model="groupBy" size="small">
+              <el-radio-button value="category">按题型</el-radio-button>
+              <el-radio-button value="domain">按领域</el-radio-button>
+            </el-radio-group>
+            <el-radio-group v-model="groupMetric" size="small">
+              <el-radio-button value="coverage">覆盖率</el-radio-button>
+              <el-radio-button value="fullHit">完全命中率</el-radio-button>
+            </el-radio-group>
+          </div>
+        </header>
+        <el-table :data="groups" row-key="name" size="small">
+          <el-table-column :label="groupBy === 'category' ? '题型' : '领域'" prop="name" min-width="150" fixed />
+          <el-table-column label="题数" prop="cases" width="70" />
+          <el-table-column v-for="layer in EVAL_LAYERS" :key="layer.key" :label="layer.key" min-width="96" align="right">
+            <template #default="{ row }">{{ percent(row.metrics[layer.key]?.[groupMetric]) }}</template>
+          </el-table-column>
+        </el-table>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2>首次丢失层矩阵</h2>
+          <span class="hint">每个漏召关键词组按链路记录它第一次丢失的位置，数值为关键词组数；用于判断问题集中在哪一层。</span>
+        </header>
+        <el-table :data="[...losses.rows, losses.totals]" row-key="category" size="small" :row-class-name="({ row }: { row: { category: string } }) => row === losses.totals ? 'total-row' : ''">
+          <el-table-column label="题型" prop="category" min-width="150" />
+          <el-table-column v-for="loss in LOSS_LAYERS" :key="loss.key" min-width="110" align="right">
+            <template #header>
+              <el-tooltip :content="loss.hint" placement="top"><span>{{ loss.label }}</span></el-tooltip>
+            </template>
+            <template #default="{ row }">{{ row.counts[loss.key] ?? 0 }}</template>
+          </el-table-column>
+          <el-table-column label="合计" prop="total" width="80" align="right" />
+        </el-table>
+      </section>
+    </template>
+  </main>
+</template>
+
+<style scoped>
+.panel {
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-lg);
+  background: var(--k-canvas);
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 14px;
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--k-ink);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.field-label {
+  color: var(--k-ink-2);
+  font-size: 13px;
+}
+
+.result {
+  margin: 12px 0 0;
+  color: var(--k-ink-2);
+}
+
+.result code {
+  word-break: break-all;
+}
+
+.start-form {
+  max-width: 720px;
+}
+
+.switch-hint {
+  margin-left: 10px;
+}
+
+.toggles {
+  display: flex;
+  gap: 10px;
+}
+
+.run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.run-error {
+  margin-top: 12px;
+}
+
+.bar-cell {
+  display: grid;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+:deep(.total-row) td {
+  font-weight: 600;
+  background: var(--k-surface);
+}
+</style>
