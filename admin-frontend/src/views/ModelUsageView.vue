@@ -21,7 +21,26 @@ const METRICS: Array<{ value: Metric; label: string }> = [
   { value: "calls", label: "调用数" }, { value: "failures", label: "失败数" }];
 
 interface Saved { preset: RangePreset | "custom"; sources: UsageSourceName[]; users: number[]; metric: Metric; groupBy: GroupBy; stacked: boolean }
-const saved: Partial<Saved> = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+
+/** 读取本地保存的视图偏好：解析失败整体回退空对象，字段非法逐项回退默认值，避免旧版本脏数据导致页面渲染失败 */
+function readSaved(): Partial<Saved> {
+  const presets: Array<RangePreset | "custom"> = ["today", "yesterday", "7d", "30d", "custom"];
+  try {
+    const value = JSON.parse(localStorage.getItem(STORE_KEY) || "{}") as Partial<Saved>;
+    return {
+      preset: presets.includes(value.preset as RangePreset | "custom") ? value.preset : undefined,
+      sources: Array.isArray(value.sources) ? value.sources.filter((s): s is UsageSourceName => SOURCES.some(x => x.value === s)) : undefined,
+      users: Array.isArray(value.users) ? value.users.filter((n): n is number => Number.isFinite(n)) : undefined,
+      metric: METRICS.some(m => m.value === value.metric) ? value.metric : undefined,
+      groupBy: value.groupBy === "step" || value.groupBy === "model" ? value.groupBy : undefined,
+      stacked: typeof value.stacked === "boolean" ? value.stacked : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+const saved = readSaved();
 
 const preset = ref<RangePreset | "custom">(saved.preset ?? "today");
 const custom = ref<[Date, Date] | null>(null);
@@ -37,6 +56,7 @@ const checked = ref<Set<string>>(new Set());
 const treeRef = ref<InstanceType<typeof ElTree>>();
 const auth = useAuth();
 let timer: ReturnType<typeof setInterval> | undefined;
+let requestSeq = 0;
 
 const range = computed(() => preset.value === "custom" && custom.value
   ? { from: custom.value[0], to: custom.value[1] }
@@ -66,8 +86,14 @@ function persist() {
   localStorage.setItem(STORE_KEY, JSON.stringify(value));
 }
 
-function handleError(error: unknown, fallback: string) {
-  if (error instanceof ApiError && (error.status === 401 || error.status === 403)) { auth.logout(); return; }
+function handleError(error: unknown, fallback: string, silent = false) {
+  if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+    auth.logout();
+    location.assign("/admin/login");
+    return;
+  }
+  // 定时轮询失败只记录日志不弹 toast，避免「今天」视图每 60 秒打扰一次；手动交互仍弹提示
+  if (silent) { console.warn("模型用量自动刷新失败", error); return; }
   const code = error instanceof ApiError ? error.code : "";
   const messages: Record<string, string> = {
     "usage-store-unavailable": "用量存储不可用（数据库未连接）", "range-too-long": "时间范围最长 366 天", "invalid-range": "结束时间必须晚于开始时间",
@@ -75,21 +101,27 @@ function handleError(error: unknown, fallback: string) {
   ElMessage.error(messages[code] ?? fallback);
 }
 
-async function load() {
+async function load(silent = false) {
+  const seq = ++requestSeq;
   const { from, to } = range.value;
   const query = { from: from.toISOString(), to: to.toISOString(), sources: sources.value, users: users.value, tzOffsetMinutes: -new Date().getTimezoneOffset() };
   loading.value = true;
   try {
     const [series, people] = await Promise.all([api.modelUsageSeries(query), api.modelUsageUsers(query)]);
+    if (seq !== requestSeq) return; // 已有更新的查询发出，丢弃乱序返回的旧响应
+    // 首次加载全选；之后刷新保留用户勾选——仍存在的叶子维持勾选状态，新出现的叶子默认勾选，消失的叶子清除
+    const previousLeaves = data.value ? new Set(allLeafKeys(buildTree(data.value.series, groupBy.value))) : new Set<string>();
     data.value = series;
     userOptions.value = people;
-    checked.value = new Set(allLeafKeys(buildTree(series.series, groupBy.value)));
+    const nextLeaves = allLeafKeys(buildTree(series.series, groupBy.value));
+    const leafSet = new Set(nextLeaves);
+    checked.value = new Set([...nextLeaves.filter(key => !previousLeaves.has(key)), ...checked.value].filter(key => leafSet.has(key)));
     await nextTick();
     treeRef.value?.setCheckedKeys([...checked.value]);
   } catch (error) {
-    handleError(error, "加载模型用量失败");
+    if (seq === requestSeq) handleError(error, "加载模型用量失败", silent);
   } finally {
-    loading.value = false;
+    if (seq === requestSeq) loading.value = false;
   }
 }
 
@@ -100,7 +132,8 @@ function onCheck() {
 
 function resetTimer() {
   if (timer) clearInterval(timer);
-  timer = preset.value === "today" ? setInterval(load, 60_000) : undefined;
+  // 定时轮询走静默模式：失败不弹 toast，只写控制台日志
+  timer = preset.value === "today" ? setInterval(() => void load(true), 60_000) : undefined;
 }
 
 watch([preset, custom, sources, users], () => { persist(); resetTimer(); void load(); }, { deep: true });

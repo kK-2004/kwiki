@@ -53,4 +53,22 @@ describe("模型用量页", () => {
     await waitFor(() => expect(mocks.modelUsageSeries).toHaveBeenCalledTimes(2));
     expect(mocks.modelUsageSeries.mock.calls[1][0].sources).toEqual(["ONLINE", "BACKGROUND"]);
   });
+
+  it("刷新保留用户取消勾选的维度，新出现的叶子默认勾选", async () => {
+    render(ModelUsageView, { global: { plugins } });
+    await waitFor(() => expect(screen.getByTestId("chart").textContent).toContain("回答生成"));
+    // 树复选框 UI 比数据晚一拍渲染：等「回答生成」下的模型叶子（第 5 个复选框）同步为选中后再点击取消
+    await waitFor(() => expect((screen.getAllByRole("checkbox")[4] as HTMLInputElement).checked).toBe(true));
+    await fireEvent.click(screen.getAllByRole("checkbox")[4]);
+    await waitFor(() => expect(screen.getByTestId("chart").textContent).toBe(JSON.stringify(["查询改写"])));
+    // 触发第二次查询，返回值多出一个新步骤
+    mocks.modelUsageSeries.mockResolvedValue({
+      bucketSeconds: 300, buckets: [Date.parse("2026-10-20T16:00:00Z"), Date.parse("2026-10-20T16:05:00Z")],
+      series: [series("ANSWER", "回答生成", "qwen-plus", [12_000, 300]), series("REWRITE", "查询改写", "qwen-plus", [5, 5]), series("EMBEDDING", "索引嵌入", "text-embedding-v3", [500, 500])],
+    });
+    await fireEvent.click(screen.getByRole("checkbox", { name: "评测" }));
+    // 「回答生成」保持取消勾选不被重置，「索引嵌入」作为新叶子默认勾选
+    await waitFor(() => expect(screen.getByTestId("chart").textContent).toBe(JSON.stringify(["索引嵌入", "查询改写"])));
+    expect(screen.getByTestId("chart").textContent).not.toContain("回答生成");
+  });
 });
