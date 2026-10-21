@@ -191,5 +191,45 @@ class LangfuseRestClientTest {
         assertThat(first.getPath()).startsWith("/api/public/dataset-items?datasetName=kwiki-rag-50q").contains("page=1");
         assertThat(server.takeRequest().getPath()).contains("page=2");
     }
+
+    @Test
+    void deleteRunDeletesTracesInBatchesThenDatasetRun() throws Exception {
+        List<String> ids = new java.util.ArrayList<>();
+        for (int i = 0; i < 150; i++) ids.add("trace-" + i);
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{\"message\":\"ok\"}"));
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{\"message\":\"ok\"}"));
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{}"));
+
+        client.deleteRun("kwiki-rag-50q", "50q run/1", ids);
+
+        RecordedRequest first = server.takeRequest();
+        assertThat(first.getMethod()).isEqualTo("DELETE");
+        assertThat(first.getPath()).isEqualTo("/api/public/traces");
+        assertThat(body(first).get("traceIds")).hasSize(100);
+        JsonNode second = body(server.takeRequest()).get("traceIds");
+        assertThat(second).hasSize(50);
+        assertThat(second.get(49).asText()).isEqualTo("trace-149");
+        RecordedRequest run = server.takeRequest();
+        assertThat(run.getMethod()).isEqualTo("DELETE");
+        assertThat(run.getPath()).isEqualTo("/api/public/datasets/kwiki-rag-50q/runs/50q%20run%2F1");
+    }
+
+    @Test
+    void deleteRunTreatsMissingDatasetRunAsDeleted() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(404).setBody("{\"message\":\"not found\"}"));
+
+        client.deleteRun("kwiki-rag-50q", "run-a", List.of());
+
+        assertThat(server.getRequestCount()).isEqualTo(1);
+        assertThat(server.takeRequest().getPath()).isEqualTo("/api/public/datasets/kwiki-rag-50q/runs/run-a");
+    }
+
+    @Test
+    void deleteRunFailureIsReported() {
+        server.enqueue(new MockResponse().setResponseCode(403).setBody("{\"message\":\"forbidden\"}"));
+
+        assertThatThrownBy(() -> client.deleteRun("kwiki-rag-50q", "run-a", List.of("t-1")))
+                .isInstanceOf(EvalReportException.class).hasMessageContaining("403");
+    }
 }
 

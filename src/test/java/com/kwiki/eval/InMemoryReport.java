@@ -9,6 +9,9 @@ class InMemoryReport implements EvalReportPort {
 
     boolean available = true;
     boolean failFlush;
+    boolean failDelete;
+    final List<String> deletedRuns = new CopyOnWriteArrayList<>();
+    final List<String> deletedTraceIds = new CopyOnWriteArrayList<>();
     int flushes;
     final List<String> datasets = new CopyOnWriteArrayList<>();
     final List<String> itemIds = new CopyOnWriteArrayList<>();
@@ -46,5 +49,12 @@ class InMemoryReport implements EvalReportPort {
     public void flush() {
         flushes++;
         if (failFlush) throw new EvalReportException("boom");
+    }
+
+    @Override
+    public void deleteRun(String datasetName, String runName, List<String> traceIds) {
+        if (failDelete) throw new EvalReportException("langfuse down");
+        deletedRuns.add(datasetName + "/" + runName);
+        deletedTraceIds.addAll(traceIds);
     }
 }

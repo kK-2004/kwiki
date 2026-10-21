@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -31,7 +32,7 @@ import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
- * Langfuse 公共 API 客户端（datasets / dataset-items / ingestion / dataset-run-items）。
+ * Langfuse 公共 API 客户端（datasets / dataset-items / ingestion / dataset-run-items / traces 删除）。
  * Basic 认证（publicKey:secretKey）；所有请求按 {@code kwiki.langfuse.max-requests-per-minute} 主动限速
  * （Langfuse Cloud 公共 API 默认 100 次/分钟）；429 按服务端 retryAfterSeconds / Retry-After 等待后重试，
  * 最多 {@link #MAX_RATE_LIMIT_ATTEMPTS} 次；5xx 与网络错误按 500ms 起指数退避重试 {@link #MAX_ATTEMPTS} 次；
@@ -46,6 +47,7 @@ public class LangfuseRestClient implements EvalReportPort {
     static final int MAX_RATE_LIMIT_ATTEMPTS = 8;
     static final long MAX_RETRY_AFTER_MS = 60_000;
     static final int LIST_PAGE_SIZE = 50;
+    static final int DELETE_BATCH = 100;
 
     private final RestClient http;
     private final ObjectMapper mapper;
@@ -142,6 +144,23 @@ public class LangfuseRestClient implements EvalReportPort {
         return items;
     }
 
+    /** 先按批删除 trace（Langfuse 异步删除），再删 dataset run；dataset run 不存在（404）视为已删除。 */
+    @Override
+    public void deleteRun(String datasetName, String runName, List<String> traceIds) {
+        for (int from = 0; from < traceIds.size(); from += DELETE_BATCH) {
+            String payload = payload(Map.of("traceIds",
+                    traceIds.subList(from, Math.min(from + DELETE_BATCH, traceIds.size()))));
+            send("DELETE /api/public/traces", () -> http.method(HttpMethod.DELETE).uri("/api/public/traces")
+                    .body(payload), false);
+        }
+        try {
+            send("DELETE /api/public/datasets/{name}/runs/{run}", () -> http.delete().uri(builder -> builder
+                    .pathSegment("api", "public", "datasets", datasetName, "runs", runName).build()), false);
+        } catch (EvalReportException e) {
+            if (!(e.getCause() instanceof HttpClientErrorException.NotFound)) throw e;
+        }
+    }
+
     @Override
     public synchronized void recordTrace(TraceRecord trace) {
         buffer.add(trace);
@@ -230,13 +249,16 @@ public class LangfuseRestClient implements EvalReportPort {
     }
 
     private JsonNode post(String path, Object body, boolean conflictIsSuccess) {
-        String payload;
+        String payload = payload(body);
+        return send(path, () -> http.post().uri(path).body(payload), conflictIsSuccess);
+    }
+
+    private String payload(Object body) {
         try {
-            payload = mapper.writeValueAsString(body);
+            return mapper.writeValueAsString(body);
         } catch (JsonProcessingException e) {
             throw new EvalReportException("langfuse payload serialization failed", e);
         }
-        return send(path, () -> http.post().uri(path).body(payload), conflictIsSuccess);
     }
 
     /** 统一的限速与重试：429 按服务端提示等待，5xx/网络错误指数退避，二者分别计数。 */

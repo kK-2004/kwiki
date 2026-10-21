@@ -28,6 +28,9 @@ public interface EvalReportPort {
     /** 发送剩余缓冲；本 run 内有任何 trace 上传失败则抛 {@link EvalReportException}。 */
     void flush();
 
+    /** 删除一个 run 在上报端的数据：给定 trace 与 dataset run；失败抛 {@link EvalReportException}。 */
+    void deleteRun(String datasetName, String runName, List<String> traceIds);
+
     record TraceRecord(
             String traceId,
             String name,

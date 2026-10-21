@@ -14,70 +14,86 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
  * 一次评测 run 的编排：校验 → 语料就绪检查 → 单实例互斥 → 逐题（有界并发）跑基线检索与完整工作流 →
- * 分层计分（chunk 与 context 层只认来自该题来源文档的片段）→ 上报 Langfuse → 写本地报告。单题失败只记错误继续；上报失败标记 REPORT_PARTIAL。
- * run 状态只在内存中，应用重启后进行中的 run 视为中断。
+ * 分层计分（chunk 与 context 层只认来自该题来源文档的片段）→ 逐题写检查点并上报 Langfuse → 汇总。
+ * 单题失败只记错误继续；上报失败标记 reportPartial。run 状态与逐题结果保存在 {@link EvalRunStore}，
+ * 支持中断（在途题立即取消、不计入结果）、继续（只跑没有检查点的题，沿用 runName）与删除。
  */
 @Service
 public class EvalRunService {
 
     private static final Logger log = LoggerFactory.getLogger(EvalRunService.class);
     static final Duration CASE_TIMEOUT = Duration.ofSeconds(200);
+    /** 心跳超过该时长未更新、且不在本实例执行的 RUNNING run 视为已中断（实例重启或失联）。 */
+    static final Duration STALE_AFTER = Duration.ofMinutes(2);
+    /** 中断请求最多等待 runner 收尾（flush、写终态）的时长，超时则返回当时状态由前端继续轮询。 */
+    static final Duration CANCEL_WAIT = Duration.ofSeconds(5);
+    static final int HISTORY_LIMIT = 50;
+    static final String INTERRUPTED = "interrupted";
+    static final String CANCELLED = "cancelled";
+    private static final long POLL_MILLIS = 200;
     private static final DateTimeFormatter RUN_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmm");
 
     public record StartRequest(String dataset, Long kbId, String runName, String notes, boolean localOnly) {
     }
 
-    public enum State { RUNNING, COMPLETED, REPORT_PARTIAL, FAILED }
-
-    public record RunStatus(String runId, String runName, String dataset, State state, int total, int completed,
-                            EvalSummary summary, String reportPath, String error) {
+    public record RunStatus(String runId, String runName, String dataset, EvalRunState state, int total,
+                            int completed, EvalSummary summary, String error, boolean localOnly,
+                            boolean reportPartial, Instant createdAt) {
     }
 
-    private static final class RunState {
-        final String runId = UUID.randomUUID().toString();
-        final String runName;
-        final EvalDatasetSize size;
-        final int total;
-        final AtomicInteger completed = new AtomicInteger();
-        volatile State state = State.RUNNING;
-        volatile EvalSummary summary;
-        volatile String reportPath;
-        volatile String error;
+    /** 删除结果：langfuseDeleted 表示已调用 Langfuse 删除接口成功；失败时 langfuseError 为原因。 */
+    public record DeleteResult(boolean langfuseDeleted, String langfuseError) {
+    }
 
-        RunState(String runName, EvalDatasetSize size, int total) {
-            this.runName = runName;
-            this.size = size;
-            this.total = total;
-        }
+    /** 本实例上正在执行的 run。 */
+    private static final class Execution {
+        final AtomicBoolean cancelled = new AtomicBoolean();
+        final CountDownLatch done = new CountDownLatch(1);
+        volatile ExecutorService pool;
 
-        RunStatus status() {
-            return new RunStatus(runId, runName, size.label(), state, total, completed.get(), summary,
-                    reportPath, error);
+        void cancel() {
+            cancelled.set(true);
+            ExecutorService current = pool;
+            if (current != null) current.shutdownNow();
         }
+    }
+
+    private record Prepared(EvalRunStore.RunMeta meta, EvalDatasetSize size, List<EvalCase> cases,
+                            Map<Long, Integer> pageDocIds) {
     }
 
     private final EvalDatasetLoader loader;
@@ -86,80 +102,214 @@ public class EvalRunService {
     private final AuthorizationScopeResolver scopes;
     private final EvalCorpusService corpus;
     private final EvalReportPort report;
-    private final EvalReportWriter writer;
+    private final EvalRunStore store;
     private final KwikiDistributedLocks locks;
     private final QaRetrievalBudgets budgets;
     private final int concurrency;
     private final RefusalDetector refusal;
+    private final Clock clock;
+    private volatile Duration heartbeatInterval = Duration.ofSeconds(5);
     private final ExecutorService runner = Executors.newSingleThreadExecutor(
             Thread.ofPlatform().name("eval-run-", 0).daemon(true).factory());
+    private final ScheduledExecutorService heartbeats = Executors.newSingleThreadScheduledExecutor(
+            Thread.ofPlatform().name("eval-heartbeat-", 0).daemon(true).factory());
     private final AtomicBoolean busy = new AtomicBoolean();
-    private final Map<String, RunState> runs = new ConcurrentHashMap<>();
+    private final Map<String, Execution> executions = new ConcurrentHashMap<>();
 
     @Autowired
     public EvalRunService(EvalDatasetLoader loader, BaselineRetrievalProbe baseline, WorkflowProbe workflow,
                           AuthorizationScopeResolver scopes, EvalCorpusService corpus, EvalReportPort report,
-                          EvalReportWriter writer, KwikiDistributedLocks locks, QaRetrievalBudgets budgets,
+                          EvalRunStore store, KwikiDistributedLocks locks, QaRetrievalBudgets budgets,
                           @Value("${kwiki.eval.concurrency:2}") int concurrency) {
-        this(loader, baseline, workflow, scopes, corpus, report, writer, locks, budgets, concurrency,
-                RefusalDetector.DEFAULT_PATTERNS);
+        this(loader, baseline, workflow, scopes, corpus, report, store, locks, budgets, concurrency,
+                RefusalDetector.DEFAULT_PATTERNS, Clock.systemUTC());
     }
 
     EvalRunService(EvalDatasetLoader loader, BaselineRetrievalProbe baseline, WorkflowProbe workflow,
                    AuthorizationScopeResolver scopes, EvalCorpusService corpus, EvalReportPort report,
-                   EvalReportWriter writer, KwikiDistributedLocks locks, QaRetrievalBudgets budgets,
-                   int concurrency, List<String> refusalPatterns) {
+                   EvalRunStore store, KwikiDistributedLocks locks, QaRetrievalBudgets budgets,
+                   int concurrency, List<String> refusalPatterns, Clock clock) {
         this.loader = loader;
         this.baseline = baseline;
         this.workflow = workflow;
         this.scopes = scopes;
         this.corpus = corpus;
         this.report = report;
-        this.writer = writer;
+        this.store = store;
         this.locks = locks;
         this.budgets = budgets;
         this.concurrency = Math.max(1, Math.min(concurrency, 8));
         this.refusal = new RefusalDetector(refusalPatterns);
+        this.clock = clock;
+    }
+
+    /** 测试用：缩短心跳间隔。 */
+    void heartbeatInterval(Duration interval) {
+        this.heartbeatInterval = interval;
     }
 
     /** 校验后异步启动；同一时刻只允许一个 run。 */
     public RunStatus start(CurrentUser user, StartRequest request) {
-        Prepared prepared = prepare(user, request);
-        if (!busy.compareAndSet(false, true)) throw new EvalException(409, "eval-busy");
-        runs.put(prepared.state.runId, prepared.state);
-        try {
-            runner.submit(() -> {
-                try {
-                    execute(user, request, prepared);
-                } finally {
-                    busy.set(false);
-                }
-            });
-        } catch (RuntimeException e) {
-            busy.set(false);
-            throw e;
+        return launch(user, prepareNew(user, request), false);
+    }
+
+    /** 继续已中断或失败的 run：只跑没有检查点的题，沿用 runId / runName / 配置快照。 */
+    public RunStatus resume(CurrentUser user, String runId) {
+        EvalRunStore.RunRecord record = record(runId);
+        EvalRunState state = effectiveState(record);
+        if (state != EvalRunState.CANCELLED && state != EvalRunState.FAILED) {
+            throw new EvalException(409, "eval-run-not-resumable");
         }
-        return prepared.state.status();
+        EvalRunStore.RunMeta meta = record.meta();
+        if (!meta.localOnly() && !report.available()) throw new EvalException(503, "langfuse-not-configured");
+        EvalDatasetSize size = EvalDatasetSize.parse(meta.dataset());
+        List<EvalCase> cases = EvalDatasetLoader.select(loader.load(), size);
+        if (cases.isEmpty()) throw new EvalException(409, "eval-dataset-empty");
+        corpus.requireReady(user, meta.kbId());
+        Map<Long, Integer> pageDocIds = corpus.pageDocIds(user, meta.kbId(), EvalCorpusService.DEFAULT_CORPUS);
+        return launch(user, new Prepared(meta, size, cases, pageDocIds), true);
+    }
+
+    /**
+     * 中断：本实例持有则立即取消在途题并等待 runner 收尾（最多 {@link #CANCEL_WAIT}）；
+     * 否则写取消标志，由持有实例在下次心跳时执行。
+     */
+    public RunStatus cancel(String runId) {
+        EvalRunStore.RunRecord record = record(runId);
+        if (effectiveState(record) != EvalRunState.RUNNING) throw new EvalException(409, "eval-run-not-running");
+        Execution execution = executions.get(runId);
+        if (execution == null) {
+            store.requestCancel(runId);
+            return status(runId);
+        }
+        execution.cancel();
+        try {
+            execution.done.await(CANCEL_WAIT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return status(runId);
+    }
+
+    /** 删除已结束的 run；langfuse=true 时同时删除其在 Langfuse 上的 trace 与 dataset run（失败不回滚本地删除）。 */
+    public DeleteResult delete(String runId, boolean langfuse) {
+        EvalRunStore.RunRecord record = record(runId);
+        if (effectiveState(record) == EvalRunState.RUNNING) throw new EvalException(409, "eval-run-running");
+        EvalRunStore.RunMeta meta = record.meta();
+        List<String> traceIds = store.cases(runId).keySet().stream()
+                .map(caseId -> traceId(meta.runName(), caseId)).sorted().toList();
+        store.delete(runId);
+        if (!langfuse || meta.localOnly() || !report.available()) return new DeleteResult(false, null);
+        try {
+            report.deleteRun(EvalDatasetSize.parse(meta.dataset()).datasetName(), meta.runName(), traceIds);
+            return new DeleteResult(true, null);
+        } catch (RuntimeException e) {
+            log.warn("eval langfuse delete failed run={} reason={}", meta.runName(), e.getMessage());
+            return new DeleteResult(false, e.getMessage());
+        }
     }
 
     public RunStatus status(String runId) {
-        RunState state = runs.get(runId);
-        if (state == null) throw new EvalException(404, "eval-run-not-found");
-        return state.status();
+        return toStatus(record(runId));
+    }
+
+    /** 最近的 run，按创建时间倒序。 */
+    public List<RunStatus> list() {
+        return store.list(HISTORY_LIMIT).stream().map(this::toStatus).toList();
+    }
+
+    /** 完整报告（与原本地报告同结构）：runName、config、summary、按数据集顺序的逐题结果。 */
+    public Map<String, Object> report(String runId) {
+        EvalRunStore.RunRecord record = record(runId);
+        List<CaseResult> results = ordered(store.cases(runId));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("runName", record.meta().runName());
+        body.put("runId", runId);
+        body.put("state", effectiveState(record));
+        body.put("config", record.meta().config());
+        body.put("summary", record.summary() != null ? record.summary() : EvalSummaries.summarize(results));
+        body.put("cases", results);
+        return body;
     }
 
     /** 同步执行（测试用），不经过互斥标志。 */
     RunStatus runNow(CurrentUser user, StartRequest request) {
-        Prepared prepared = prepare(user, request);
-        runs.put(prepared.state.runId, prepared.state);
-        execute(user, request, prepared);
-        return prepared.state.status();
+        Prepared prepared = prepareNew(user, request);
+        String runId = prepared.meta().runId();
+        store.create(prepared.meta());
+        Execution execution = new Execution();
+        executions.put(runId, execution);
+        try {
+            execute(user, prepared, execution);
+        } finally {
+            executions.remove(runId);
+            execution.done.countDown();
+        }
+        return status(runId);
     }
 
-    private record Prepared(RunState state, List<EvalCase> cases) {
+    private EvalRunStore.RunRecord record(String runId) {
+        return store.find(runId).orElseThrow(() -> new EvalException(404, "eval-run-not-found"));
     }
 
-    private Prepared prepare(CurrentUser user, StartRequest request) {
+    /** 存储里是 RUNNING、但不在本实例执行且心跳过期的 run 视为已中断。 */
+    private EvalRunState effectiveState(EvalRunStore.RunRecord record) {
+        return stale(record) ? EvalRunState.CANCELLED : record.state();
+    }
+
+    private boolean stale(EvalRunStore.RunRecord record) {
+        if (record.state() != EvalRunState.RUNNING || executions.containsKey(record.meta().runId())) return false;
+        Instant beat = record.heartbeatAt() == null ? record.meta().createdAt() : record.heartbeatAt();
+        return beat.plus(STALE_AFTER).isBefore(clock.instant());
+    }
+
+    private RunStatus toStatus(EvalRunStore.RunRecord record) {
+        EvalRunStore.RunMeta meta = record.meta();
+        boolean stale = stale(record);
+        return new RunStatus(meta.runId(), meta.runName(), meta.dataset(),
+                stale ? EvalRunState.CANCELLED : record.state(), meta.total(), store.caseCount(meta.runId()),
+                record.summary(), stale ? INTERRUPTED : record.error(), meta.localOnly(), record.reportPartial(),
+                meta.createdAt());
+    }
+
+    /** 按当前数据集顺序排列；数据集里已不存在的题排在最后。 */
+    private List<CaseResult> ordered(Map<String, CaseResult> results) {
+        Map<String, Integer> order = new HashMap<>();
+        List<EvalCase> all = loader.load();
+        for (int i = 0; i < all.size(); i++) order.put(all.get(i).id(), i);
+        return results.values().stream()
+                .sorted(Comparator.comparing((CaseResult result) ->
+                        order.getOrDefault(result.evalCase().id(), Integer.MAX_VALUE))
+                        .thenComparing(result -> result.evalCase().id()))
+                .toList();
+    }
+
+    private RunStatus launch(CurrentUser user, Prepared prepared, boolean resume) {
+        if (!busy.compareAndSet(false, true)) throw new EvalException(409, "eval-busy");
+        String runId = prepared.meta().runId();
+        Execution execution = new Execution();
+        try {
+            if (resume) store.markRunning(runId, clock.instant());
+            else store.create(prepared.meta());
+            executions.put(runId, execution);
+            runner.submit(() -> {
+                try {
+                    execute(user, prepared, execution);
+                } finally {
+                    executions.remove(runId);
+                    busy.set(false);
+                    execution.done.countDown();
+                }
+            });
+        } catch (RuntimeException e) {
+            executions.remove(runId);
+            busy.set(false);
+            throw e;
+        }
+        return status(runId);
+    }
+
+    private Prepared prepareNew(CurrentUser user, StartRequest request) {
         EvalDatasetSize size;
         try {
             size = EvalDatasetSize.parse(request.dataset());
@@ -171,48 +321,68 @@ public class EvalRunService {
         List<EvalCase> cases = EvalDatasetLoader.select(loader.load(), size);
         if (cases.isEmpty()) throw new EvalException(409, "eval-dataset-empty");
         corpus.requireReady(user, request.kbId());
+        Map<Long, Integer> pageDocIds = corpus.pageDocIds(user, request.kbId(), EvalCorpusService.DEFAULT_CORPUS);
         String runName = request.runName() == null || request.runName().isBlank()
-                ? size.label() + "-" + RUN_TIME.format(LocalDateTime.now())
+                ? size.label() + "-" + RUN_TIME.format(LocalDateTime.now(clock.withZone(ZoneId.systemDefault())))
                 : request.runName();
-        return new Prepared(new RunState(runName, size, cases.size()), cases);
+        Map<String, Object> config = configSnapshot(request, size);
+        config.put("sourceDocPages", pageDocIds.size());
+        EvalRunStore.RunMeta meta = new EvalRunStore.RunMeta(UUID.randomUUID().toString(), runName, size.label(),
+                request.kbId(), request.notes() == null ? "" : request.notes(), request.localOnly(), cases.size(),
+                config, clock.instant());
+        return new Prepared(meta, size, cases, pageDocIds);
     }
 
-    private void execute(CurrentUser user, StartRequest request, Prepared prepared) {
-        RunState state = prepared.state;
+    private void execute(CurrentUser user, Prepared prepared, Execution execution) {
+        EvalRunStore.RunMeta meta = prepared.meta();
+        String runId = meta.runId();
         AutoCloseable lock = null;
+        ScheduledFuture<?> heartbeat = null;
         try {
             if (locks.isAvailable()) {
                 lock = locks.acquire("eval-run", Duration.ZERO);
                 if (lock == null) {
-                    state.error = "eval-busy";
-                    state.state = State.FAILED;
+                    store.finish(runId, EvalRunState.FAILED, null, false, "eval-busy");
                     return;
                 }
             }
-            ScopeFilter filter = ScopeFilter.from(scopes.resolve(user, Set.of(request.kbId()), Set.of()));
-            Map<Long, Integer> pageDocIds = corpus.pageDocIds(user, request.kbId(), EvalCorpusService.DEFAULT_CORPUS);
-            Map<String, Object> config = configSnapshot(request, state);
-            config.put("sourceDocPages", pageDocIds.size());
-            List<CaseResult> results = evaluateAll(user, request, prepared, filter, pageDocIds, config);
-            EvalSummary summary = EvalSummaries.summarize(results);
+            long interval = heartbeatInterval.toMillis();
+            heartbeat = heartbeats.scheduleAtFixedRate(() -> beat(runId, execution), interval, interval,
+                    TimeUnit.MILLISECONDS);
+            ScopeFilter filter = ScopeFilter.from(scopes.resolve(user, Set.of(meta.kbId()), Set.of()));
+            Set<String> done = store.cases(runId).keySet();
+            List<EvalCase> pending = prepared.cases().stream().filter(c -> !done.contains(c.id())).toList();
+            evaluateAll(user, prepared, filter, pending, execution);
+            boolean cancelled = execution.cancelled.get();
             boolean partial = false;
-            if (!request.localOnly()) {
+            if (!meta.localOnly()) {
                 try {
                     report.flush();
                 } catch (RuntimeException e) {
                     partial = true;
-                    log.warn("eval report upload incomplete run={} reason={}", state.runName, e.getMessage());
+                    log.warn("eval report upload incomplete run={} reason={}", meta.runName(), e.getMessage());
                 }
             }
-            Path file = writer.write(state.runName, config, summary, results);
-            state.summary = summary;
-            state.reportPath = file.toString();
-            state.state = partial ? State.REPORT_PARTIAL : State.COMPLETED;
+            Set<String> selected = prepared.cases().stream().map(EvalCase::id).collect(Collectors.toSet());
+            List<CaseResult> results = ordered(store.cases(runId)).stream()
+                    .filter(result -> selected.contains(result.evalCase().id())).toList();
+            EvalSummary summary = EvalSummaries.summarize(results);
+            EvalRunState state = cancelled ? EvalRunState.CANCELLED
+                    : partial ? EvalRunState.REPORT_PARTIAL : EvalRunState.COMPLETED;
+            store.finish(runId, state, summary, partial, cancelled ? CANCELLED : null);
         } catch (Exception e) {
-            state.error = e.getClass().getSimpleName() + ": " + e.getMessage();
-            state.state = State.FAILED;
-            log.warn("eval run failed run={} reason={}", state.runName, state.error);
+            String error = e.getClass().getSimpleName() + ": " + e.getMessage();
+            if (!meta.localOnly()) {
+                try {
+                    report.flush();
+                } catch (RuntimeException ignored) {
+                    // run 已失败，上报残留只尽力而为
+                }
+            }
+            store.finish(runId, EvalRunState.FAILED, null, false, error);
+            log.warn("eval run failed run={} reason={}", meta.runName(), error);
         } finally {
+            if (heartbeat != null) heartbeat.cancel(false);
             if (lock != null) {
                 try {
                     lock.close();
@@ -223,31 +393,67 @@ public class EvalRunService {
         }
     }
 
-    private List<CaseResult> evaluateAll(CurrentUser user, StartRequest request, Prepared prepared,
-                                         ScopeFilter filter, Map<Long, Integer> pageDocIds,
-                                         Map<String, Object> config) throws Exception {
-        List<EvalCase> cases = prepared.cases;
-        CaseResult[] results = new CaseResult[cases.size()];
+    /** 心跳：刷新存活时间，并拾取其他实例写入的取消标志。 */
+    private void beat(String runId, Execution execution) {
+        try {
+            store.heartbeat(runId, clock.instant());
+            if (store.find(runId).map(EvalRunStore.RunRecord::cancelRequested).orElse(false)) execution.cancel();
+        } catch (RuntimeException e) {
+            log.warn("eval heartbeat failed run={} reason={}", runId, e.getMessage());
+        }
+    }
+
+    /**
+     * 工作线程只计算结果；runner 线程统一写检查点并上报，因此取消（中断工作线程）不会波及其他题的上报。
+     * 取消后完成的题返回 null 被丢弃；取消前已完成但尚未收取的结果仍会保存。
+     */
+    private void evaluateAll(CurrentUser user, Prepared prepared, ScopeFilter filter, List<EvalCase> cases,
+                             Execution execution) throws InterruptedException {
+        EvalRunStore.RunMeta meta = prepared.meta();
         ExecutorService pool = Executors.newFixedThreadPool(concurrency,
                 Thread.ofPlatform().name("eval-case-", 0).daemon(true).factory());
+        execution.pool = pool;
+        if (execution.cancelled.get()) pool.shutdownNow();
+        CompletionService<CaseResult> completion = new ExecutorCompletionService<>(pool);
+        int submitted = 0;
         try {
-            List<Future<?>> futures = new ArrayList<>();
-            for (int i = 0; i < cases.size(); i++) {
-                int index = i;
-                futures.add(pool.submit(() -> {
-                    CaseResult result = evaluate(user, request.kbId(), filter, pageDocIds, cases.get(index));
-                    results[index] = result;
-                    if (!request.localOnly()) {
-                        report.recordTrace(trace(prepared.state, cases.get(index), result, config));
-                    }
-                    prepared.state.completed.incrementAndGet();
-                }));
+            for (EvalCase evalCase : cases) {
+                try {
+                    completion.submit(() -> {
+                        CaseResult result = evaluate(user, meta.kbId(), filter, prepared.pageDocIds(), evalCase);
+                        return execution.cancelled.get() ? null : result;
+                    });
+                    submitted++;
+                } catch (RejectedExecutionException e) {
+                    break; // 已取消
+                }
             }
-            for (Future<?> future : futures) future.get();
+            for (int received = 0; received < submitted && !execution.cancelled.get(); ) {
+                Future<CaseResult> future = completion.poll(POLL_MILLIS, TimeUnit.MILLISECONDS);
+                if (future == null) continue;
+                received++;
+                accept(prepared, future, execution);
+            }
+            if (execution.cancelled.get()) {
+                Future<CaseResult> future;
+                while ((future = completion.poll()) != null) accept(prepared, future, execution);
+            }
         } finally {
             pool.shutdownNow();
         }
-        return List.of(results);
+    }
+
+    private void accept(Prepared prepared, Future<CaseResult> future, Execution execution) {
+        CaseResult result;
+        try {
+            result = future.get();
+        } catch (ExecutionException | CancellationException | InterruptedException e) {
+            return;
+        }
+        if (result == null) return;
+        EvalRunStore.RunMeta meta = prepared.meta();
+        store.saveCase(meta.runId(), result);
+        if (!meta.localOnly()) report.recordTrace(trace(meta, prepared.size(), result.evalCase(), result));
     }
 
     CaseResult evaluate(CurrentUser user, long kbId, ScopeFilter filter, Map<Long, Integer> pageDocIds,
@@ -289,10 +495,13 @@ public class EvalRunService {
         }
     }
 
-    private EvalReportPort.TraceRecord trace(RunState state, EvalCase evalCase, CaseResult result,
-                                             Map<String, Object> config) {
-        String traceId = UUID.nameUUIDFromBytes((state.runName + ":" + evalCase.id())
-                .getBytes(StandardCharsets.UTF_8)).toString();
+    static String traceId(String runName, String caseId) {
+        return UUID.nameUUIDFromBytes((runName + ":" + caseId).getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    private EvalReportPort.TraceRecord trace(EvalRunStore.RunMeta meta, EvalDatasetSize size, EvalCase evalCase,
+                                             CaseResult result) {
+        String traceId = traceId(meta.runName(), evalCase.id());
         Instant now = Instant.now();
         List<EvalReportPort.SpanRecord> spans = new ArrayList<>();
         List<EvalReportPort.ScoreRecord> scores = new ArrayList<>();
@@ -337,8 +546,8 @@ public class EvalRunService {
         output.put("outcome", result.outcome());
         output.put("answer", result.answer());
         return new EvalReportPort.TraceRecord(traceId, "eval:" + evalCase.id(),
-                Map.of("query", evalCase.query()), output, metadata, List.of("rag-eval", state.size.label()),
-                spans, scores, EvalDatasetSyncService.itemId(state.size, evalCase), state.runName, config);
+                Map.of("query", evalCase.query()), output, metadata, List.of("rag-eval", size.label()),
+                spans, scores, EvalDatasetSyncService.itemId(size, evalCase), meta.runName(), meta.config());
     }
 
     private static List<String> aliases(EvalCase evalCase, Set<Integer> groups) {
@@ -346,9 +555,9 @@ public class EvalRunService {
                 .map(group -> evalCase.keywords().get(group).get(0)).toList();
     }
 
-    private Map<String, Object> configSnapshot(StartRequest request, RunState state) {
+    private Map<String, Object> configSnapshot(StartRequest request, EvalDatasetSize size) {
         Map<String, Object> config = new LinkedHashMap<>();
-        config.put("dataset", state.size.label());
+        config.put("dataset", size.label());
         config.put("kbId", request.kbId());
         config.put("notes", request.notes() == null ? "" : request.notes());
         config.put("baseBranchTopK", budgets.baseBranchTopK);

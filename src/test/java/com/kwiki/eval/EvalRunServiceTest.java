@@ -10,10 +10,8 @@ import com.kwiki.testutil.StandardTestProperties;
 import com.kwiki.wiki.access.AuthorizationScope;
 import com.kwiki.wiki.access.AuthorizationScopeResolver;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -30,8 +28,7 @@ import static org.mockito.Mockito.when;
 
 class EvalRunServiceTest {
 
-    @TempDir
-    Path reports;
+    final InMemoryEvalRunStore store = new InMemoryEvalRunStore();
     final CurrentUser admin = new CurrentUser(1L, "admin", true);
     final EvalDatasetLoader loader = mock(EvalDatasetLoader.class);
     final BaselineRetrievalProbe baseline = mock(BaselineRetrievalProbe.class);
@@ -61,10 +58,10 @@ class EvalRunServiceTest {
         when(scopes.resolve(eq(admin), eq(Set.of(7L)), eq(Set.of())))
                 .thenReturn(new AuthorizationScope(1L, false, Set.of(7L), Map.of()));
         return new EvalRunService(loader, baseline, workflow, scopes, corpus, report,
-                new EvalReportWriter(new ObjectMapper(), reports.toString()),
+                store,
                 new KwikiDistributedLocks(StandardTestProperties.nullProvider()),
                 new QaRetrievalBudgets(20, 8, 50, 20, 8, 16, 12000, 24000, 24000),
-                2, List.of("无法回答", "没有相关信息"));
+                2, List.of("无法回答", "没有相关信息"), Clock.systemUTC());
     }
 
     void stubCases() {
@@ -89,12 +86,13 @@ class EvalRunServiceTest {
     }
 
     @Test
-    void runScoresReportsAndWritesLocalReport() throws Exception {
+    void runScoresReportsAndStoresReport() throws Exception {
         stubCases();
+        var service = service();
 
-        var status = service().runNow(admin, new EvalRunService.StartRequest("50q", 7L, "run-a", "基线", false));
+        var status = service.runNow(admin, new EvalRunService.StartRequest("50q", 7L, "run-a", "基线", false));
 
-        assertThat(status.state()).isEqualTo(EvalRunService.State.COMPLETED);
+        assertThat(status.state()).isEqualTo(EvalRunState.COMPLETED);
         assertThat(status.total()).isEqualTo(3);
         assertThat(status.completed()).isEqualTo(3);
         EvalSummary summary = status.summary();
@@ -109,9 +107,9 @@ class EvalRunServiceTest {
                 .contains("kwiki-rag-50q:p-1");
         assertThat(report.traces).extracting(EvalReportPort.TraceRecord::runName).containsOnly("run-a");
         assertThat(report.flushes).isEqualTo(1);
-        Path file = Path.of(status.reportPath());
-        assertThat(file).exists();
-        assertThat(Files.readString(file)).contains("\"runName\" : \"run-a\"").contains("p-err");
+        assertThat(store.cases(status.runId())).containsOnlyKeys("p-1", "p-err", "n-1");
+        String json = new ObjectMapper().writeValueAsString(service.report(status.runId()));
+        assertThat(json).contains("\"runName\":\"run-a\"").contains("p-err").contains("\"summary\"");
     }
 
     @Test
@@ -129,7 +127,8 @@ class EvalRunServiceTest {
                         List.of(segment(1L, "本公司披露了年度环境信息"), segment(2L, "排放量为10,000吨")),
                         List.of()));
 
-        var status = service().runNow(admin, new EvalRunService.StartRequest("50q", 7L, "run-src", null, false));
+        var service = service();
+        var status = service.runNow(admin, new EvalRunService.StartRequest("50q", 7L, "run-src", null, false));
 
         EvalSummary summary = status.summary();
         assertThat(summary.overall().get("bm25@50").coverage()).isZero();
@@ -145,7 +144,8 @@ class EvalRunServiceTest {
                         .containsEntry("matched", List.of()));
         assertThat(trace.spans()).filteredOn(span -> span.name().equals("answer")).singleElement()
                 .satisfies(span -> assertThat(span.output()).doesNotContainKey("nonSourceFiltered"));
-        assertThat(Files.readString(Path.of(status.reportPath()))).contains("\"nonSourceFiltered\"");
+        assertThat(new ObjectMapper().writeValueAsString(service.report(status.runId())))
+                .contains("\"nonSourceFiltered\"");
     }
 
     @Test
@@ -174,21 +174,22 @@ class EvalRunServiceTest {
 
         var status = service().runNow(admin, new EvalRunService.StartRequest("50q", 7L, null, null, true));
 
-        assertThat(status.state()).isEqualTo(EvalRunService.State.COMPLETED);
+        assertThat(status.state()).isEqualTo(EvalRunState.COMPLETED);
         assertThat(status.runName()).startsWith("50q-");
         assertThat(report.traces).isEmpty();
         assertThat(report.flushes).isZero();
     }
 
     @Test
-    void langfuseFailureMarksReportPartialButKeepsLocalReport() {
+    void langfuseFailureMarksReportPartialButKeepsStoredResults() {
         stubCases();
         report.failFlush = true;
 
         var status = service().runNow(admin, new EvalRunService.StartRequest("50q", 7L, "run-b", null, false));
 
-        assertThat(status.state()).isEqualTo(EvalRunService.State.REPORT_PARTIAL);
-        assertThat(Path.of(status.reportPath())).exists();
+        assertThat(status.state()).isEqualTo(EvalRunState.REPORT_PARTIAL);
+        assertThat(status.reportPartial()).isTrue();
+        assertThat(store.caseCount(status.runId())).isEqualTo(3);
     }
 
     @Test
@@ -217,14 +218,14 @@ class EvalRunServiceTest {
         var service = service();
 
         var first = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-c", null, true));
-        assertThat(first.state()).isEqualTo(EvalRunService.State.RUNNING);
+        assertThat(first.state()).isEqualTo(EvalRunState.RUNNING);
         assertThatThrownBy(() -> service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-d", null, true)))
                 .isInstanceOf(EvalException.class).hasMessageContaining("eval-busy");
         gate.countDown();
-        for (int i = 0; i < 50 && service.status(first.runId()).state() == EvalRunService.State.RUNNING; i++) {
+        for (int i = 0; i < 50 && service.status(first.runId()).state() == EvalRunState.RUNNING; i++) {
             Thread.sleep(100);
         }
-        assertThat(service.status(first.runId()).state()).isEqualTo(EvalRunService.State.COMPLETED);
+        assertThat(service.status(first.runId()).state()).isEqualTo(EvalRunState.COMPLETED);
     }
 
     @Test
