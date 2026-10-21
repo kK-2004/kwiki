@@ -14,7 +14,6 @@
 | `kwiki.langfuse.max-requests-per-minute` | `90` | 客户端主动限速；Langfuse Cloud 公共 API 默认 100 次/分钟，升级套餐后可调高 |
 | `kwiki.eval.concurrency` | `2` | 同时评测的题数（1~8），受模型限流约束 |
 | `kwiki.eval.report-dir` | `./eval-reports` | 本地报告目录 |
-| `kwiki.eval.refusal-phrases` | `无法回答,信息不足,未找到相关,没有相关信息` | 负样本拒答判定短语 |
 
 未配置 key 时应用正常启动；评测只能以 `localOnly=true` 运行。上报的 trace 含文档片段与回答，
 评测知识库只放公开数据集与明确同意上传的文档。
@@ -41,7 +40,7 @@
 - 首次丢失层（trace metadata `losses` 与报告 `lossMatrix`）：
   `GENERATION_MISS`（上下文有、回答无）、`RECALL_MISS`（两路 Top-50 都没有）、`RANK_MISS_20`、`RANK_MISS_8`、`CONTEXT_MISS`（在 Top-8 却没进最终上下文）。
 - `contextGains`：基线候选池没有、但改写/图增强后进入上下文的关键词组数。
-- 负样本 `refusal`：终态 insufficient 或回答含拒答短语记 1。
+- 负样本 `refusal`：终态 insufficient，或回答匹配 `RefusalDetector.DEFAULT_PATTERNS` 中的拒答表达（如「无法确定」「未明确说明」「没有提供」「未记载」）记 1；分数备注写明命中的原文片段，便于人工核对。
 - 回答层受生成温度（0.2）影响有少量波动，结论性对比建议同配置跑两次。
 
 ## 4. 对比改进

@@ -20,7 +20,6 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
@@ -101,17 +100,15 @@ public class EvalRunService {
     public EvalRunService(EvalDatasetLoader loader, BaselineRetrievalProbe baseline, WorkflowProbe workflow,
                           AuthorizationScopeResolver scopes, EvalCorpusService corpus, EvalReportPort report,
                           EvalReportWriter writer, KwikiDistributedLocks locks, QaRetrievalBudgets budgets,
-                          @Value("${kwiki.eval.concurrency:2}") int concurrency,
-                          @Value("${kwiki.eval.refusal-phrases:无法回答,信息不足,未找到相关,没有相关信息}")
-                          String refusalPhrases) {
+                          @Value("${kwiki.eval.concurrency:2}") int concurrency) {
         this(loader, baseline, workflow, scopes, corpus, report, writer, locks, budgets, concurrency,
-                Arrays.stream(refusalPhrases.split(",")).map(String::trim).toList());
+                RefusalDetector.DEFAULT_PATTERNS);
     }
 
     EvalRunService(EvalDatasetLoader loader, BaselineRetrievalProbe baseline, WorkflowProbe workflow,
                    AuthorizationScopeResolver scopes, EvalCorpusService corpus, EvalReportPort report,
                    EvalReportWriter writer, KwikiDistributedLocks locks, QaRetrievalBudgets budgets,
-                   int concurrency, List<String> refusalPhrases) {
+                   int concurrency, List<String> refusalPatterns) {
         this.loader = loader;
         this.baseline = baseline;
         this.workflow = workflow;
@@ -122,7 +119,7 @@ public class EvalRunService {
         this.locks = locks;
         this.budgets = budgets;
         this.concurrency = Math.max(1, Math.min(concurrency, 8));
-        this.refusal = new RefusalDetector(refusalPhrases);
+        this.refusal = new RefusalDetector(refusalPatterns);
     }
 
     /** 校验后异步启动；同一时刻只允许一个 run。 */
@@ -303,7 +300,8 @@ public class EvalRunService {
             scores.add(new EvalReportPort.ScoreRecord("error", 1, result.errorCode()));
         } else if (evalCase.negative()) {
             scores.add(new EvalReportPort.ScoreRecord("refusal",
-                    Boolean.TRUE.equals(result.refusedCorrectly()) ? 1 : 0, result.outcome()));
+                    Boolean.TRUE.equals(result.refusedCorrectly()) ? 1 : 0,
+                    refusal.reason(result.outcome(), result.answer()).orElse("no-refusal outcome=" + result.outcome())));
         } else {
             for (EvalLayer layer : EvalLayer.values()) {
                 Map<String, Object> output = new LinkedHashMap<>();
