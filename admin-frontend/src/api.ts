@@ -49,6 +49,12 @@ export interface EvalRunStatus{runId:string;runName:string;dataset:string;state:
 export interface EvalDeleteResult{langfuseDeleted:boolean;langfuseError:string|null}
 export interface EvalStartRequest{dataset:EvalDataset;kbId:number;runName?:string;notes?:string;localOnly:boolean}
 export interface EvalImportResult{createdPageIds:number[];skippedTitles:string[]}
+export type UsageSourceName="ONLINE"|"EVAL"|"BACKGROUND";
+export interface UsageSeries{step:string;stepLabel:string;provider:string;model:string;calls:number[];failures:number[];inputTokens:number[];outputTokens:number[];latencyMs:number[]}
+export interface UsageSeriesResponse{bucketSeconds:number;buckets:number[];series:UsageSeries[]}
+export interface UsageUser{userId:number;displayName:string;totalTokens:number}
+export interface UsageQuery{from:string;to:string;sources?:UsageSourceName[];users?:number[];bucket?:string;tzOffsetMinutes?:number}
+const usageParams=(q:UsageQuery)=>{const p=new URLSearchParams({from:q.from,to:q.to});if(q.sources?.length)p.set("sources",q.sources.join(","));if(q.users?.length)p.set("users",q.users.join(","));if(q.bucket)p.set("bucket",q.bucket);if(q.tzOffsetMinutes!==undefined)p.set("tzOffsetMinutes",String(q.tzOffsetMinutes));return p.toString()};
 export const FORCE_RESET_CONFIRMATION="RESET kwiki-chunks";
 export const api={
   login:(username:string,password:string)=>request<{token:string;tokenType:string;expiresInSeconds:number;user:{id:number;username:string;admin:boolean}}>("/auth/login",{method:"POST",body:JSON.stringify({username,password})}),
@@ -97,5 +103,7 @@ export const api={
   evalResumeRun:(runId:string)=>request<EvalRunStatus>(`/admin/eval/runs/${encodeURIComponent(runId)}/resume`,{method:"POST"}),
   evalDeleteRun:(runId:string,langfuse:boolean)=>request<EvalDeleteResult>(`/admin/eval/runs/${encodeURIComponent(runId)}?langfuse=${langfuse}`,{method:"DELETE"}),
   evalRunReport:(runId:string)=>request<Record<string,unknown>>(`/admin/eval/runs/${encodeURIComponent(runId)}/report`),
+  modelUsageSeries:(q:UsageQuery)=>request<UsageSeriesResponse>(`/admin/model-usage/series?${usageParams(q)}`),
+  modelUsageUsers:(q:UsageQuery)=>request<UsageUser[]>(`/admin/model-usage/users?${usageParams({from:q.from,to:q.to,sources:q.sources})}`),
   graphSubmit:(payload:Record<string,unknown>)=>graphCommand<{batchId:number;chunkIndexSchema:string;communityIndexVersion:number;runIds:number[];replayed:boolean}>("/batches",payload)
 };
