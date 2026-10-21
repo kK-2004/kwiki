@@ -152,6 +152,14 @@ class IndexingWorkerTest {
     }
 
     private void stubPageResource(long pageId, long revisionId, String markdown) {
+        stubPageResourceStubs(pageId, revisionId, markdown);
+        lenient().when(embeddings.embed(any()))
+                .thenAnswer(inv -> ((List<String>) inv.getArgument(0)).stream()
+                        .map(text -> new float[4]).toList());
+    }
+
+    /** 页面、修订与资源列举的桩；embedding 桩由各用例自行决定。 */
+    private void stubPageResourceStubs(long pageId, long revisionId, String markdown) {
         WikiPage page = new WikiPage("uuid-" + pageId, KB, null, "工程手册",
                 WikiPage.TYPE_PAGE, 0, 1L);
         org.springframework.test.util.ReflectionTestUtils.setField(page, "id", pageId);
@@ -160,9 +168,6 @@ class IndexingWorkerTest {
                 markdown, "note", 1L);
         org.springframework.test.util.ReflectionTestUtils.setField(revision, "id", revisionId);
         lenient().when(revisions.findById(revisionId)).thenReturn(Optional.of(revision));
-        lenient().when(embeddings.embed(any()))
-                .thenAnswer(inv -> ((List<String>) inv.getArgument(0)).stream()
-                        .map(text -> new float[4]).toList());
         lenient().when(jdbc.queryForList(anyString(), eq(Long.class), eq(1L)))
                 .thenReturn(List.of(101L));
     }
@@ -185,6 +190,24 @@ class IndexingWorkerTest {
                 assertThat(child.parentKey()).startsWith("PAGE:7:103:P"));
         // 目标级完成：目标行进入 COMPLETED
         verify(jdbc).update(contains("indexing_job_target SET state = 'COMPLETED'"), eq(1L));
+    }
+
+    @Test
+    void 索引向量在索引向量作用域内生成() {
+        stubPageResourceStubs(7L, 103L, "# 标题\n\n" + "内容甲".repeat(100));
+        java.util.List<String> steps = new java.util.ArrayList<>();
+        lenient().when(embeddings.embed(any())).thenAnswer(invocation -> {
+            steps.add(com.kwiki.usage.ModelUsageContext.resolve().step());
+            return ((List<String>) invocation.getArgument(0)).stream()
+                    .map(text -> new float[4]).toList();
+        });
+
+        worker.process(targetRow(1L, "UPSERT", "PAGE", 7L, 103L), new IndexingWorker.JobIntermediates());
+
+        assertThat(steps).isNotEmpty();
+        assertThat(steps).allMatch(com.kwiki.usage.UsageSteps.INDEX_EMBEDDING::equals);
+        // 作用域在写入结束后被释放
+        assertThat(com.kwiki.usage.ModelUsageContext.resolve().step()).isNull();
     }
 
     @Test

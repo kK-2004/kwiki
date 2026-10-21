@@ -20,8 +20,23 @@ import java.util.List;
  * 凭据来自模型目录。请求会批量处理，仅在截止时间（deadline）内对瞬时状态（429/5xx）
  * 重试，且每个返回的向量在使用前都会进行维度校验。错误中绝不
  * 包含 API key。
+ *
+ * <p>用量采集：每批 HTTP 请求记一条用量事件，调用数按批次计。
  */
 public class QwenEmbeddingClient implements ChunkEmbeddingPort {
+
+    /** provider 非瞬时拒绝（HTTP 4xx）；错误码形如 rejected-400。 */
+    private static final String ERROR_REJECTED_PREFIX = "rejected-";
+    /** 瞬时状态（429/5xx）重试耗尽仍未成功。 */
+    private static final String ERROR_RETRIES_EXHAUSTED = "retries-exhausted";
+    /** 返回向量的维度与配置维度不符（客户端自身校验，不是 provider 故障）。 */
+    private static final String ERROR_DIMENSION_MISMATCH = "dimension-mismatch";
+    /** 返回的向量条数与请求条数不符（provider 返回内容异常）。 */
+    private static final String ERROR_COUNT_MISMATCH = "count-mismatch";
+    /** 调用线程被中断。 */
+    private static final String ERROR_CANCELLED = "cancelled";
+    /** 其他请求失败（含运行上下文的取消或超时）。 */
+    private static final String ERROR_REQUEST_FAILED = "request-failed";
 
     private final WebClient webClient;
     private final String model;
@@ -78,6 +93,25 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
     private record BatchResult(List<float[]> vectors, int promptTokens) {
     }
 
+    /**
+     * 携带稳定错误码的失败：把 provider 拒绝、重试耗尽、维度/数量不匹配等区分开，
+     * 便于用量聚合按失败原因统计（错误码即 {@code UsageEvent.errorType()}）。
+     */
+    private static final class EmbeddingFailure extends IllegalStateException {
+
+        private final String errorType;
+
+        EmbeddingFailure(String errorType, String message) {
+            super(message);
+            this.errorType = errorType;
+        }
+
+        EmbeddingFailure(String errorType, String message, Throwable cause) {
+            super(message, cause);
+            this.errorType = errorType;
+        }
+    }
+
     /** 记录一次批量请求的用量（失败也记录），任何采集异常都不影响 embedding 调用。 */
     private List<float[]> embedBatch(List<String> batch) {
         long started = System.nanoTime();
@@ -86,7 +120,7 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
             recordUsage(started, result.promptTokens(), true, null);
             return result.vectors();
         } catch (RuntimeException e) {
-            recordUsage(started, 0, false, e.getClass().getSimpleName());
+            recordUsage(started, 0, false, errorType(e));
             throw e;
         }
     }
@@ -98,23 +132,38 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
             try {
                 var run = com.kwiki.rag.orchestration.RunContext.current();
                 if (Thread.currentThread().isInterrupted())
-                    throw new IllegalStateException("embedding cancelled");
+                    throw new EmbeddingFailure(ERROR_CANCELLED, "embedding cancelled");
                 if (run != null) run.check();
                 return callOnce(batch);
             } catch (WebClientResponseException e) {
                 if (!isTransient(e.getStatusCode().value())) {
-                    throw new IllegalStateException("embedding request rejected: " + e.getStatusCode().value()
-                            + providerReason(e) + " (batch=" + batch.size() + ")", null);
+                    throw new EmbeddingFailure(ERROR_REJECTED_PREFIX + e.getStatusCode().value(),
+                            "embedding request rejected: " + e.getStatusCode().value()
+                                    + providerReason(e) + " (batch=" + batch.size() + ")");
                 }
                 lastTransient = e;
             } catch (IllegalStateException e) {
                 throw e;
             } catch (Exception e) {
-                throw new IllegalStateException("embedding request failed", e);
+                throw new EmbeddingFailure(requestFailedCode(e), "embedding request failed", e);
             }
         }
-        throw new IllegalStateException(
+        throw new EmbeddingFailure(ERROR_RETRIES_EXHAUSTED,
                 "embedding retries exhausted after transient failures", lastTransient);
+    }
+
+    /** 失败码：稳定短码，供用量聚合区分失败原因。 */
+    private static String errorType(RuntimeException failure) {
+        if (failure instanceof EmbeddingFailure coded) return coded.errorType;
+        return ERROR_REQUEST_FAILED;
+    }
+
+    /** 运行上下文的取消/超时自带稳定码，其余归为请求失败。 */
+    private static String requestFailedCode(Exception failure) {
+        if (failure instanceof com.kwiki.rag.orchestration.RunFailure run && run.getMessage() != null) {
+            return run.getMessage();
+        }
+        return ERROR_REQUEST_FAILED;
     }
 
     private BatchResult callOnce(List<String> batch) {
@@ -131,13 +180,13 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
                                         : com.kwiki.rag.orchestration.RunContext.current()
                                                 .timeout(Duration.ofSeconds(60)));
         if (response == null || response.data() == null || response.data().size() != batch.size()) {
-            throw new IllegalStateException("embedding response count mismatch");
+            throw new EmbeddingFailure(ERROR_COUNT_MISMATCH, "embedding response count mismatch");
         }
         List<float[]> vectors = new ArrayList<>(batch.size());
         for (EmbeddingItem item : response.data()) {
             float[] vector = item.embedding();
             if (vector == null || vector.length != dimensions) {
-                throw new IllegalStateException(
+                throw new EmbeddingFailure(ERROR_DIMENSION_MISMATCH,
                         "embedding dimension mismatch: expected " + dimensions);
             }
             vectors.add(vector);
@@ -147,7 +196,10 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
         return new BatchResult(vectors, promptTokens);
     }
 
-    /** 记录一次批量请求的用量；步骤默认查询向量，索引任务通过 ModelUsageContext 覆盖为索引向量。 */
+    /**
+     * 记录一次批量请求的用量；步骤默认查询向量，索引任务通过 ModelUsageContext 覆盖为索引向量。
+     * 每批 HTTP 请求记一条用量事件，调用数按批次计。
+     */
     private void recordUsage(long startedNanos, int promptTokens, boolean success, String errorType) {
         if (recorder == null) return;
         try {
