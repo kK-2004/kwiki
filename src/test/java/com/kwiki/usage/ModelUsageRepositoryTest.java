@@ -61,6 +61,20 @@ class ModelUsageRepositoryTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void longRequestIdIsTruncatedToColumnWidth() {
+        var event = new UsageEvent(Instant.parse("2026-10-21T01:02:03.456Z"), UsageSource.ONLINE, "ANSWER",
+                "p", "m", 9, "r".repeat(120), 10, 2, 33, true, null);
+
+        repository().insertCalls(List.of(event));
+
+        ArgumentCaptor<List<Object[]>> args = ArgumentCaptor.forClass(List.class);
+        verify(jdbc).batchUpdate(anyString(), args.capture());
+        Object[] row = args.getValue().getFirst();
+        assertThat((String) row[6]).hasSize(64);
+    }
+
+    @Test
     void deletesRunInBatchesUntilNothingIsLeft() {
         when(jdbc.update(anyString(), eq(LocalDateTime.parse("2026-04-24T00:00:00"))))
                 .thenReturn(ModelUsageRepository.DELETE_BATCH, 123, 0);
