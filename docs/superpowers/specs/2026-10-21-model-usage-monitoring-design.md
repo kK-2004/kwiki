@@ -5,9 +5,9 @@
 
 ## 1. 目标与范围
 
-在管理端提供 LLM 与 embedding 的 token 用量监控：按调用来源（线上 / 评测 / 后台）区分，按步骤（`ModelPurpose` 与 embedding 步骤）× 具体模型、以及 provider-模型两个维度统计，支持任意时间范围的趋势图，默认显示当天。
+在管理端提供 LLM 与 embedding 的 token 用量监控：按调用来源（线上 / 评测 / 后台）区分、可按用户筛选，按步骤（`ModelPurpose` 与 embedding 步骤）× 具体模型、以及 provider-模型两个维度统计，支持任意时间范围的趋势图，默认显示当天。
 
-不在本期：费用（单价）换算、告警、按用户/知识库拆分。
+不在本期：费用（单价）换算、告警、按知识库筛选（一次请求可跨多个知识库或不限定知识库，归属口径不唯一）。
 
 ## 2. 维度定义
 
@@ -17,6 +17,7 @@
 | 步骤 `step` | `ModelPurpose` 全部 11 个枚举名（ROUTER、REWRITE、AGENT_PLANNER、RETRIEVAL_PLANNER、DIRECT_ANSWER、QUALITY_ANALYZER、ANSWER、SELECTION_QUESTION、GRAPH_EXTRACTION、GRAPH_SUMMARY、VISION_SUMMARY），外加 `QUERY_EMBEDDING`（查询向量）、`INDEX_EMBEDDING`（索引向量）；中文名取 `ModelPurpose.label()`，embedding 两项为「查询向量」「索引向量」 |
 | provider | 模型目录中的 provider 名称（`ModelProvider.name()`） |
 | 模型 `model` | `modelName` |
+| 用户 `user_id` | 发起调用的用户：线上为请求用户；评测为触发评测的管理员；后台任务为空（界面显示「系统」） |
 
 指标：调用数、失败数、输入 token、输出 token、总 token（输入 + 输出）、总耗时（毫秒）。embedding 只有输入 token；provider 未返回用量时 token 记 0，调用数照常累加。
 
@@ -29,7 +30,7 @@
   - `onRequest`：在调用线程上用 `ModelUsageContext.currentSource()` 判定来源，连同 `System.nanoTime()` 存入 `attributes`；
   - `onResponse`：读取 `chatResponse().tokenUsage()` 的输入/输出 token，计算耗时，提交一条成功记录；
   - `onError`：提交一条失败记录，带异常简单类名。
-- requestId：`onRequest` 时若 `RunContext.current()` 存在，取其 `requestId` 存入 `attributes`，随明细落库。
+- requestId 与用户：`onRequest` 时若 `RunContext.current()` 存在，取其 `requestId` 与 `scope.userId()` 存入 `attributes`，随记录落库；显式 `ModelUsageContext` 作用域也可携带用户 id（评测题的基线检索用触发评测的管理员）。
 
 ### 3.2 embedding
 
@@ -59,14 +60,16 @@ CREATE TABLE model_usage_minute (
   step           VARCHAR(32)  NOT NULL,
   provider       VARCHAR(128) NOT NULL,
   model          VARCHAR(128) NOT NULL,
+  user_id        BIGINT       NOT NULL DEFAULT 0, -- 0 表示系统（后台任务）
   calls          BIGINT       NOT NULL DEFAULT 0,
   failures       BIGINT       NOT NULL DEFAULT 0,
   input_tokens   BIGINT       NOT NULL DEFAULT 0,
   output_tokens  BIGINT       NOT NULL DEFAULT 0,
   latency_ms     BIGINT       NOT NULL DEFAULT 0,
-  PRIMARY KEY (bucket_start, source, step, provider, model),
+  PRIMARY KEY (bucket_start, source, step, provider, model, user_id),
   KEY idx_usage_minute_step (step, bucket_start),
-  KEY idx_usage_minute_model (provider, model, bucket_start)
+  KEY idx_usage_minute_model (provider, model, bucket_start),
+  KEY idx_usage_minute_user (user_id, bucket_start)
 );
 
 CREATE TABLE model_usage_call (
@@ -76,6 +79,7 @@ CREATE TABLE model_usage_call (
   step           VARCHAR(32)  NOT NULL,
   provider       VARCHAR(128) NOT NULL,
   model          VARCHAR(128) NOT NULL,
+  user_id        BIGINT       NOT NULL DEFAULT 0,
   request_id     VARCHAR(64)  NULL,
   input_tokens   INT          NOT NULL DEFAULT 0,
   output_tokens  INT          NOT NULL DEFAULT 0,
@@ -102,11 +106,12 @@ CREATE TABLE model_usage_call (
 
 ## 5. 查询接口（`/api/v1/admin/model-usage`，`hasRole('ADMIN')`）
 
-时间参数均为 ISO-8601 instant（前端按浏览器本地时区换算当天起止）。`sources` 为逗号分隔，缺省为全部。
+时间参数均为 ISO-8601 instant（前端按浏览器本地时区换算当天起止）。`sources` 为逗号分隔，缺省为全部；`users` 为逗号分隔的用户 id（`0` 表示系统），缺省为全部。下列接口都接受 `users`。
 
 | 接口 | 说明 |
 |---|---|
-| `GET /dimensions?from&to&sources` | 返回范围内出现过的组合：`steps: [{step, label, models: [{provider, model}]}]` 与 `models: [{provider, model, steps: [{step, label}]}]` |
+| `GET /users?from&to&sources` | 范围内有调用的用户：`[{userId, displayName, totalTokens}]`，按用量降序；`userId=0` 显示为「系统」；显示名关联 `app_user.display_name` |
+| `GET /dimensions?from&to&sources&users` | 返回范围内出现过的组合：`steps: [{step, label, models: [{provider, model}]}]` 与 `models: [{provider, model, steps: [{step, label}]}]` |
 | `GET /series?from&to&sources&groupBy&selection&metric&bucket` | `groupBy=step\|model`；`selection` 为选中的叶子（`step:provider:model` 三元组列表，JSON 编码），为空表示全部；`metric=total\|input\|output\|calls\|failures`；`bucket=auto\|5m\|1h\|1d`（auto：范围 ≤ 1 天用 5m，≤ 7 天用 1h，否则 1d）。返回 `buckets: [instant]` 与 `series: [{key, label, values: [long]}]`，缺失桶补 0。groupBy=step 时每个步骤一条线（勾选到模型时按「步骤 / 模型」拆线）；groupBy=model 时每个模型一条线（勾选到步骤时按「模型 / 步骤」拆线） |
 | `GET /summary?from&to&sources&groupBy&selection` | 汇总卡片：总 token、输入、输出、调用数、失败数、失败率、平均耗时；明细行按所选维度聚合同样字段 |
 
@@ -119,6 +124,7 @@ CREATE TABLE model_usage_call (
 - 控制栏：
   - 时间：今天（默认）/ 昨天 / 近 7 天 / 近 30 天 / 自定义（`el-date-picker` datetimerange）；
   - 来源：线上 / 评测 / 后台（多选，默认全选）；
+  - 用户：可搜索多选下拉（选项来自 `/users`，显示名与用量），默认全部；
   - 指标：总 token / 输入 / 输出 / 调用数 / 失败数；
   - 维度：「按步骤」与「按模型」切换，各配一个可勾选的 `el-tree`（步骤 → 模型；provider/模型 → 步骤），默认全选；
   - 图表类型：折线 / 堆叠面积。
@@ -134,6 +140,6 @@ CREATE TABLE model_usage_call (
 
 ## 8. 测试
 
-- 后端单测：来源判定顺序；监听器解析 token、记录失败、取 requestId；embedding usage 解析与缺失处理；预聚合与 upsert 累加（同分钟同组合）；series 分桶、补 0、自动升粒度；dimensions 两棵树；清理只删过期行。
+- 后端单测：来源判定顺序；用户 id 取值（线上、评测、后台为 0）与按用户过滤；监听器解析 token、记录失败、取 requestId；embedding usage 解析与缺失处理；预聚合与 upsert 累加（同分钟同组合）；series 分桶、补 0、自动升粒度；dimensions 两棵树；清理只删过期行。
 - 集成：`ModelUsageFlusher` 对 MySQL 的 upsert 语句在 external-it 下验证；离线测试用 H2 兼容模式或 JdbcTemplate mock 校验 SQL。
 - 前端：`formatTokens` 边界值；树勾选 → `selection` 参数转换；页面渲染（图表组件 mock）；默认今天与本地时区起止。
