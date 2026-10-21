@@ -122,6 +122,14 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
     }
 
     @Override
+    public ChunkEmbeddingPort embedding(String providerName, String baseUrl, String apiKey, Duration timeout,
+                                        String modelName, int dimensions, int maxRetries, int batchSize,
+                                        Map<String, Object> parameters) {
+        return new QwenEmbeddingClient(webClient(baseUrl, apiKey, timeout), modelName, dimensions,
+                batchSize, maxRetries, parameters, providerName, usageRecorder);
+    }
+
+    @Override
     public Integer probeOutputLimit(String baseUrl, String apiKey, Duration timeout, String modelName) {
         WebClient client = webClient(baseUrl, apiKey, timeout);
         Duration probeTimeout = timeout.compareTo(Duration.ofSeconds(15)) < 0 ? timeout : Duration.ofSeconds(15);

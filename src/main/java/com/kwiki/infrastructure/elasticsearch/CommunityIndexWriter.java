@@ -48,8 +48,11 @@ public class CommunityIndexWriter {
             throw new IllegalArgumentException("一次批写不能混合多个社区物理索引");
         }
         List<String> texts = requests.stream().map(CommunityIndexWriter::embeddingText).toList();
-        List<float[]> vectors = limiter == null ? embeddings.embed(texts)
-                : limiter.execute(() -> embeddings.embed(texts));
+        List<float[]> vectors;
+        try (var usage = com.kwiki.usage.ModelUsageContext.open(com.kwiki.usage.UsageSource.BACKGROUND, 0L,
+                com.kwiki.usage.UsageSteps.INDEX_EMBEDDING)) {
+            vectors = limiter == null ? embeddings.embed(texts) : limiter.execute(() -> embeddings.embed(texts));
+        }
         if (vectors.size() != requests.size()) {
             throw new IllegalStateException("社区摘要 embedding 数量不匹配");
         }

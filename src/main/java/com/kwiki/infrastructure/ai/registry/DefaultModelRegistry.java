@@ -171,7 +171,7 @@ public class DefaultModelRegistry implements ModelRegistry {
             EmbeddingBinding binding = previous.embeddingsByFingerprint.get(fingerprint);
             if (binding == null) {
                 binding = new EmbeddingBinding(provider.name(), model.modelName(), model.dimensions(),
-                        factory.embedding(provider.baseUrl(), apiKey, timeout, model.modelName(),
+                        factory.embedding(provider.name(), provider.baseUrl(), apiKey, timeout, model.modelName(),
                                 model.dimensions(), provider.maxRetries(), batchSize, parameters));
             }
             embeddingsByFingerprint.put(fingerprint, binding);

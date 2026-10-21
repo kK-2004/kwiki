@@ -397,7 +397,10 @@ public class IndexingWorker {
                     "model", pipeline.embeddingModel(),
                     "dimensions", String.valueOf(pipeline.embeddingDimensions()))
                     .increment();
-            return pipeline.embeddings().embed(childTexts);
+            try (var usage = com.kwiki.usage.ModelUsageContext.open(com.kwiki.usage.UsageSource.BACKGROUND, 0L,
+                    com.kwiki.usage.UsageSteps.INDEX_EMBEDDING)) {
+                return pipeline.embeddings().embed(childTexts);
+            }
         });
         if (vectors.size() != children.size()) {
             throw new IllegalStateException("embedding count mismatch");
