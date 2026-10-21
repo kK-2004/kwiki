@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // 由 dragonball-sample.json 生成 kwiki-rag.jsonl 的关键词组：从标准答案抽取必需信息单元
 // （日期、数字+单位、中文数词、量刑短语），短语挖掘兜底；别名做千分位/万吨/补零扩展。
+// 与 sample 同目录的 keyword-overrides.json 按 id 整体覆盖自动抽取结果（人工审阅后的关键词）。
 // 生成后逐题执行与 EvalDatasetFileTest 相同的校验，任何一条不满足即失败。
 // 用法：node tools/eval/build-kwiki-rag.mjs <dragonball-sample.json> <语料目录> <输出 jsonl>
-import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 const [samplePath, corpusDir, outputPath] = process.argv.slice(2);
 if (!samplePath || !corpusDir || !outputPath) {
@@ -26,7 +27,7 @@ for (const entry of manifest) {
   documents.set(entry.docId, normalize(readFileSync(join(corpusDir, entry.file), 'utf8')));
 }
 
-const UNITS = ['万元', '亿元', '万美元', '吨', '千克', '公斤', '克', '公里', '千米', '米',
+const UNITS = ['万元', '亿元', '万美元', '亿美元', '吨', '千克', '公斤', '克', '公里', '千米', '米',
   '平方米', '万平方米', '%', '°C', '°c', '℃', '度', '岁', '人', '次', '名', '位', '起', '项', '家',
   '笔', '份', '台', '辆', '只', '头', '倍', '小时', '天', '周', '月', '日', '年', '股', '款', '宗', '元'];
 
@@ -106,12 +107,33 @@ function minePhrases(answer, doc, queryNorm) {
 const sample = JSON.parse(readFileSync(samplePath, 'utf8'));
 const lines = [];
 const problems = [];
+
+// 人工覆盖：{ "<id>": { "keywords": [[别名...], ...], "reason": "..." } }，以下划线开头的键为说明
+const overridesPath = join(dirname(samplePath), 'keyword-overrides.json');
+const overrides = existsSync(overridesPath)
+  ? Object.fromEntries(Object.entries(JSON.parse(readFileSync(overridesPath, 'utf8'))).filter(([id]) => !id.startsWith('_')))
+  : {};
+const caseIds = new Set(sample.cases.map((sample_case) => sample_case.id));
+for (const [id, override] of Object.entries(overrides)) {
+  if (!caseIds.has(id)) problems.push(`override ${id}: 测试集中没有这道题`);
+  if (!Array.isArray(override.keywords)) problems.push(`override ${id}: 缺少 keywords`);
+  if (!override.reason) problems.push(`override ${id}: 缺少 reason`);
+}
 for (const sample_case of sample.cases) {
   if (sample_case.negative) {
     lines.push(JSON.stringify({
       id: sample_case.id, source: 'dragonball', tier: sample_case.tier, category: sample_case.category,
       domain: sample_case.domain, query: sample_case.query, keywords: [], negative: true,
       sourceDocIds: sample_case.sourceDocIds, keypoints: sample_case.keypoints,
+    }));
+    if (overrides[sample_case.id]) problems.push(`override ${sample_case.id}: 负样本不应有关键词`);
+    continue;
+  }
+  if (overrides[sample_case.id]) {
+    lines.push(JSON.stringify({
+      id: sample_case.id, source: 'dragonball', tier: sample_case.tier, category: sample_case.category,
+      domain: sample_case.domain, query: sample_case.query, keywords: overrides[sample_case.id].keywords,
+      negative: false, sourceDocIds: sample_case.sourceDocIds, keypoints: sample_case.keypoints,
     }));
     continue;
   }
@@ -223,6 +245,7 @@ for (const row of dataset) {
   const queryNorm = normalize(row.query);
   const corpusNorm = row.sourceDocIds.map((id) => documents.get(id) || '').join('\u0000');
   if (!row.negative && row.keywords.length === 0) problems.push(`${row.id}: 非负样本没有关键词组`);
+  if (row.keywords.length > 6) problems.push(`${row.id}: 关键词组超过 6 个`);
   for (const group of row.keywords) {
     if (group.length === 0) problems.push(`${row.id}: 空关键词组`);
     for (const alias of group) {
