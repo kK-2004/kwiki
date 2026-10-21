@@ -66,7 +66,8 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
                 .temperature(spec.temperature())
                 .maxRetries(0)
                 .timeout(spec.timeout())
-                .httpClientBuilder(httpClient());
+                .httpClientBuilder(httpClient())
+                .listeners(List.of(new ModelCallErrorLogger(spec.baseUrl(), spec.modelName())));
         if (spec.maxTokens() != null) builder.maxTokens(spec.maxTokens());
         if (!spec.customParameters().isEmpty()) builder.customParameters(spec.customParameters());
         return builder.build();
@@ -82,7 +83,8 @@ public class OpenAiModelClientFactory implements ModelClientFactory {
                 .strictJsonSchema(true)
                 .temperature(spec.temperature())
                 .timeout(spec.timeout())
-                .httpClientBuilder(httpClient());
+                .httpClientBuilder(httpClient())
+                .listeners(List.of(new ModelCallErrorLogger(spec.baseUrl(), spec.modelName())));
         if (spec.maxTokens() != null) builder.maxTokens(spec.maxTokens());
         if (!spec.customParameters().isEmpty()) builder.customParameters(spec.customParameters());
         return builder.build();

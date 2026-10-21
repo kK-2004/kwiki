@@ -80,7 +80,7 @@ public class StreamingAnswerLlmAdapter implements AnswerLlmPort {
                                                             if (!sink.isCancelled())
                                                                 sink.error(
                                                                         new RunFailure(
-                                                                                "answer-provider-failed"));
+                                                                                "answer-provider-failed", error));
                                                         }
                                                     });
                                         } catch (Exception e) {
