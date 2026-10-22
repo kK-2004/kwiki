@@ -33,11 +33,37 @@ public final class ModelCallErrorLogger implements ChatModelListener {
     @Override
     public void onError(ChatModelErrorContext context) {
         Throwable error = context.error();
+        if (isCancellation(error)) {
+            // 用户中断或运行取消：不是 provider 故障
+            log.debug("model call cancelled model={} endpoint={}", modelName, endpoint);
+            return;
+        }
         HttpException http = findHttp(error);
+        if (http != null && http.statusCode() == 400 && requestsJsonSchema(context)
+                && http.getMessage() != null && http.getMessage().toLowerCase().contains("response_format")) {
+            // 预期内：模型不支持 json_schema，调用方会回退到 json_object
+            log.info("model rejected json_schema structured output, caller falls back to json_object "
+                    + "model={} endpoint={} detail={}", modelName, endpoint, detail(http));
+            return;
+        }
         Throwable reported = http != null ? http : rootCause(error);
         log.error("model provider call failed model={} endpoint={} errorType={} status={} detail={}",
                 modelName, endpoint, reported.getClass().getSimpleName(),
                 http == null ? "-" : String.valueOf(http.statusCode()), detail(reported));
+    }
+
+    private static boolean isCancellation(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause() == current ? null : current.getCause()) {
+            if (current instanceof InterruptedException) return true;
+            if (current instanceof com.kwiki.rag.orchestration.RunFailure failure
+                    && com.kwiki.rag.orchestration.AgenticErrorCodes.CANCELLED.equals(failure.getMessage())) return true;
+        }
+        return false;
+    }
+
+    private static boolean requestsJsonSchema(ChatModelErrorContext context) {
+        var request = context.chatRequest();
+        return request != null && request.responseFormat() != null && request.responseFormat().jsonSchema() != null;
     }
 
     private static HttpException findHttp(Throwable error) {

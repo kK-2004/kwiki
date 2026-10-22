@@ -274,11 +274,26 @@ public final class CancellableModelHttpClient implements HttpClient {
         String template = "model transport failed operation={} requestId={} method={} host={} path={} model={} "
                 + "statusCode={} structuredOutput={} structuredOutputMode={} thinkingMode={} "
                 + "terminationReason={} errorClass={} error={}";
-        if ("cancelled".equals(terminationReason)) {
+        boolean cancelled = "cancelled".equals(terminationReason) || isInterruption(error);
+        boolean jsonSchemaUnsupported = statusCode != null && statusCode == 400
+                && "json-schema".equals(structuredOutputMode)
+                && message != null && message.toLowerCase().contains("response_format");
+        if (cancelled) {
             log.debug(template, fields);
+        } else if (jsonSchemaUnsupported) {
+            // 预期内：调用方会回退到 json_object
+            log.info(template, fields);
         } else {
             log.warn(template, fields);
         }
+    }
+
+    private static boolean isInterruption(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause() == current ? null : current.getCause()) {
+            if (current instanceof InterruptedException) return true;
+            if (current instanceof RunFailure failure && "cancelled".equals(failure.getMessage())) return true;
+        }
+        return false;
     }
 
     private static final java.util.regex.Pattern MODEL_FIELD =

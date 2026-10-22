@@ -76,4 +76,38 @@ class ModelCallErrorLoggerTest {
         assertThat(appender.list.getFirst().getFormattedMessage())
                 .contains("status=-").contains("ConnectException").contains("Connection refused");
     }
+
+    @Test
+    void jsonSchemaRejectionIsAnExpectedFallbackLoggedAtInfo() {
+        var request = ChatRequest.builder().messages(UserMessage.from("问题"))
+                .responseFormat(dev.langchain4j.model.chat.request.ResponseFormat.builder()
+                        .type(dev.langchain4j.model.chat.request.ResponseFormatType.JSON)
+                        .jsonSchema(dev.langchain4j.model.chat.request.json.JsonSchema.builder().name("q")
+                                .rootElement(dev.langchain4j.model.chat.request.json.JsonObjectSchema.builder().build())
+                                .build())
+                        .build())
+                .build();
+        new ModelCallErrorLogger("https://x/v1", "deepseek").onError(new ChatModelErrorContext(
+                new HttpException(400, "model request rejected: This response_format type is unavailable now"),
+                request, ModelProvider.OPEN_AI, new HashMap<>()));
+
+        assertThat(appender.list).hasSize(1);
+        assertThat(appender.list.getFirst().getLevel()).isEqualTo(Level.INFO);
+        assertThat(appender.list.getFirst().getFormattedMessage()).contains("json_schema").contains("deepseek");
+    }
+
+    @Test
+    void cancelledCallsAreNotErrors() {
+        logger.setLevel(Level.DEBUG);
+        try {
+            new ModelCallErrorLogger("https://x/v1", "m").onError(context(
+                    new RuntimeException("Interrupted during action execution", new InterruptedException())));
+            new ModelCallErrorLogger("https://x/v1", "m").onError(context(
+                    new com.kwiki.rag.orchestration.RunFailure("cancelled")));
+
+            assertThat(appender.list).hasSize(2).allSatisfy(event -> assertThat(event.getLevel()).isEqualTo(Level.DEBUG));
+        } finally {
+            logger.setLevel(null);
+        }
+    }
 }

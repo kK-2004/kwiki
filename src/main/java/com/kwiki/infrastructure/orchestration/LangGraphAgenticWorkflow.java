@@ -65,6 +65,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     private final CompiledGraph<AgentState> graph;
     private final Semaphore permits;
     /** 图增强仅在 kwiki.graph.enabled 时由装配注入；默认关闭，保持原检索路径。 */
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(LangGraphAgenticWorkflow.class);
     private volatile com.kwiki.rag.retrieval.GraphRetrievalEnhancer graphEnhancer;
     /** 直答模型端口；缺失时 direct 节点直接转入检索。 */
     private volatile DirectAnswerPort directAnswer;
@@ -152,6 +154,14 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                     Map.of("next", s.next, "round", s.queryRound));
                         } catch (Exception e) {
                             String errorCode = code(e);
+                            if (AgenticErrorCodes.CANCELLED.equals(errorCode)) {
+                                // 取消不是故障：正常结束图（避免 langgraph4j 按 ERROR 记录），
+                                // graph.invoke 返回后再以 cancelled 终态通知调用方
+                                s.cancelledInNode = true;
+                                s.debugStage(entry.getKey(), "cancelled", s.sinceMs(nodeStartedAt), Map::of);
+                                log.info("agentic run cancelled requestId={} node={}", s.run.requestId, name);
+                                return CompletableFuture.completedFuture(Map.of("next", END, "round", s.queryRound));
+                            }
                             s.debugStage(entry.getKey(), "failed", s.sinceMs(nodeStartedAt),
                                     () -> Map.of("errorCode", errorCode));
                             return CompletableFuture.failedFuture(e);
@@ -380,6 +390,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                                                                             s)
                                                                                     .build());
                                                                 }
+                                                                if (s.cancelledInNode)
+                                                                    s.fail(AgenticErrorCodes.CANCELLED);
                                                             } catch (Exception e) {
                                                                 if (s != null) s.fail(code(e));
                                                                 else if (!sink.isCancelled()) {
@@ -1333,6 +1345,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         final FluxSink<ChatStreamEvent> sink;
         final AtomicLong seq = new AtomicLong();
         final AtomicBoolean terminal = new AtomicBoolean(), audited = new AtomicBoolean();
+        /** 某个节点因取消而提前结束图；invoke 返回后据此发出 cancelled 终态。 */
+        volatile boolean cancelledInNode;
         final StringBuilder text = new StringBuilder();
         final List<String> nodes = new ArrayList<>();
         final Map<String, float[]> embeddingCache = new LinkedHashMap<>();

@@ -174,4 +174,40 @@ class WorkflowRunObserverTest {
 
         assertThat(seen).isNotEmpty().containsOnly(com.kwiki.usage.UsageSource.EVAL);
     }
+
+    @Test
+    void cancellationInsideANodeIsLoggedAsInfoNotAsAGraphError() {
+        var graphLogger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("org.bsc.langgraph4j");
+        var workflowLogger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(
+                com.kwiki.infrastructure.orchestration.LangGraphAgenticWorkflow.class);
+        var graphEvents = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        var workflowEvents = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        graphEvents.start();
+        workflowEvents.start();
+        graphLogger.addAppender(graphEvents);
+        workflowLogger.addAppender(workflowEvents);
+        try {
+            var harness = harness();
+            harness.bm25.hits = List.of(hit("C1", "候选依据 C1"));
+            harness.vector.hits = harness.bm25.hits;
+            // 生成前取消：模拟用户在回答生成阶段手动中断
+            RunObserver cancelBeforeGeneration = event -> {
+                if (event instanceof RunObserver.ContextObserved) RunContext.current().close();
+            };
+
+            var stream = harness.workflow.answerInSession(user, "什么是部署方式", List.of(), Set.of(), Set.of(),
+                    RouteInput.NONE, cancelBeforeGeneration).collectList().block(Duration.ofSeconds(10));
+
+            assertThat(stream.getLast().type()).isEqualTo("error");
+            assertThat(stream.getLast().payloadMap()).containsEntry("error", "cancelled");
+            assertThat(graphEvents.list).noneMatch(event -> event.getLevel() == ch.qos.logback.classic.Level.ERROR);
+            assertThat(workflowEvents.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(ch.qos.logback.classic.Level.INFO);
+                assertThat(event.getFormattedMessage()).contains("cancelled").contains("node=generate");
+            });
+        } finally {
+            graphLogger.detachAppender(graphEvents);
+            workflowLogger.detachAppender(workflowEvents);
+        }
+    }
 }
