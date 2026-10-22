@@ -71,9 +71,13 @@ public class EvalWorker {
         worker.start();
     }
 
+    static final Duration SHUTDOWN_WAIT = Duration.ofSeconds(10);
+
+    /** 关闭：停止认领，先以 instance-shutdown 取消在途 run 并等待收尾（写为 CANCELLED），再中断认领线程。 */
     @PreDestroy
     void stop() {
         running = false;
+        service.cancelAllForShutdown(SHUTDOWN_WAIT);
         if (worker != null) worker.interrupt();
     }
 

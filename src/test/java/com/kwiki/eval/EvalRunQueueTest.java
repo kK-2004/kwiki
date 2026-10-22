@@ -127,6 +127,22 @@ class EvalRunQueueTest {
     }
 
     @Test
+    void instanceShutdownCancelsInFlightRunAsResumable() throws Exception {
+        stub("慢题", "快题");
+        var service = service(ctx.instanceA, 2);
+        EvalWorker worker = startWorker(service, ctx.instanceA, 2);
+        var started = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-shutdown", null, true));
+        assertThat(subscribed("慢题").await(5, TimeUnit.SECONDS)).isTrue();
+
+        worker.stop();
+
+        var status = service.status(started.runId());
+        assertThat(status.state()).as("关闭时在途 run 记为已中断而非失败").isEqualTo(EvalRunState.CANCELLED);
+        assertThat(status.error()).isEqualTo(EvalRunService.INSTANCE_SHUTDOWN);
+        assertThat(service.hasExecution(started.runId())).isFalse();
+    }
+
+    @Test
     void cancelRacingWithAConcurrentClaimIsNotLost() {
         stub("快题");
         // 中断读到 QUEUED 后、取消前，另一实例恰好认领了该 run

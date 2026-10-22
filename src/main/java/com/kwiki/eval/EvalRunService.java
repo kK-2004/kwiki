@@ -73,6 +73,8 @@ public class EvalRunService {
     static final int REPORT_BATCH = 20;
     static final String INTERRUPTED = "interrupted";
     static final String CANCELLED = "cancelled";
+    /** 应用关闭时在途 run 的中断原因；状态为 CANCELLED，可继续。 */
+    static final String INSTANCE_SHUTDOWN = "instance-shutdown";
     static final String SUBMITTER_NOT_AUTHORIZED = "submitter-not-authorized";
     static final String ACTION_CANCEL = "cancel";
     private static final long POLL_MILLIS = 200;
@@ -99,12 +101,19 @@ public class EvalRunService {
         final long token;
         volatile ExecutorService pool;
         volatile AutoCloseable runLock;
+        /** 中断原因（首次取消时确定）：用户中断为 cancelled，实例关闭为 instance-shutdown。 */
+        volatile String cancelReason;
 
         Execution(long token) {
             this.token = token;
         }
 
         void cancel() {
+            cancel(CANCELLED);
+        }
+
+        synchronized void cancel(String reason) {
+            if (cancelReason == null) cancelReason = reason;
             cancelled.set(true);
             ExecutorService current = pool;
             if (current != null) current.shutdownNow();
@@ -459,7 +468,8 @@ public class EvalRunService {
             EvalSummary summary = EvalSummaries.summarize(results);
             EvalRunState state = cancelled ? EvalRunState.CANCELLED
                     : partial ? EvalRunState.REPORT_PARTIAL : EvalRunState.COMPLETED;
-            if (!store.finish(runId, execution.token, state, summary, partial, cancelled ? CANCELLED : null)) {
+            String reason = cancelled ? (execution.cancelReason == null ? CANCELLED : execution.cancelReason) : null;
+            if (!store.finish(runId, execution.token, state, summary, partial, reason)) {
                 ownershipLost(runId, execution);
             }
         } catch (Exception e) {
@@ -474,6 +484,29 @@ public class EvalRunService {
         } finally {
             if (heartbeat != null) heartbeat.cancel(false);
             finishExecution(runId, execution);
+        }
+    }
+
+    /**
+     * 应用关闭：以 instance-shutdown 取消本实例所有在途 run，并等待其收尾（写检查点、上报缓冲、写终态）
+     * 至多 wait。状态记为 CANCELLED，可在任意实例继续。
+     */
+    public void cancelAllForShutdown(Duration wait) {
+        if (executions.isEmpty()) return;
+        executions.forEach((runId, execution) -> {
+            log.info("eval run cancelled for instance shutdown runId={} instance={}", runId, instance.get());
+            execution.cancel(INSTANCE_SHUTDOWN);
+        });
+        long deadline = System.nanoTime() + wait.toNanos();
+        for (Execution execution : List.copyOf(executions.values())) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) break;
+            try {
+                execution.done.await(remaining, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 

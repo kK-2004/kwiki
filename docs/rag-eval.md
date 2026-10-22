@@ -32,8 +32,8 @@ run 记录不设 TTL，由管理端删除。不再写本地报告文件（原 `k
 | `kwiki:eval:run:{runId}` | HASH | `meta`（runName、dataset、kbId、notes、localOnly、submittedBy、配置快照）、`state`（QUEUED/RUNNING/…）、`heartbeatAt`、`queuedAt`、`ownerInstanceId`、`ownerToken`（写入令牌）、`cancelRequested`、`summary`、`error`、`reportPartial` |
 | `kwiki:eval:run:{runId}:cases` | HASH | caseId → 逐题结果 JSON（检查点） |
 | `kwiki:eval:run:{runId}:cases:reported` | HASH | 已确认上报到 Langfuse 的 caseId（继续 / 接管时据此补报） |
-| `kwiki:eval:queue` | Stream | 待执行任务；消费组 `kwiki-eval-workers`，消费者名 = 实例标识，读取后未确认的任务空闲超 60 秒被其他实例接管 |
-| `kwiki:eval:slots` | ZSET | 集群执行名额（member = 实例标识、score = 到期毫秒），执行期间随心跳续期，实例宕机后到期自动释放 |
+| `kwiki:eval:queue` | Stream | 待执行任务；消费组 `kwiki-eval-workers`，消费者名 = 实例标识，读取后未确认的任务空闲超 60 秒被其他实例接管；确认时原子地 XACK + XDEL，已确认的消息不保留 |
+| `kwiki:eval:slots` | ZSET | 集群执行名额（member = 实例标识、score = 按 Redis 服务器时间计的到期毫秒），执行期间随心跳续期，实例宕机后到期自动释放 |
 | `kwiki:eval:control` | Pub/Sub | 跨实例控制通知（如取消）；通知丢失时由执行实例的心跳轮询兜底 |
 
 上报的 trace 含文档片段与回答，评测知识库只放公开数据集与明确同意上传的文档。
@@ -61,7 +61,10 @@ run 记录不设 TTL，由管理端删除。不再写本地报告文件（原 `k
 
 - 中断请求落在不持有该 run 的实例上时写取消标志并广播控制通知；持有实例收到通知立即取消，
   通知丢失时在下一次心跳（5 秒）兜底执行。
-- 状态为 RUNNING 但心跳超过 2 分钟未更新（应用重启或实例失联）的 run 显示为「已中断」（error=`interrupted`），可继续或删除。
+- 状态为 RUNNING 但心跳超过 2 分钟未更新（实例失联）的 run 显示为「已中断」（error=`interrupted`），可继续或删除。
+- 应用正常关闭时，本实例在途的 run 先被取消并收尾（最多等 10 秒），记为 `CANCELLED`（error=`instance-shutdown`），可在任意实例继续。
+- 跨实例的时间判断（集群名额到期、认领与继续时的心跳过期、心跳时间本身）一律在 Lua 中取 Redis 服务器时间，
+  不受各实例本地时钟偏差影响；管理端的「已中断」显示仍按查询实例的本地时钟判断，仅影响展示。
 - 执行出错的题已作为结果记录（不计入召回分母），继续时不会重跑；如需重跑，新建一个 run。
 - 认领时按 `submittedBy` 重新校验提交人：已不是启用管理员的 run 记为 `FAILED: submitter-not-authorized`，
   检索作用域也按该用户在执行时重新计算（不沿用提交时的权限）。
