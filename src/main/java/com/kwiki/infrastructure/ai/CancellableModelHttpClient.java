@@ -173,7 +173,8 @@ public final class CancellableModelHttpClient implements HttpClient {
                                             .statusCode(response.statusCode())
                                             .headers(response.headers().map())
                                             .build());
-                            parser.parse(input, listener);
+                            parser.parse(input, withFailureReason(listener, cancellationReason,
+                                    error -> logFailure("stream", request, run, error, cancellationReason.get())));
                             listener.onClose();
                         }
                     } catch (Exception e) {
@@ -189,6 +190,48 @@ public final class CancellableModelHttpClient implements HttpClient {
                         PERMITS.release();
                     }
                 });
+    }
+
+    /**
+     * SSE 解析器读流失败时会自行回调 onError 并只交出原始 IOException（如主动关闭流导致的 "closed"），
+     * 不经过本类的统一包装。这里按流的实际状态补上原因码：主动取消 / 超时为 cancelled / timeout，
+     * 否则为 model-stream-failed，使日志与上层能区分取消、超时与断流。
+     */
+    static ServerSentEventListener withFailureReason(ServerSentEventListener delegate,
+                                                     AtomicReference<String> reason,
+                                                     java.util.function.Consumer<Throwable> log) {
+        return new ServerSentEventListener() {
+            @Override
+            public void onOpen(SuccessfulHttpResponse response) {
+                delegate.onOpen(response);
+            }
+
+            @Override
+            public void onEvent(ServerSentEvent event, ServerSentEventContext context) {
+                delegate.onEvent(event, context);
+            }
+
+            @Override
+            public void onEvent(ServerSentEvent event) {
+                delegate.onEvent(event);
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                if (error instanceof RunFailure) {
+                    delegate.onError(error);
+                    return;
+                }
+                log.accept(error);
+                String code = reason.get();
+                delegate.onError(new RunFailure(code == null ? "model-stream-failed" : code, error));
+            }
+
+            @Override
+            public void onClose() {
+                delegate.onClose();
+            }
+        };
     }
 
     static final int MAX_ERROR_BODY_BYTES = 2048;

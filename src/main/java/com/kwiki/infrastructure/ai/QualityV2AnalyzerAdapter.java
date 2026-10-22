@@ -112,9 +112,11 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             if (run != null) run.authorize();
             Throwable cause = rootCause(e);
+            String message = cause instanceof java.util.concurrent.TimeoutException
+                    ? "no response from provider within the quality node deadline"
+                    : SecretRedaction.redact(cause.getMessage());
             log.warn("quality-v2 provider call failed: errorClass={}, error={}",
-                    cause.getClass().getSimpleName(),
-                    SecretRedaction.redact(cause.getMessage()));
+                    cause.getClass().getSimpleName(), message);
             throw new com.kwiki.rag.orchestration.RunFailure(QA_V2_UNAVAILABLE);
         }
         try {
