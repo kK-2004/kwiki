@@ -2,8 +2,9 @@
 
 基于关键词的分层召回评测：DragonBall 中文语料（108 篇）+ 200 题嵌套测试集（50q ⊂ 100q ⊂ 200q），
 结果写入 Langfuse Cloud，run 状态与逐题结果保存在 Redis（管理端可下载 JSON 报告）。设计见
-`docs/superpowers/specs/2026-10-20-langfuse-rag-eval-design.md` 与
-`docs/superpowers/specs/2026-10-21-eval-run-cancel-resume-delete-design.md`（中断 / 继续 / 删除）。
+`docs/superpowers/specs/2026-10-20-langfuse-rag-eval-design.md`、
+`docs/superpowers/specs/2026-10-21-eval-run-cancel-resume-delete-design.md`（中断 / 继续 / 删除）与
+`docs/superpowers/specs/2026-10-22-eval-multi-instance-design.md`（多实例执行）。
 
 ## 1. 配置（Nacos 应用配置）
 
@@ -13,20 +14,29 @@
 | `kwiki.langfuse.public-key` | 空 | Langfuse 项目 Public Key |
 | `kwiki.langfuse.secret-key` | 空 | Langfuse 项目 Secret Key（勿入仓库） |
 | `kwiki.langfuse.max-requests-per-minute` | `90` | 客户端主动限速；Langfuse Cloud 公共 API 默认 100 次/分钟，升级套餐后可调高 |
-| `kwiki.eval.concurrency` | `2` | 同时评测的题数（1~8），受模型限流约束 |
+| `kwiki.eval.concurrency` | `2` | 单个 run 同时评测的题数（1~8），受模型限流约束 |
+| `kwiki.eval.max-concurrent-runs` | `2` | 集群同时执行的 run 上限（每实例至多执行 1 个），超出的 run 排队 |
+| `kwiki.instance-id` | `{主机名}-{pid}-{4位随机}` | 实例标识（认领消费者名、执行实例展示）；未配置时每次启动重新生成 |
 
 未配置 key 时应用正常启动；评测只能以 `localOnly=true` 运行。
 
-run 存储：启用 Redis（`kk.common.redis.enabled=true`）时，run 状态与逐题检查点写入 Redis（不设 TTL，由管理端删除），
-应用重启后可在历史列表中看到并继续未完成的 run；未启用 Redis 时退化为进程内存储，重启即丢失。
-不再写本地报告文件（原 `kwiki.eval.report-dir` 已移除）。
+run 存储与执行协调：启用 Redis（`kk.common.redis.enabled=true`）时，run 状态、逐题检查点、
+执行队列（Redis Stream）、集群名额（ZSET）与跨实例控制通知（Pub/Sub）都在 Redis 上，多实例部署时
+管理端请求落到任意实例效果一致；未启用 Redis 时全部退化为进程内实现（单实例排队执行）。
+run 记录不设 TTL，由管理端删除。不再写本地报告文件（原 `kwiki.eval.report-dir` 已移除）。
 
-| Redis 键 | 类型 | 内容 |
+| Redis 键 / 频道 | 类型 | 内容 |
 |---|---|---|
 | `kwiki:eval:runs` | ZSET | runId，按创建时间排序（历史列表） |
-| `kwiki:eval:run:{runId}` | HASH | `meta`（runName、dataset、kbId、notes、localOnly、配置快照）、`state`、`heartbeatAt`、`cancelRequested`、`summary`、`error`、`reportPartial` |
-| `kwiki:eval:run:{runId}:cases` | HASH | caseId → 逐题结果 JSON（检查点） |上报的 trace 含文档片段与回答，
-评测知识库只放公开数据集与明确同意上传的文档。
+| `kwiki:eval:queued` | ZSET | 排队中的 runId，按 queuedAt 排序（计算「前面还有 N 个」） |
+| `kwiki:eval:run:{runId}` | HASH | `meta`（runName、dataset、kbId、notes、localOnly、submittedBy、配置快照）、`state`（QUEUED/RUNNING/…）、`heartbeatAt`、`queuedAt`、`ownerInstanceId`、`ownerToken`（写入令牌）、`cancelRequested`、`summary`、`error`、`reportPartial` |
+| `kwiki:eval:run:{runId}:cases` | HASH | caseId → 逐题结果 JSON（检查点） |
+| `kwiki:eval:run:{runId}:cases:reported` | HASH | 已确认上报到 Langfuse 的 caseId（继续 / 接管时据此补报） |
+| `kwiki:eval:queue` | Stream | 待执行任务；消费组 `kwiki-eval-workers`，消费者名 = 实例标识，读取后未确认的任务空闲超 60 秒被其他实例接管 |
+| `kwiki:eval:slots` | ZSET | 集群执行名额（member = 实例标识、score = 到期毫秒），执行期间随心跳续期，实例宕机后到期自动释放 |
+| `kwiki:eval:control` | Pub/Sub | 跨实例控制通知（如取消）；通知丢失时由执行实例的心跳轮询兜底 |
+
+上报的 trace 含文档片段与回答，评测知识库只放公开数据集与明确同意上传的文档。
 
 ## 2. 步骤（均需管理员令牌）
 
@@ -45,13 +55,16 @@ run 存储：启用 Redis（`kk.common.redis.enabled=true`）时，run 状态与
 
 | 操作 | 接口 | 说明 |
 |---|---|---|
-| 中断 | `POST /runs/{runId}/cancel` | 正在执行的题立即取消（基线检索线程被中断，完整工作流的订阅被 dispose，从而关闭 `RunContext`），不计入结果；已完成的题保留，缓冲中的 trace 照常上报；状态 `CANCELLED` |
-| 继续 | `POST /runs/{runId}/resume` | 仅限 `CANCELLED` / `FAILED`；只跑没有检查点的题（中断时在途的题会重新召回、重新生成），沿用同一 runId / runName / 配置快照，Langfuse 上仍是同一个 dataset run；结束后汇总全部题 |
-| 删除 | `DELETE /runs/{runId}?langfuse=true` | 运行中不可删除（先中断）；删除 Redis 中的 run 与逐题结果。`langfuse=true` 时同时调用 Langfuse `DELETE /api/public/traces`（traceId 由 runName+题号确定性计算，每批 100）与 `DELETE /api/public/datasets/{dataset}/runs/{runName}`（404 视为已删除）；Langfuse 删除异步且不可恢复，失败时 Redis 中的记录仍会删除并在界面提示手动清理 |
+| 中断 | `POST /runs/{runId}/cancel` | 排队中（`QUEUED`）直接取消；运行中（`RUNNING`）写取消标志并经控制通知广播，执行实例立即取消在途题（基线检索线程被中断，完整工作流的订阅被 dispose，从而关闭 `RunContext`），不计入结果；已完成的题保留，缓冲中的 trace 照常上报；状态 `CANCELLED` |
+| 继续 | `POST /runs/{runId}/resume` | 仅限 `CANCELLED` / `FAILED`；CAS 置回 `QUEUED` 并入队，由空闲实例认领执行（可跨实例，并发重复继续只有一个成功）；只跑没有检查点的题（中断时在途的题会重新召回、重新生成），沿用同一 runId / runName / 配置快照，Langfuse 上仍是同一个 dataset run；结束后汇总全部题 |
+| 删除 | `DELETE /runs/{runId}?langfuse=true` | 运行中不可删除（先中断）；排队中先取消再删除；删除 Redis 中的 run 与逐题结果。`langfuse=true` 时同时调用 Langfuse `DELETE /api/public/traces`（traceId 由 runName+题号确定性计算，每批 100）与 `DELETE /api/public/datasets/{dataset}/runs/{runName}`（404 视为已删除）；Langfuse 删除异步且不可恢复，失败时 Redis 中的记录仍会删除并在界面提示手动清理 |
 
-- 中断请求落在不持有该 run 的实例上时写取消标志，持有实例在下一次心跳（5 秒）时执行取消。
+- 中断请求落在不持有该 run 的实例上时写取消标志并广播控制通知；持有实例收到通知立即取消，
+  通知丢失时在下一次心跳（5 秒）兜底执行。
 - 状态为 RUNNING 但心跳超过 2 分钟未更新（应用重启或实例失联）的 run 显示为「已中断」（error=`interrupted`），可继续或删除。
 - 执行出错的题已作为结果记录（不计入召回分母），继续时不会重跑；如需重跑，新建一个 run。
+- 认领时按 `submittedBy` 重新校验提交人：已不是启用管理员的 run 记为 `FAILED: submitter-not-authorized`，
+  检索作用域也按该用户在执行时重新计算（不沿用提交时的权限）。
 
 ## 4. 指标
 
@@ -77,3 +90,17 @@ run 存储：启用 Redis（`kk.common.redis.enabled=true`）时，run 状态与
 
 见 `src/main/resources/eval/datasets/README.md`。修改后运行 `./mvnw -q -Dtest=EvalDatasetFileTest test`，
 再调用一次数据集同步。
+
+## 7. 多实例执行
+
+- 每个实例同时最多执行 1 个 run（进程内信号量），集群同时执行的 run 总数不超过
+  `kwiki.eval.max-concurrent-runs`（默认 2），超出的 run 排队；「开始评测」不再因已有评测在跑而报错，
+  而是提示「已加入队列」。管理端「排队中」标签显示前面还有多少个，运行中显示执行实例标识。
+- run 的写入（逐题检查点、心跳、终态、已上报标记）一律经认领时发放的写入令牌校验：执行实例宕机、
+  任务被其他实例接管后，旧实例的写入被拒绝并静默退出（日志 `eval run ownership lost`），不会覆盖新实例的数据。
+- Langfuse 上报按 run 缓冲（满 20 条或收尾时同步发送），逐题检查点带「已上报」标记；
+  执行实例宕机后，继续 / 接管该 run 的实例先把「有检查点但未上报」的题补报，再继续未完成的题，
+  Langfuse 上的 dataset run 最终完整。上报失败的 run 终态为「完成（上报不完整）」。
+- **不在本期：多实例全局限流。** `kwiki.langfuse.max-requests-per-minute` 与模型 provider 的并发/QPS 限制
+  均按实例计算，多实例部署时需按实例数调低每个实例的配额（例如 2 实例时各配 45 次/分钟），
+  或另行引入 Redis 全局令牌桶。
