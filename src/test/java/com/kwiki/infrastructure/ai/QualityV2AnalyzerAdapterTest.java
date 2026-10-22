@@ -179,4 +179,25 @@ class QualityV2AnalyzerAdapterTest {
         assertThat(registry.violations("quality-v2", VALID)).isEmpty();
         assertThat(registry.violations("quality-v2", "不是 JSON")).containsExactly("invalid-json");
     }
+
+    @Test void reasonCodeStyleDeviationsAreNormalisedInsteadOfFailingTheReview() {
+        String underscored = """
+            {"relevance":1.0,"coverage":1.0,"faithfulness":1.0,"passed":true,
+            "supportedEvidenceIds":[],"unsupportedClaims":[],"missingAspects":[],
+            "reasonCode":"Answer_Correctly_Identifies Missing__Data","reasonSummary":"证据充分"}
+            """;
+
+        var assessment = adapter(underscored).assess(input());
+
+        assertThat(assessment.passed()).isTrue();
+        assertThat(assessment.reasonCode()).isEqualTo("answer-correctly-identifies-missing-data");
+    }
+
+    @Test void reasonCodeNormalisation() {
+        assertThat(QualityV2AnalyzerAdapter.normalizeReasonCode("answer_supported")).isEqualTo("answer-supported");
+        assertThat(QualityV2AnalyzerAdapter.normalizeReasonCode("  --Coverage Missing!! ")).isEqualTo("coverage-missing");
+        assertThat(QualityV2AnalyzerAdapter.normalizeReasonCode("1st-reason")).isEqualTo("r-1st-reason");
+        assertThat(QualityV2AnalyzerAdapter.normalizeReasonCode("证据不足")).isEqualTo("invalid");
+        assertThat(QualityV2AnalyzerAdapter.normalizeReasonCode("a".repeat(80))).hasSize(64);
+    }
 }
