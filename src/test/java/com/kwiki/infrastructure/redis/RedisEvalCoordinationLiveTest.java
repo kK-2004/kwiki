@@ -245,4 +245,63 @@ class RedisEvalCoordinationLiveTest {
             factory.destroy();
         }
     }
+
+    @Test
+    void consumerGroupIsCreatedBeforeTheFirstTaskIsEverQueued() {
+        redis.delete(RedisEvalWorkQueue.KEY);
+        var consumer = new RedisEvalWorkQueue(redis, new EvalInstanceId("it-g-" + UUID.randomUUID().toString()
+                .substring(0, 6)), Duration.ofMillis(200));
+
+        assertThat(consumer.claim(Duration.ofMillis(100))).as("队列为空").isNull();
+
+        assertThat(redis.opsForStream().groups(RedisEvalWorkQueue.KEY))
+                .as("首次认领即建好消费组（MKSTREAM），无需等待第一次提交")
+                .anySatisfy(group -> assertThat(group.groupName()).isEqualTo(RedisEvalWorkQueue.GROUP));
+
+        consumer.enqueue("it-task-g");
+        var task = consumer.claim(Duration.ofSeconds(2));
+        assertThat(task).isNotNull();
+        assertThat(task.runId()).isEqualTo("it-task-g");
+        consumer.ack(task);
+    }
+
+    @Test
+    void existingGroupIsRecognisedWithoutRetryingCreationEveryPoll() {
+        redis.delete(RedisEvalWorkQueue.KEY);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(RedisEvalWorkQueue.class);
+        var events = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        events.start();
+        logger.addAppender(events);
+        var previous = logger.getLevel();
+        logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
+        try {
+            new RedisEvalWorkQueue(redis, new EvalInstanceId("it-x-1"), Duration.ofMillis(200))
+                    .claim(Duration.ofMillis(50)); // 建组
+            var second = new RedisEvalWorkQueue(redis, new EvalInstanceId("it-x-2"), Duration.ofMillis(200));
+            second.claim(Duration.ofMillis(50));
+            second.claim(Duration.ofMillis(50));
+
+            assertThat(events.list).as("组已存在（BUSYGROUP）应被识别，不应反复尝试建组")
+                    .noneMatch(event -> event.getFormattedMessage().contains("not created yet"));
+        } finally {
+            logger.setLevel(previous);
+            logger.detachAppender(events);
+        }
+    }
+
+    @Test
+    void lostGroupIsRecreatedInsteadOfBreakingTheQueue() {
+        redis.delete(RedisEvalWorkQueue.KEY);
+        var consumer = new RedisEvalWorkQueue(redis, new EvalInstanceId("it-n-1"), Duration.ofMillis(200));
+        assertThat(consumer.claim(Duration.ofMillis(50))).isNull(); // 建组
+
+        redis.delete(RedisEvalWorkQueue.KEY); // 模拟 Redis 被清空：stream 与消费组都消失
+
+        assertThat(consumer.claim(Duration.ofMillis(50))).as("NOGROUP 被识别，不抛异常").isNull();
+        consumer.enqueue("it-task-n");
+        var task = consumer.claim(Duration.ofSeconds(2));
+        assertThat(task).as("消费组被重建，队列恢复可用").isNotNull();
+        assertThat(task.runId()).isEqualTo("it-task-n");
+        consumer.ack(task);
+    }
 }

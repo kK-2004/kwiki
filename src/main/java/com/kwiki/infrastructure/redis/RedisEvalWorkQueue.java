@@ -65,9 +65,9 @@ public class RedisEvalWorkQueue implements EvalWorkQueue {
             stream().createGroup(KEY, ReadOffset.from("0"), GROUP);
             groupChecked = true;
         } catch (RuntimeException e) {
-            // BUSYGROUP = 组已存在；stream 不存在（首次部署尚无任务）时下轮再试
-            if (String.valueOf(e.getMessage()).contains("BUSYGROUP")) groupChecked = true;
-            else log.debug("eval queue group not created yet reason={}", e.getMessage());
+            // BUSYGROUP = 组已存在（Spring 会把 Redis 错误包装成 "Error in execution"，须查异常链）
+            if (hasRedisError(e, "BUSYGROUP")) groupChecked = true;
+            else log.debug("eval queue group not created yet reason={}", rootMessage(e));
         }
     }
 
@@ -79,9 +79,9 @@ public class RedisEvalWorkQueue implements EvalWorkQueue {
     @Override
     public ClaimedTask claim(Duration block) {
         ensureGroup();
-        ClaimedTask reclaimed = reclaimPending();
-        if (reclaimed != null) return reclaimed;
         try {
+            ClaimedTask reclaimed = reclaimPending();
+            if (reclaimed != null) return reclaimed;
             List<MapRecord<String, Object, Object>> records = stream().read(
                     Consumer.from(GROUP, consumer),
                     StreamReadOptions.empty().block(block).count(1),
@@ -89,8 +89,9 @@ public class RedisEvalWorkQueue implements EvalWorkQueue {
             if (records == null || records.isEmpty()) return null;
             return toTask(records.getFirst());
         } catch (RuntimeException e) {
-            // 消费组或 stream 尚未建立（NOGROUP）：重置组标记，下轮 ensureGroup 后再试
-            if (String.valueOf(e.getMessage()).contains("NOGROUP")) {
+            // 消费组或 stream 丢失（NOGROUP，如 Redis 被清空）：重置组标记，下轮 ensureGroup 重建
+            if (hasRedisError(e, "NOGROUP")) {
+                log.info("eval queue consumer group missing, will recreate consumer={}", consumer);
                 groupChecked = false;
                 return null;
             }
@@ -110,6 +111,20 @@ public class RedisEvalWorkQueue implements EvalWorkQueue {
             if (!claimed.isEmpty()) return toTask(claimed.getFirst());
         }
         return null;
+    }
+
+    /** Redis 错误码（如 BUSYGROUP、NOGROUP）出现在异常链任一层的消息开头或正文中。 */
+    static boolean hasRedisError(Throwable error, String code) {
+        for (Throwable current = error; current != null; current = current.getCause() == current ? null : current.getCause()) {
+            if (current.getMessage() != null && current.getMessage().contains(code)) return true;
+        }
+        return false;
+    }
+
+    private static String rootMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
     @SuppressWarnings("unchecked")
