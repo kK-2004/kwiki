@@ -44,8 +44,8 @@ export interface ForceResetResult{deletedIndices:string[];purgedGraphTypes:strin
 export interface EvalLayerMetric{coverage:number;fullHit:number;cases:number}
 export interface EvalSummary{total:number;errors:number;scored:number;overall:Record<string,EvalLayerMetric>;byCategory:Record<string,Record<string,EvalLayerMetric>>;byDomain:Record<string,Record<string,EvalLayerMetric>>;bySource:Record<string,Record<string,EvalLayerMetric>>;negatives:number;refusalAccuracy:number;lossMatrix:Record<string,Record<string,number>>;contextGains:number}
 export type EvalDataset="50q"|"100q"|"200q";
-export type EvalRunState="RUNNING"|"COMPLETED"|"REPORT_PARTIAL"|"CANCELLED"|"FAILED";
-export interface EvalRunStatus{runId:string;runName:string;dataset:string;state:EvalRunState;total:number;completed:number;summary:EvalSummary|null;error:string|null;localOnly:boolean;reportPartial:boolean;createdAt:string}
+export type EvalRunState="QUEUED"|"RUNNING"|"COMPLETED"|"REPORT_PARTIAL"|"CANCELLED"|"FAILED";
+export interface EvalRunStatus{runId:string;runName:string;dataset:string;state:EvalRunState;total:number;completed:number;summary:EvalSummary|null;error:string|null;localOnly:boolean;reportPartial:boolean;createdAt:string;ownerInstanceId:string|null;queuePosition:number|null}
 export interface EvalDeleteResult{langfuseDeleted:boolean;langfuseError:string|null}
 export interface EvalStartRequest{dataset:EvalDataset;kbId:number;runName?:string;notes?:string;localOnly:boolean}
 export interface EvalImportResult{createdPageIds:number[];skippedTitles:string[]}

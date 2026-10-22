@@ -26,7 +26,8 @@ export const EVAL_DATASETS = [
   { value: "200q", label: "200 题" },
 ] as const;
 
-export const RUN_STATE_LABELS: Record<EvalRunStatus["state"], { label: string; type: "primary" | "success" | "warning" | "danger" }> = {
+export const RUN_STATE_LABELS: Record<EvalRunStatus["state"], { label: string; type: "primary" | "success" | "warning" | "danger" | "info" }> = {
+  QUEUED: { label: "排队中", type: "info" },
   RUNNING: { label: "运行中", type: "primary" },
   COMPLETED: { label: "已完成", type: "success" },
   REPORT_PARTIAL: { label: "完成（上报不完整）", type: "warning" },
@@ -34,8 +35,8 @@ export const RUN_STATE_LABELS: Record<EvalRunStatus["state"], { label: string; t
   FAILED: { label: "失败", type: "danger" },
 };
 
-/** 中断、失败的 run 可继续；运行中的 run 可中断；非运行中的 run 可删除；有已完成题即可下载报告。 */
-export const canCancel = (run: Pick<EvalRunStatus, "state">) => run.state === "RUNNING";
+/** 排队中 / 运行中的 run 可中断（排队中直接取消）；中断、失败的 run 可继续；非运行中的 run 可删除；有已完成题即可下载报告。 */
+export const canCancel = (run: Pick<EvalRunStatus, "state">) => run.state === "RUNNING" || run.state === "QUEUED";
 export const canResume = (run: Pick<EvalRunStatus, "state">) => run.state === "CANCELLED" || run.state === "FAILED";
 export const canDelete = (run: Pick<EvalRunStatus, "state">) => run.state !== "RUNNING";
 export const canDownload = (run: Pick<EvalRunStatus, "completed">) => run.completed > 0;
@@ -46,6 +47,7 @@ export function runErrorMessage(error: string | null | undefined): string | null
   if (error === "cancelled") return "已手动中断：已完成的题已保存，可继续评测剩余题目";
   if (error === "interrupted") return "运行中断（服务重启或实例失联）：已完成的题已保存，可继续评测剩余题目";
   if (error === "eval-busy") return "已有评测正在运行，本次未执行";
+  if (error === "submitter-not-authorized") return "评测提交人已不是启用的管理员，无法执行；请由管理员重新提交";
   return error;
 }
 

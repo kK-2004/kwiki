@@ -39,7 +39,8 @@ let timer: number | undefined;
 let pollDelay = 3000;
 let disposed = false;
 
-const running = computed(() => run.value?.state === "RUNNING");
+/** 排队中与运行中都需要持续轮询状态。 */
+const running = computed(() => run.value?.state === "RUNNING" || run.value?.state === "QUEUED");
 const summary = computed(() => run.value?.summary ?? null);
 const overall = computed(() => layerRows(summary.value?.overall));
 const groups = computed(() => groupBy.value === "category"
@@ -108,7 +109,7 @@ async function start() {
       localOnly: form.localOnly,
     });
     remember(status);
-    ElMessage.success("评测已启动");
+    ElMessage.success(status.state === "QUEUED" ? "已加入队列，等待执行" : "评测已启动");
     pollDelay = 3000;
     schedule();
     void loadHistory();
@@ -201,8 +202,7 @@ async function confirmAction() {
       const status = await api.evalCancelRun(target.runId);
       if (runId.value === target.runId) run.value = status;
       ElMessage.success(status.state === "RUNNING" ? "已发送中断请求，稍后生效" : "评测已中断");
-      if (runId.value === target.runId) schedule();
-    } else if (confirm.action === "resume") {
+      if (runId.value === target.runId) schedule();    } else if (confirm.action === "resume") {
       const status = await api.evalResumeRun(target.runId);
       remember(status);
       ElMessage.success("评测已继续");
@@ -281,7 +281,7 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
     <section class="panel">
       <header class="panel-head">
         <h2>2. 启动评测</h2>
-        <span class="hint">同一时刻只允许一个评测；每次检索改动后用相同测试集跑一次，并在备注里写清改动。</span>
+        <span class="hint">提交后进入队列等待执行（集群同时执行的评测数有上限）；每次检索改动后用相同测试集跑一次，并在备注里写清改动。</span>
       </header>
       <el-form label-width="96px" class="start-form" @submit.prevent>
         <el-form-item label="测试集">
@@ -300,7 +300,7 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
           <span class="hint switch-hint">开启后不上报 Langfuse，结果只保存在服务端（未配置 Langfuse 时必须开启）</span>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :disabled="!kbId || running" :loading="starting" @click="start">开始评测</el-button>
+          <el-button type="primary" :disabled="!kbId" :loading="starting" @click="start">开始评测</el-button>
           <span v-if="!kbId" class="hint switch-hint">请先选择知识库</span>
         </el-form-item>
       </el-form>
@@ -322,9 +322,11 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
           </template>
         </el-table-column>
         <el-table-column label="测试集" prop="dataset" width="80" />
-        <el-table-column label="状态" width="150">
+        <el-table-column label="状态" width="180">
           <template #default="{ row }">
             <el-tag :type="RUN_STATE_LABELS[row.state as EvalRunStatus['state']].type" size="small">{{ RUN_STATE_LABELS[row.state as EvalRunStatus['state']].label }}</el-tag>
+            <div v-if="row.state === 'QUEUED'" class="muted tiny">前面还有 {{ row.queuePosition ?? 0 }} 个</div>
+            <div v-else-if="row.state === 'RUNNING' && row.ownerInstanceId" class="muted tiny">{{ row.ownerInstanceId }}</div>
           </template>
         </el-table-column>
         <el-table-column label="进度" width="100">
@@ -358,6 +360,8 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
           <strong>{{ run.runName }}</strong>
           <el-tag :type="RUN_STATE_LABELS[run.state].type">{{ RUN_STATE_LABELS[run.state].label }}</el-tag>
           <span class="muted">测试集 {{ run.dataset }} · {{ run.completed }} / {{ run.total }} 题</span>
+          <span v-if="run.state === 'QUEUED'" class="muted">前面还有 {{ run.queuePosition ?? 0 }} 个评测</span>
+          <span v-if="run.state === 'RUNNING' && run.ownerInstanceId" class="muted">执行实例 {{ run.ownerInstanceId }}</span>
           <span class="run-actions">
             <el-button v-if="canCancel(run)" size="small" type="warning" plain @click="ask('cancel', run)">中断</el-button>
             <el-button v-if="canResume(run)" size="small" type="primary" plain @click="ask('resume', run)">继续</el-button>
@@ -365,7 +369,7 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
             <el-button v-if="canDelete(run)" size="small" type="danger" plain @click="ask('delete', run)">删除</el-button>
           </span>
         </div>
-        <el-progress :percentage="progressPercent(run)" :status="run.state === 'FAILED' ? 'exception' : run.state === 'RUNNING' || run.state === 'CANCELLED' ? undefined : 'success'" />
+        <el-progress :percentage="progressPercent(run)" :status="run.state === 'FAILED' ? 'exception' : run.state === 'RUNNING' || run.state === 'QUEUED' || run.state === 'CANCELLED' ? undefined : 'success'" />
         <el-alert v-if="run.error" class="run-error" :type="run.state === 'FAILED' ? 'error' : 'warning'" :closable="false" show-icon :title="runErrorMessage(run.error) ?? ''" />
         <el-alert v-if="run.reportPartial" class="run-error" type="warning" :closable="false" show-icon title="部分结果未能上报到 Langfuse，结果已完整保存在服务端，可下载 JSON 查看" />
       </template>
@@ -374,7 +378,10 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
 
     <el-dialog v-model="confirm.visible" :title="CONFIRM_TITLES[confirm.action]" width="460px" append-to-body>
       <template v-if="confirm.run">
-        <p v-if="confirm.action === 'cancel'">
+        <p v-if="confirm.action === 'cancel' && confirm.run.state === 'QUEUED'">
+          确定中断「{{ confirm.run.runName }}」？该评测仍在排队，取消后可随时继续。
+        </p>
+        <p v-else-if="confirm.action === 'cancel'">
           确定中断「{{ confirm.run.runName }}」？正在执行的题会立即取消、不计入结果；已完成的 {{ confirm.run.completed }} 题会保留，之后可继续评测剩余题目。
         </p>
         <p v-else-if="confirm.action === 'resume'">
@@ -564,6 +571,11 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
 
 .inline-tag {
   margin-left: 6px;
+}
+
+.tiny {
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .bar-cell {

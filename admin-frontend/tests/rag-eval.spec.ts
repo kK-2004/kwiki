@@ -29,9 +29,10 @@ const summary: EvalSummary = {
   byDomain: { Finance: layers(0.7, 0.3, 3) }, bySource: {},
   negatives: 1, refusalAccuracy: 1, lossMatrix: { 事实性问题: { RECALL_MISS: 2, GENERATION_MISS: 1 }, 多跳推理问题: { RANK_MISS_8: 3 } }, contextGains: 2,
 };
-const running: EvalRunStatus = { runId: "r-1", runName: "baseline-50q", dataset: "50q", state: "RUNNING", total: 50, completed: 10, summary: null, error: null, localOnly: false, reportPartial: false, createdAt: "2026-10-21T02:00:00Z" };
+const running: EvalRunStatus = { runId: "r-1", runName: "baseline-50q", dataset: "50q", state: "RUNNING", total: 50, completed: 10, summary: null, error: null, localOnly: false, reportPartial: false, createdAt: "2026-10-21T02:00:00Z", ownerInstanceId: "host-a-1234-abcd", queuePosition: null };
 const done: EvalRunStatus = { ...running, state: "COMPLETED", completed: 50, summary };
 const cancelled: EvalRunStatus = { ...running, state: "CANCELLED", completed: 12, error: "cancelled" };
+const queued: EvalRunStatus = { ...running, state: "QUEUED", completed: 0, ownerInstanceId: null, queuePosition: 2, summary: null, error: null };
 const plugins = [createPinia(), ElementPlus];
 
 describe("evalReport", () => {
@@ -46,11 +47,13 @@ describe("evalReport", () => {
     expect(evalErrorMessage(new ApiError(409, "eval-run-not-resumable"), "x")).toContain("已中断或失败");
     expect(runErrorMessage("interrupted")).toContain("服务重启");
     expect(runErrorMessage("cancelled")).toContain("手动中断");
+    expect(runErrorMessage("submitter-not-authorized")).toContain("管理员");
     expect(runErrorMessage(null)).toBeNull();
   });
 
   it("按状态决定可用操作", () => {
     expect([canCancel(running), canResume(running), canDelete(running)]).toEqual([true, false, false]);
+    expect([canCancel(queued), canResume(queued), canDelete(queued)]).toEqual([true, false, true]);
     expect([canCancel(cancelled), canResume(cancelled), canDelete(cancelled)]).toEqual([false, true, true]);
     expect(canResume({ state: "FAILED" })).toBe(true);
     expect(canResume(done)).toBe(false);
@@ -104,18 +107,55 @@ describe("RAG 评测页", () => {
   it("启动评测提交表单并记住 runId，后端错误码显示中文", async () => {
     mocks.adminKnowledgeBases.mockResolvedValue([{ id: 7, name: "RAG 评测" }]);
     localStorage.setItem("kwiki_admin_eval_kb", "7");
-    mocks.evalStartRun.mockRejectedValueOnce(new ApiError(200, "eval-busy")).mockResolvedValueOnce(running);
-    mocks.evalRunStatus.mockResolvedValue(running);
+    mocks.evalStartRun.mockRejectedValueOnce(new ApiError(200, "eval-busy")).mockResolvedValueOnce(queued);
+    mocks.evalRunStatus.mockResolvedValue(queued);
     render(RagEvalView, { global: { plugins } });
     await waitFor(() => expect(mocks.adminKnowledgeBases).toHaveBeenCalled());
     await fireEvent.click(screen.getByRole("button", { name: "开始评测" }));
     await waitFor(() => expect(screen.getByText("已有评测正在运行，同一时刻只允许一个评测")).toBeTruthy());
     await fireEvent.update(screen.getByPlaceholderText(/留空自动生成/), " baseline-50q ");
     await fireEvent.click(screen.getByRole("button", { name: "开始评测" }));
-    await waitFor(() => expect(screen.getByText("运行中")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("排队中")).toBeTruthy());
     expect(mocks.evalStartRun).toHaveBeenLastCalledWith({ dataset: "50q", kbId: 7, runName: "baseline-50q", notes: undefined, localOnly: false });
     expect(localStorage.getItem("kwiki_admin_eval_run")).toBe("r-1");
-    expect(screen.getByText(/10 \/ 50 题/)).toBeTruthy();
+    expect(screen.getByText(/0 \/ 50 题/)).toBeTruthy();
+    expect(await screen.findByText("已加入队列，等待执行")).toBeTruthy();
+  });
+
+  it("已有评测在执行时仍可开始新评测（进入队列）", async () => {
+    mocks.adminKnowledgeBases.mockResolvedValue([{ id: 7, name: "RAG 评测" }]);
+    localStorage.setItem("kwiki_admin_eval_kb", "7");
+    localStorage.setItem("kwiki_admin_eval_run", "r-1");
+    mocks.evalRunStatus.mockResolvedValue(running);
+    mocks.evalStartRun.mockResolvedValue(queued);
+    render(RagEvalView, { global: { plugins } });
+    await waitFor(() => expect(screen.getByText("运行中")).toBeTruthy());
+    const button = screen.getByRole("button", { name: "开始评测" }) as HTMLButtonElement;
+    expect(button.hasAttribute("disabled")).toBe(false);
+    await fireEvent.click(button);
+    await waitFor(() => expect(mocks.evalStartRun).toHaveBeenCalled());
+  });
+
+  it("排队中的评测显示位次且可中断，运行中显示执行实例", async () => {
+    mocks.adminKnowledgeBases.mockResolvedValue([]);
+    mocks.evalListRuns.mockResolvedValue([queued, running]);
+    render(RagEvalView, { global: { plugins } });
+    await screen.findAllByText("baseline-50q");
+    expect(screen.getByText("排队中")).toBeTruthy();
+    expect(screen.getByText(/前面还有 2 个/)).toBeTruthy();
+    expect(screen.getByText("host-a-1234-abcd")).toBeTruthy();
+    // 排队中的中断确认文案与运行中不同
+    await fireEvent.click(screen.getAllByRole("button", { name: "中断" })[0]);
+    await screen.findByText(/该评测仍在排队，取消后可随时继续/);
+    expect(mocks.evalCancelRun).not.toHaveBeenCalled();
+  });
+
+  it("运行中的评测显示执行实例标识", async () => {
+    mocks.adminKnowledgeBases.mockResolvedValue([]);
+    localStorage.setItem("kwiki_admin_eval_run", "r-1");
+    mocks.evalRunStatus.mockResolvedValue(running);
+    render(RagEvalView, { global: { plugins } });
+    await waitFor(() => expect(screen.getByText("执行实例 host-a-1234-abcd")).toBeTruthy());
   });
 
   it("刷新后按记住的 runId 恢复，完成后展示汇总", async () => {
