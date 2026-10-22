@@ -112,5 +112,8 @@ run 记录不设 TTL，由管理端删除。不再写本地报告文件（原 `k
 
 - 评测以「无人交互」方式调用问答工作流（`RouteInput.NON_INTERACTIVE`）：路由不反问、规划器不提供 ask_user、不改道直答。
   线上同一问题可能触发澄清，评测中会直接检索作答。
+- 质量评审的 thinking 跟随「模型配置 → 用途分配」中「质量分析」的设置（开才开启，关或留空均关闭）；评审节点时限
+  `kwiki.agentic.quality-deadline`（默认 `120s`）。开启思考时请确认 provider 的请求超时不小于该时限，
+  且问答运行总时限 `kwiki.agentic.timeout`（默认 `300s`）足够容纳生成与评审；评测单题等待上限为 330 秒。
 - 单路检索时限 `kwiki.retrieval.branch-deadline`（默认 `5s`）同时作用于线上问答与评测工作流。到 ES 的链路延迟高时
   （日志 `es search slow` 中 `esTookMs` 很小而 `searchMs` 很大），可在 Nacos 临时调大，根治办法是让后端走内网直连 ES。

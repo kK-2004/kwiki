@@ -76,6 +76,8 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     private volatile boolean plannerEnabled;
     /** 评审 relevance 不高于该值，才开放 answer_directly / 触发固定阶梯的 *_PARENT 跳过；默认值写在代码里，由 Nacos 覆盖。 */
     private volatile double rerouteRelevanceThreshold = 0.2;
+    /** 质量评审节点时限：评审可开启思考（用途分配），默认 120s。 */
+    private volatile java.time.Duration qualityDeadline = java.time.Duration.ofSeconds(120);
     private final ScheduledExecutorService timer =
             Executors.newSingleThreadScheduledExecutor(
                     Thread.ofPlatform().daemon().name("agentic-deadline").factory());
@@ -181,7 +183,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     private java.time.Duration nodeDeadline(String name) {
         return switch (name) {
             case "generate" -> java.time.Duration.ofSeconds(120);
-            case "quality" -> limits.modelDeadline().plusSeconds(15);
+            case "quality" -> qualityDeadline;
             case "route" -> java.time.Duration.ofSeconds(10);
             case "plan" -> limits.modelDeadline().multipliedBy(2).plusSeconds(15);
             case "execute" -> java.time.Duration.ofSeconds(60);
@@ -225,6 +227,11 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     void configureReroute(@Value("${kwiki.agentic.reroute-relevance-threshold:0.2}") double threshold) {
         this.rerouteRelevanceThreshold = threshold;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void configureQualityDeadline(@Value("${kwiki.agentic.quality-deadline:120s}") java.time.Duration deadline) {
+        if (deadline != null && !deadline.isNegative() && !deadline.isZero()) this.qualityDeadline = deadline;
     }
 
     /** 测试与手工装配用的注入入口。 */

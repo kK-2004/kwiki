@@ -61,7 +61,8 @@ import java.util.stream.Collectors;
 public class EvalRunService {
 
     private static final Logger log = LoggerFactory.getLogger(EvalRunService.class);
-    static final Duration CASE_TIMEOUT = Duration.ofSeconds(200);
+    /** 单题等待上限：须大于问答运行总时限 kwiki.agentic.timeout（默认 300s），否则评测先于工作流放弃。 */
+    static final Duration CASE_TIMEOUT = Duration.ofSeconds(330);
     /** 心跳超过该时长未更新、且不在本实例执行的 RUNNING run 视为已中断（实例重启或失联）。 */
     static final Duration STALE_AFTER = Duration.ofMinutes(2);
     /** 集群名额占位时长，执行期间随心跳续期；实例宕机后到期自动释放。 */

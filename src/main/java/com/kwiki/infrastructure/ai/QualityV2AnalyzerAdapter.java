@@ -16,6 +16,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.response.*;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ResponseFormatType;
 import dev.langchain4j.model.chat.request.json.JsonRawSchema;
@@ -201,6 +202,26 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
                 .build();
     }
 
+    /**
+     * 请求级透传参数：先带上客户端级参数（模型 / 用途分配的 extra，请求级会整体覆盖客户端级），
+     * 再按「用途分配」的 thinking 设置 enable_thinking——设为开才开启，关或留空均关闭（评审默认追求低延迟）。
+     */
+    private Map<String, Object> requestParameters(StreamingChatModel model) {
+        Map<String, Object> parameters = new java.util.LinkedHashMap<>();
+        var defaults = model.defaultRequestParameters();
+        if (defaults instanceof OpenAiChatRequestParameters openAi && openAi.customParameters() != null) {
+            parameters.putAll(openAi.customParameters());
+        }
+        Boolean thinking;
+        try {
+            thinking = models.resolve(ModelPurpose.QUALITY_ANALYZER).thinking();
+        } catch (RuntimeException e) {
+            thinking = null;
+        }
+        parameters.put("enable_thinking", Boolean.TRUE.equals(thinking));
+        return parameters;
+    }
+
     private String modelKey() {
         try {
             var model = models.resolve(ModelPurpose.QUALITY_ANALYZER);
@@ -224,9 +245,10 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
         }
         var result = new CompletableFuture<ChatResponse>();
         try {
-            models.streaming(ModelPurpose.QUALITY_ANALYZER).chat(ChatRequest.builder().messages(messages)
+            StreamingChatModel model = models.streaming(ModelPurpose.QUALITY_ANALYZER);
+            model.chat(ChatRequest.builder().messages(messages)
                     .parameters(OpenAiChatRequestParameters.builder()
-                            .customParameters(Map.of("enable_thinking", false))
+                            .customParameters(requestParameters(model))
                             .build())
                     .responseFormat(responseFormat).build(), new StreamingChatResponseHandler() {
                 @Override public void onPartialThinking(PartialThinking thinking) {

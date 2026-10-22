@@ -200,4 +200,55 @@ class QualityV2AnalyzerAdapterTest {
         assertThat(QualityV2AnalyzerAdapter.normalizeReasonCode("证据不足")).isEqualTo("invalid");
         assertThat(QualityV2AnalyzerAdapter.normalizeReasonCode("a".repeat(80))).hasSize(64);
     }
+
+    /** 用途分配的 thinking 设置；模型带客户端级透传参数 top_p。 */
+    private static com.kwiki.infrastructure.ai.registry.ModelRegistry registryWithThinking(
+            StreamingChatModel model, Boolean thinking) {
+        var fixed = com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model);
+        return new com.kwiki.infrastructure.ai.registry.ModelRegistry() {
+            @Override public dev.langchain4j.model.chat.ChatModel chat(
+                    com.kwiki.infrastructure.ai.registry.ModelPurpose purpose) { return fixed.chat(purpose); }
+            @Override public StreamingChatModel streaming(
+                    com.kwiki.infrastructure.ai.registry.ModelPurpose purpose) { return model; }
+            @Override public com.kwiki.infrastructure.ai.registry.ResolvedModel resolve(
+                    com.kwiki.infrastructure.ai.registry.ModelPurpose purpose) {
+                var r = fixed.resolve(purpose);
+                return new com.kwiki.infrastructure.ai.registry.ResolvedModel(r.purpose(), r.providerId(),
+                        r.providerName(), r.baseUrl(), r.apiKey(), r.modelName(), r.temperature(), r.maxTokens(),
+                        thinking, r.maxRetries(), r.timeout(), r.limiter(), r.providerConcurrency(), r.extra());
+            }
+            @Override public java.util.Optional<com.kwiki.infrastructure.ai.registry.EmbeddingBinding> embedding(
+                    String providerName, String modelName) { return fixed.embedding(providerName, modelName); }
+            @Override public List<com.kwiki.infrastructure.ai.registry.EmbeddingBinding> embeddings() {
+                return fixed.embeddings(); }
+            @Override public Status status() { return fixed.status(); }
+        };
+    }
+
+    private Map<String, Object> customParametersOfFirstRequest(Boolean thinking) {
+        var model = mock(StreamingChatModel.class);
+        when(model.defaultRequestParameters()).thenReturn(
+                dev.langchain4j.model.openai.OpenAiChatRequestParameters.builder()
+                        .customParameters(Map.of("top_p", 0.8)).build());
+        var requests = new ArrayList<ChatRequest>();
+        doAnswer(call -> {
+            requests.add(call.getArgument(0));
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            handler.onCompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from(VALID)).build());
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        new QualityV2AnalyzerAdapter(registryWithThinking(model, thinking), new ToolRegistry()).assess(input());
+        return ((dev.langchain4j.model.openai.OpenAiChatRequestParameters) requests.getFirst().parameters())
+                .customParameters();
+    }
+
+    @Test void thinkingFollowsThePurposeAssignmentAndDefaultsToOff() {
+        assertThat(customParametersOfFirstRequest(true)).containsEntry("enable_thinking", true);
+        assertThat(customParametersOfFirstRequest(false)).containsEntry("enable_thinking", false);
+        assertThat(customParametersOfFirstRequest(null)).as("留空沿用默认关闭").containsEntry("enable_thinking", false);
+    }
+
+    @Test void clientLevelExtraParametersAreKeptOnTheRequest() {
+        assertThat(customParametersOfFirstRequest(null)).containsEntry("top_p", 0.8);
+    }
 }
