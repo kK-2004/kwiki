@@ -36,14 +36,14 @@ import java.util.function.Supplier;
  * Basic 认证（publicKey:secretKey）；所有请求按 {@code kwiki.langfuse.max-requests-per-minute} 主动限速
  * （Langfuse Cloud 公共 API 默认 100 次/分钟）；429 按服务端 retryAfterSeconds / Retry-After 等待后重试，
  * 最多 {@link #MAX_RATE_LIMIT_ATTEMPTS} 次；5xx 与网络错误按 500ms 起指数退避重试 {@link #MAX_ATTEMPTS} 次；
- * 未配置凭据时 {@link #available()} 为 false，调用方不应再发请求。密钥绝不写日志。
+ * 未配置凭据时 {@link #available()} 为 false，调用方不应再发请求。本类不持有缓冲：
+ * {@link #upload} 由调用方按 run 攒批同步发送，上报进度以「确认成功的 traceId」回报。密钥绝不写日志。
  */
 @Component
 public class LangfuseRestClient implements EvalReportPort {
 
     private static final Logger log = LoggerFactory.getLogger(LangfuseRestClient.class);
     static final int MAX_ATTEMPTS = 3;
-    static final int FLUSH_THRESHOLD = 20;
     static final int MAX_RATE_LIMIT_ATTEMPTS = 8;
     static final long MAX_RETRY_AFTER_MS = 60_000;
     static final int LIST_PAGE_SIZE = 50;
@@ -57,8 +57,6 @@ public class LangfuseRestClient implements EvalReportPort {
     private final Object paceLock = new Object();
     private long nextAllowedNanos = Long.MIN_VALUE;
     private final boolean configured;
-    private final List<TraceRecord> buffer = new ArrayList<>();
-    private int failedTraces;
 
     @Autowired
     public LangfuseRestClient(@Value("${kwiki.langfuse.host:https://cloud.langfuse.com}") String host,
@@ -161,45 +159,43 @@ public class LangfuseRestClient implements EvalReportPort {
         }
     }
 
+    /**
+     * 同步上报一批 trace：先整体 ingestion（trace/span/score 事件），再逐条关联 dataset-run-items。
+     * ingestion 失败（重试耗尽）或整批被拒返回空列表；某条关联失败则该条不计入返回值。
+     */
     @Override
-    public synchronized void recordTrace(TraceRecord trace) {
-        buffer.add(trace);
-        if (buffer.size() >= FLUSH_THRESHOLD) sendBuffered();
-    }
-
-    @Override
-    public synchronized void flush() {
-        sendBuffered();
-        if (failedTraces > 0) {
-            int failed = failedTraces;
-            failedTraces = 0;
-            throw new EvalReportException(failed + " traces failed to upload to langfuse");
-        }
-    }
-
-    private void sendBuffered() {
-        if (buffer.isEmpty()) return;
-        List<TraceRecord> batch = List.copyOf(buffer);
-        buffer.clear();
+    public List<String> upload(List<TraceRecord> batch) {
+        if (batch.isEmpty()) return List.of();
         try {
             JsonNode response = post("/api/public/ingestion", Map.of("batch", ingestionEvents(batch)), false);
             JsonNode errors = response.path("errors");
             if (errors.isArray() && !errors.isEmpty()) {
-                throw new EvalReportException("langfuse ingestion rejected " + errors.size() + " events");
-            }
-            for (TraceRecord trace : batch) {
-                if (trace.datasetItemId() == null) continue;
-                Map<String, Object> link = new LinkedHashMap<>();
-                link.put("runName", trace.runName());
-                link.put("datasetItemId", trace.datasetItemId());
-                link.put("traceId", trace.traceId());
-                link.put("metadata", trace.runMetadata());
-                post("/api/public/dataset-run-items", link, false);
+                log.warn("langfuse ingestion rejected {} events for {} traces", errors.size(), batch.size());
+                return List.of();
             }
         } catch (RuntimeException e) {
-            failedTraces += batch.size();
             log.warn("langfuse upload failed traces={} reason={}", batch.size(), e.getMessage());
+            return List.of();
         }
+        List<String> uploaded = new ArrayList<>();
+        for (TraceRecord trace : batch) {
+            if (trace.datasetItemId() == null) {
+                uploaded.add(trace.traceId());
+                continue;
+            }
+            Map<String, Object> link = new LinkedHashMap<>();
+            link.put("runName", trace.runName());
+            link.put("datasetItemId", trace.datasetItemId());
+            link.put("traceId", trace.traceId());
+            link.put("metadata", trace.runMetadata());
+            try {
+                post("/api/public/dataset-run-items", link, false);
+                uploaded.add(trace.traceId());
+            } catch (RuntimeException e) {
+                log.warn("langfuse dataset-run link failed trace={} reason={}", trace.traceId(), e.getMessage());
+            }
+        }
+        return uploaded;
     }
 
     private List<Map<String, Object>> ingestionEvents(List<TraceRecord> batch) {

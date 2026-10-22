@@ -1,21 +1,28 @@
 package com.kwiki.eval;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-/** 测试用内存上报端口。 */
+/** 测试用内存上报端口：记录每批上传，可按 traceId 注入失败模拟部分成功。 */
 class InMemoryReport implements EvalReportPort {
 
     boolean available = true;
-    boolean failFlush;
     boolean failDelete;
+    /** 整批上报失败（返回空列表），模拟 Langfuse 不可用。 */
+    boolean failUpload;
     final List<String> deletedRuns = new CopyOnWriteArrayList<>();
     final List<String> deletedTraceIds = new CopyOnWriteArrayList<>();
-    int flushes;
+    /** 每批 upload 的批大小，按调用顺序记录。 */
+    final List<Integer> batches = new CopyOnWriteArrayList<>();
     final List<String> datasets = new CopyOnWriteArrayList<>();
     final List<String> itemIds = new CopyOnWriteArrayList<>();
     final List<TraceRecord> traces = new CopyOnWriteArrayList<>();
+    /** 这些 traceId 上报失败（不计入返回值），用于模拟部分成功 / 整批失败。 */
+    final Set<String> failTraceIds = ConcurrentHashMap.newKeySet();
     /** 预置的「Langfuse 上已存在」条目：datasetName → (itemId → 内容)。 */
     final Map<String, Map<String, StoredItem>> existing = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -41,14 +48,14 @@ class InMemoryReport implements EvalReportPort {
     }
 
     @Override
-    public void recordTrace(TraceRecord trace) {
-        traces.add(trace);
-    }
-
-    @Override
-    public void flush() {
-        flushes++;
-        if (failFlush) throw new EvalReportException("boom");
+    public List<String> upload(List<TraceRecord> batch) {
+        batches.add(batch.size());
+        List<String> uploaded = new ArrayList<>();
+        for (TraceRecord trace : batch) {
+            traces.add(trace);
+            if (!failUpload && !failTraceIds.contains(trace.traceId())) uploaded.add(trace.traceId());
+        }
+        return uploaded;
     }
 
     @Override

@@ -27,12 +27,15 @@ class LangfuseRestClientLiveTest {
         client.upsertItem(dataset, itemId, Map.of("query", "冒烟问题"),
                 Map.of("keywords", List.of(List.of("冒烟"))), Map.of("tier", 50));
         Instant now = Instant.now();
-        client.recordTrace(new EvalReportPort.TraceRecord(UUID.randomUUID().toString(), "eval:smoke-1",
+        String traceId = UUID.randomUUID().toString();
+        var uploaded = client.upload(List.of(new EvalReportPort.TraceRecord(traceId, "eval:smoke-1",
                 Map.of("query", "冒烟问题"), Map.of("answer", "冒烟回答"), Map.of(), List.of("rag-eval", "smoke"),
                 List.of(new EvalReportPort.SpanRecord(UUID.randomUUID().toString(), "answer", now, now,
                         Map.of("query", "冒烟问题"), Map.of("matched", List.of("冒烟")))),
                 List.of(new EvalReportPort.ScoreRecord("coverage@answer", 1.0, null)),
-                itemId, "smoke-" + now.toEpochMilli(), Map.of("notes", "smoke")));
-        client.flush();
+                itemId, "smoke-" + now.toEpochMilli(), Map.of("notes", "smoke"))));
+        if (!uploaded.equals(List.of(traceId))) {
+            throw new IllegalStateException("smoke trace upload failed: " + uploaded);
+        }
     }
 }

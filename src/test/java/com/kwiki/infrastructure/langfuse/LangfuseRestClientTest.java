@@ -92,13 +92,13 @@ class LangfuseRestClientTest {
     }
 
     @Test
-    void flushSendsIngestionBatchThenRunItems() throws Exception {
+    void uploadSendsIngestionBatchThenRunItems() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(207).setBody("{\"successes\":[],\"errors\":[]}"));
         server.enqueue(new MockResponse().setResponseCode(200).setBody("{}"));
 
-        client.recordTrace(trace());
-        client.flush();
+        var uploaded = client.upload(List.of(trace()));
 
+        assertThat(uploaded).containsExactly("trace-1");
         RecordedRequest ingestion = server.takeRequest();
         assertThat(ingestion.getPath()).isEqualTo("/api/public/ingestion");
         JsonNode batch = body(ingestion).get("batch");
@@ -115,25 +115,51 @@ class LangfuseRestClientTest {
     }
 
     @Test
-    void flushReportsFailureAfterRetriesAreExhausted() {
+    void uploadFailureReturnsEmptyListWithoutThrowing() {
         server.enqueue(new MockResponse().setResponseCode(503).setBody("{\"message\":\"unavailable\"}"));
         server.enqueue(new MockResponse().setResponseCode(503).setBody("{\"message\":\"unavailable\"}"));
         server.enqueue(new MockResponse().setResponseCode(503).setBody("{\"message\":\"unavailable\"}"));
 
-        client.recordTrace(trace());
-
-        assertThatThrownBy(client::flush).isInstanceOf(EvalReportException.class)
-                .hasMessageContaining("1 traces");
+        assertThat(client.upload(List.of(trace()))).isEmpty();
+        assertThat(server.getRequestCount()).isEqualTo(3);
     }
 
     @Test
-    void ingestionPartialErrorsFailTheBatch() {
+    void ingestionPartialErrorsFailTheWholeBatch() {
         server.enqueue(new MockResponse().setResponseCode(207)
                 .setBody("{\"successes\":[],\"errors\":[{\"id\":\"x\",\"status\":400}]}"));
 
-        client.recordTrace(trace());
+        assertThat(client.upload(List.of(trace()))).isEmpty();
+        assertThat(server.getRequestCount()).isEqualTo(1);
+    }
 
-        assertThatThrownBy(client::flush).isInstanceOf(EvalReportException.class);
+    @Test
+    void failedDatasetRunLinkOnlyExcludesThatTrace() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(207).setBody("{\"successes\":[],\"errors\":[]}"));
+        // 批内第一条（trace-1）的 dataset-run-items 关联连续失败，第二条（trace-2）成功
+        server.enqueue(new MockResponse().setResponseCode(500).setBody("{\"message\":\"boom\"}"));
+        server.enqueue(new MockResponse().setResponseCode(500).setBody("{\"message\":\"boom\"}"));
+        server.enqueue(new MockResponse().setResponseCode(500).setBody("{\"message\":\"boom\"}"));
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{}"));
+
+        var first = trace();
+        var second = new EvalReportPort.TraceRecord("trace-2", "eval:db-2", Map.of("query", "问题"),
+                Map.of("answer", "回答"), Map.of(), List.of("eval"), List.of(), List.of(),
+                "kwiki-rag-50q:db-2", "50q-run", Map.of());
+        var uploaded = client.upload(List.of(first, second));
+
+        assertThat(uploaded).containsExactly("trace-2");
+        assertThat(server.getRequestCount()).isEqualTo(5);
+    }
+
+    @Test
+    void tracesWithoutDatasetItemUploadWithoutLink() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(200).setBody("{}"));
+
+        var bare = new EvalReportPort.TraceRecord("trace-3", "eval:x", Map.of(), Map.of(), Map.of(),
+                List.of(), List.of(), List.of(), null, null, Map.of());
+        assertThat(client.upload(List.of(bare))).containsExactly("trace-3");
+        assertThat(server.getRequestCount()).isEqualTo(1);
     }
     @Test
     void rateLimitedRequestWaitsForRetryAfterThenSucceeds() throws Exception {

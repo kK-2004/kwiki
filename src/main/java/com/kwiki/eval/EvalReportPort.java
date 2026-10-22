@@ -22,11 +22,12 @@ public interface EvalReportPort {
     /** 列出数据集中已有条目（itemId → 内容），用于跳过未变更条目；数据集不存在时返回空。 */
     Map<String, StoredItem> listItems(String datasetName);
 
-    /** 缓冲一条 trace（达到批量阈值时自动发送）。 */
-    void recordTrace(TraceRecord trace);
-
-    /** 发送剩余缓冲；本 run 内有任何 trace 上传失败则抛 {@link EvalReportException}。 */
-    void flush();
+    /**
+     * 同步上报一批 trace（ingestion + dataset-run-items），返回上报成功的 traceId：
+     * ingestion 失败或整批被拒返回空列表；某条 dataset-run-items 关联失败则该条不计入返回值，
+     * 调用方据此标记 reportPartial 并在继续时补报（trace id 确定，重复上报只会覆盖同一条记录）。
+     */
+    List<String> upload(List<TraceRecord> batch);
 
     /** 删除一个 run 在上报端的数据：给定 trace 与 dataset run；失败抛 {@link EvalReportException}。 */
     void deleteRun(String datasetName, String runName, List<String> traceIds);
