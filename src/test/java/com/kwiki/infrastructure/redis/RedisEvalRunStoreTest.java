@@ -35,7 +35,10 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/** 用内存 Map 模拟 hash / zset 操作，验证键布局、按字段更新与 JSON 往返（测试不依赖 Docker 中间件）。 */
+/**
+ * 用内存 Map 模拟 hash / zset 操作，验证键布局、按字段更新与 JSON 往返（测试不依赖 Docker 中间件）。
+ * Lua 脚本承载的排队 CAS、认领令牌与令牌校验写入在 RedisEvalCoordinationLiveTest 中用真实 Redis 验证。
+ */
 class RedisEvalRunStoreTest {
 
     final Map<String, Map<Object, Object>> hashes = new ConcurrentHashMap<>();
@@ -74,6 +77,8 @@ class RedisEvalRunStoreTest {
         });
         when(hash.entries(anyString())).thenAnswer(inv ->
                 new LinkedHashMap<>(hashes.getOrDefault(inv.<String>getArgument(0), Map.of())));
+        when(hash.keys(anyString())).thenAnswer(inv ->
+                new LinkedHashSet<>(hashes.getOrDefault(inv.<String>getArgument(0), Map.of()).keySet()));
         when(hash.size(anyString())).thenAnswer(inv ->
                 (long) hashes.getOrDefault(inv.<String>getArgument(0), Map.of()).size());
         when(zset.add(anyString(), anyString(), anyDouble())).thenAnswer(inv -> {
@@ -96,7 +101,7 @@ class RedisEvalRunStoreTest {
 
     static EvalRunStore.RunMeta meta(String runId, long createdAt) {
         return new EvalRunStore.RunMeta(runId, "run-" + runId, "50q", 7L, "基线", false, 3,
-                Map.of("concurrency", 2, "notes", "基线"), Instant.ofEpochMilli(createdAt));
+                Map.of("concurrency", 2, "notes", "基线"), Instant.ofEpochMilli(createdAt), "1");
     }
 
     static CaseResult result(String id) {
@@ -109,73 +114,76 @@ class RedisEvalRunStoreTest {
     }
 
     @Test
-    void createsRunWithFieldHashAndHistoryIndex() {
+    void createsQueuedRunWithFieldHashAndIndexes() {
         store.create(meta("a", 1000));
 
-        assertThat(hashes.get("kwiki:eval:run:a")).containsKeys("meta", "state", "heartbeatAt")
-                .containsEntry("state", "RUNNING");
+        assertThat(hashes.get("kwiki:eval:run:a")).containsKeys("meta", "state", "heartbeatAt", "created",
+                        "queuedAt", "submittedBy")
+                .containsEntry("state", "QUEUED").containsEntry("submittedBy", "1");
         assertThat(zsets.get("kwiki:eval:runs")).containsValue("a");
+        assertThat(zsets.get("kwiki:eval:queued")).containsValue("a");
         var record = store.find("a").orElseThrow();
         assertThat(record.meta()).isEqualTo(meta("a", 1000));
-        assertThat(record.state()).isEqualTo(EvalRunState.RUNNING);
+        assertThat(record.state()).isEqualTo(EvalRunState.QUEUED);
+        assertThat(record.queuedAt()).isEqualTo(Instant.ofEpochMilli(1000));
         assertThat(record.cancelRequested()).isFalse();
+    }
+
+    @Test
+    void findPrefersSubmittedByFieldOverMetaJson() {
+        store.create(meta("a", 1000));
+        hashes.get("kwiki:eval:run:a").put("submittedBy", "9");
+
+        assertThat(store.find("a").orElseThrow().meta().submittedBy()).isEqualTo("9");
     }
 
     @Test
     void caseResultsRoundTripThroughJson() {
         store.create(meta("a", 1000));
-        store.saveCase("a", result("p-1"));
-        store.saveCase("a", result("p-1"));
+        hashes.computeIfAbsent("kwiki:eval:run:a:cases", k -> new LinkedHashMap<>())
+                .put("p-1", json(result("p-1")));
+        hashes.computeIfAbsent("kwiki:eval:run:a:cases:reported", k -> new LinkedHashMap<>())
+                .put("p-1", "1");
 
         assertThat(store.caseCount("a")).isEqualTo(1);
         CaseResult restored = store.cases("a").get("p-1");
         assertThat(restored).isEqualTo(result("p-1"));
         assertThat(restored.score().fullHit(EvalLayer.POOL_50)).isTrue();
-    }
-
-    @Test
-    void finishCancelAndRunningUpdateIndividualFields() {
-        store.create(meta("a", 1000));
-        store.requestCancel("a");
-        assertThat(store.find("a").orElseThrow().cancelRequested()).isTrue();
-
-        var summary = new EvalSummary(1, 0, 1, Map.of("answer", new LayerMetric(1, 1, 1)), Map.of(), Map.of(),
-                Map.of(), 0, 0, Map.of(), 0);
-        store.finish("a", EvalRunState.CANCELLED, summary, true, "cancelled");
-        var finished = store.find("a").orElseThrow();
-        assertThat(finished.state()).isEqualTo(EvalRunState.CANCELLED);
-        assertThat(finished.summary()).isEqualTo(summary);
-        assertThat(finished.reportPartial()).isTrue();
-        assertThat(finished.error()).isEqualTo("cancelled");
-        assertThat(finished.cancelRequested()).isFalse();
-
-        store.markRunning("a", Instant.ofEpochMilli(5000));
-        var resumed = store.find("a").orElseThrow();
-        assertThat(resumed.state()).isEqualTo(EvalRunState.RUNNING);
-        assertThat(resumed.summary()).isNull();
-        assertThat(resumed.error()).isNull();
-        assertThat(resumed.reportPartial()).isFalse();
-        assertThat(resumed.heartbeatAt()).isEqualTo(Instant.ofEpochMilli(5000));
+        assertThat(store.reportedCaseIds("a")).containsExactly("p-1");
     }
 
     @Test
     void listsNewestFirstAndDeleteRemovesEverything() {
         store.create(meta("old", 1000));
         store.create(meta("new", 2000));
-        store.saveCase("old", result("p-1"));
+        hashes.computeIfAbsent("kwiki:eval:run:old:cases", k -> new LinkedHashMap<>())
+                .put("p-1", json(result("p-1")));
+        hashes.computeIfAbsent("kwiki:eval:run:old:cases:reported", k -> new LinkedHashMap<>())
+                .put("p-1", "1");
 
         assertThat(store.list(10)).extracting(r -> r.meta().runId()).containsExactly("new", "old");
 
         store.delete("old");
         assertThat(store.find("old")).isEmpty();
-        assertThat(hashes).doesNotContainKeys("kwiki:eval:run:old", "kwiki:eval:run:old:cases");
+        assertThat(hashes).doesNotContainKeys("kwiki:eval:run:old", "kwiki:eval:run:old:cases",
+                "kwiki:eval:run:old:cases:reported");
+        assertThat(zsets.get("kwiki:eval:runs")).doesNotContainValue("old");
+        assertThat(zsets.get("kwiki:eval:queued")).doesNotContainValue("old");
         assertThat(store.list(10)).extracting(r -> r.meta().runId()).containsExactly("new");
     }
 
     @Test
-    void heartbeatOnDeletedRunDoesNotResurrectIt() {
-        store.heartbeat("ghost", Instant.now());
+    void cancelFlagOnDeletedRunDoesNotResurrectIt() {
+        store.requestCancel("ghost");
         assertThat(store.find("ghost")).isEmpty();
         assertThat(hashes).doesNotContainKey("kwiki:eval:run:ghost");
+    }
+
+    private String json(CaseResult result) {
+        try {
+            return mapper.writeValueAsString(result);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 }
