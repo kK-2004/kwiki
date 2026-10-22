@@ -46,6 +46,9 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
     private final ModelRegistry models;
     private final ToolRegistry registry;
 
+    /** 已确认不支持 json_schema 结构化输出的模型（provider/模型@地址）；进程内记忆，重启后重新试探。 */
+    private final java.util.Set<String> jsonSchemaUnsupported = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     public QualityV2AnalyzerAdapter(ModelRegistry models, ToolRegistry registry) {
         this.models = models;
         this.registry = registry;
@@ -83,14 +86,21 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
                                     "text", input.candidate().content()),
                             "evidence", evidence))));
             ChatResponse response;
-            try {
-                response = request(messages, qualityResponseFormat(), run);
-            } catch (Exception firstFailure) {
-                if (!hasHttpStatus(firstFailure, 400)) throw firstFailure;
-                log.warn(
-                        "quality-v2 provider rejected json-schema mode; retrying once with json-object mode requestId={}",
-                        run == null ? "-" : run.requestId);
+            String modelKey = modelKey();
+            if (jsonSchemaUnsupported.contains(modelKey)) {
                 response = request(messages, jsonObjectResponseFormat(), run);
+            } else {
+                try {
+                    response = request(messages, qualityResponseFormat(), run);
+                } catch (Exception firstFailure) {
+                    if (!hasHttpStatus(firstFailure, 400)) throw firstFailure;
+                    response = request(messages, jsonObjectResponseFormat(), run);
+                    // 只有 json_object 回退成功才记忆，避免把其他原因的 400 误判为不支持结构化输出
+                    if (jsonSchemaUnsupported.add(modelKey)) {
+                        log.info("quality-v2 model {} rejected json_schema structured output; "
+                                + "using json_object for this model from now on", modelKey);
+                    }
+                }
             }
             if (response.metadata() != null && response.metadata().finishReason() == dev.langchain4j.model.output.FinishReason.LENGTH) {
                 log.warn("quality-v2 response truncated by model token limit");
@@ -149,6 +159,15 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
                 .type(ResponseFormatType.JSON)
                 .jsonSchema(schema)
                 .build();
+    }
+
+    private String modelKey() {
+        try {
+            var model = models.resolve(ModelPurpose.QUALITY_ANALYZER);
+            return model.providerName() + "/" + model.modelName() + "@" + model.baseUrl();
+        } catch (RuntimeException e) {
+            return "unresolved";
+        }
     }
 
     private ResponseFormat jsonObjectResponseFormat() {

@@ -118,4 +118,51 @@ class QualityV2AnalyzerAdapterTest {
                     .isInstanceOf(RunFailure.class).hasMessage("qa-unavailable");
         }
     }
+
+    @Test void remembersJsonSchemaRejectionAndUsesJsonObjectDirectlyAfterwards() {
+        var model = mock(StreamingChatModel.class);
+        var requests = new ArrayList<ChatRequest>();
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            requests.add(request);
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            if (request.responseFormat().jsonSchema() != null) {
+                handler.onError(new dev.langchain4j.exception.InvalidRequestException(
+                        new RunFailure("model-stream-failed", new dev.langchain4j.exception.HttpException(400,
+                                "model request rejected: This response_format type is unavailable now"))));
+            } else {
+                handler.onCompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from(VALID)).build());
+            }
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        var adapter = new QualityV2AnalyzerAdapter(
+                com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), new ToolRegistry());
+
+        assertThat(adapter.assess(input()).passed()).isTrue();
+        assertThat(adapter.assess(input()).passed()).isTrue();
+
+        assertThat(requests).hasSize(3); // 第一次：schema 被拒 + object 成功；第二次：直接 object
+        assertThat(requests.get(2).responseFormat().jsonSchema()).isNull();
+    }
+
+    @Test void unrelatedFailureAfterFallbackIsNotRemembered() {
+        var model = mock(StreamingChatModel.class);
+        var requests = new ArrayList<ChatRequest>();
+        doAnswer(call -> {
+            requests.add(call.getArgument(0));
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            handler.onError(new dev.langchain4j.exception.InvalidRequestException(
+                    new RunFailure("model-stream-failed",
+                            new dev.langchain4j.exception.HttpException(400, "context too long"))));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        var adapter = new QualityV2AnalyzerAdapter(
+                com.kwiki.infrastructure.ai.registry.ModelRegistry.fixed(model), new ToolRegistry());
+
+        assertThatThrownBy(() -> adapter.assess(input())).isInstanceOf(RunFailure.class);
+        assertThatThrownBy(() -> adapter.assess(input())).isInstanceOf(RunFailure.class);
+
+        // 回退也失败时不记忆，第二次仍先试 json_schema
+        assertThat(requests.get(2).responseFormat().jsonSchema()).isNotNull();
+    }
 }
