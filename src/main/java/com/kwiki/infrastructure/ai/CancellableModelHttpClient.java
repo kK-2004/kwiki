@@ -100,7 +100,7 @@ public final class CancellableModelHttpClient implements HttpClient {
                             (run == null ? timeout : run.timeout(timeout)).toMillis(),
                             TimeUnit.MILLISECONDS);
             if (response.statusCode() >= 300)
-                throw new HttpException(response.statusCode(), "model request rejected");
+                throw new HttpException(response.statusCode(), rejection(response.body()));
             return SuccessfulHttpResponse.builder()
                     .statusCode(response.statusCode())
                     .headers(response.headers().map())
@@ -167,7 +167,7 @@ public final class CancellableModelHttpClient implements HttpClient {
                         try (var input = response.body()) {
                             if (response.statusCode() >= 300)
                                 throw new HttpException(
-                                        response.statusCode(), "model request rejected");
+                                        response.statusCode(), rejection(readBounded(input)));
                             listener.onOpen(
                                     SuccessfulHttpResponse.builder()
                                             .statusCode(response.statusCode())
@@ -189,6 +189,32 @@ public final class CancellableModelHttpClient implements HttpClient {
                         PERMITS.release();
                     }
                 });
+    }
+
+    static final int MAX_ERROR_BODY_BYTES = 2048;
+    static final int MAX_ERROR_REASON_CHARS = 500;
+
+    /**
+     * 拒绝原因：保留 provider 的错误响应（脱敏、截断）供服务端日志定位，例如不支持的参数、欠费、鉴权失败。
+     * 对用户仍只暴露稳定错误码（RunFailure），该信息不进入响应体。
+     */
+    static String rejection(String body) {
+        if (body == null || body.isBlank()) return "model request rejected";
+        String reason = body.replaceAll("\\s+", " ").strip();
+        reason = com.kwiki.infrastructure.observability.SecretRedaction.redact(reason)
+                .replaceAll("\\b(?:sk|pk|ak)-[A-Za-z0-9_\\-]{8,}",
+                        com.kwiki.infrastructure.observability.SecretRedaction.REDACTED);
+        if (reason.length() > MAX_ERROR_REASON_CHARS) reason = reason.substring(0, MAX_ERROR_REASON_CHARS) + "…";
+        return "model request rejected: " + reason;
+    }
+
+    private static String readBounded(InputStream input) {
+        try {
+            byte[] bytes = input.readNBytes(MAX_ERROR_BODY_BYTES);
+            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "";
+        }
     }
 
     private static Throwable rootCause(Throwable error) {

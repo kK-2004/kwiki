@@ -146,6 +146,33 @@ class LowLevelModelContractTest {
             Throwable root = error;
             while (root.getCause() != null) root = root.getCause();
             assertThat(((dev.langchain4j.exception.HttpException) root).statusCode()).isEqualTo(400);
+            // provider 的拒绝原因保留在服务端异常信息里，供日志定位（不外露给用户）
+            assertThat(root.getMessage()).contains("response_format is unsupported");
+        }
+    }
+
+    @Test
+    void synchronousHttpFailureKeepsRedactedProviderReason() throws Exception {
+        try (var server = new MockWebServer()) {
+            server.start();
+            server.enqueue(new MockResponse().setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("{\"error\":{\"code\":\"InvalidParameter\",\"message\":\"json_schema is not supported, key sk-abcdefghijklmnop1234\"}}"));
+            var model = OpenAiChatModel.builder()
+                    .baseUrl(server.url("/v1").toString())
+                    .apiKey("test")
+                    .modelName("test")
+                    .maxRetries(0)
+                    .httpClientBuilder(new CancellableModelHttpClient.Builder())
+                    .build();
+
+            Throwable error = catchThrowable(() -> model.chat("question"));
+
+            Throwable root = error;
+            while (root.getCause() != null) root = root.getCause();
+            assertThat(root).isInstanceOf(dev.langchain4j.exception.HttpException.class);
+            assertThat(root.getMessage()).contains("InvalidParameter").contains("json_schema is not supported")
+                    .doesNotContain("sk-abcdefghijklmnop1234");
         }
     }
 
