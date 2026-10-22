@@ -47,9 +47,9 @@ public final class ModelCallErrorLogger implements ChatModelListener {
             return;
         }
         Throwable reported = http != null ? http : rootCause(error);
-        log.error("model provider call failed model={} endpoint={} errorType={} status={} detail={}",
+        log.error("model provider call failed model={} endpoint={} errorType={} status={} code={} detail={}",
                 modelName, endpoint, reported.getClass().getSimpleName(),
-                http == null ? "-" : String.valueOf(http.statusCode()), detail(reported));
+                http == null ? "-" : String.valueOf(http.statusCode()), runFailureCode(error), detail(reported));
     }
 
     private static boolean isCancellation(Throwable error) {
@@ -59,6 +59,14 @@ public final class ModelCallErrorLogger implements ChatModelListener {
                     && com.kwiki.rag.orchestration.AgenticErrorCodes.CANCELLED.equals(failure.getMessage())) return true;
         }
         return false;
+    }
+
+    /** 传输层给出的内部错误码（如 timeout、model-stream-failed），用于区分超时、断流与 provider 拒绝。 */
+    private static String runFailureCode(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause() == current ? null : current.getCause()) {
+            if (current instanceof com.kwiki.rag.orchestration.RunFailure failure) return failure.getMessage();
+        }
+        return "-";
     }
 
     private static boolean requestsJsonSchema(ChatModelErrorContext context) {

@@ -110,4 +110,13 @@ class ModelCallErrorLoggerTest {
             logger.setLevel(null);
         }
     }
+
+    @Test
+    void transportFailureCodeIsLoggedToTellTimeoutsFromBrokenStreams() {
+        new ModelCallErrorLogger("https://x/v1", "qwen").onError(context(new com.kwiki.rag.orchestration.RunFailure(
+                "timeout", new java.io.IOException("closed"))));
+
+        assertThat(appender.list.getFirst().getFormattedMessage())
+                .contains("errorType=IOException").contains("code=timeout").contains("detail=closed");
+    }
 }
