@@ -9,6 +9,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 以虚拟线程并发执行 BM25 与向量分支，并为每个分支设置截止时间。某个
@@ -26,6 +30,9 @@ public class ConcurrentRecallService {
             super(message);
         }
     }
+
+    private static final Logger log = LoggerFactory.getLogger(ConcurrentRecallService.class);
+    private static final int MAX_REASON_CHARS = 300;
 
     private final ChildRecallPort bm25;
     private final ChildRecallPort vector;
@@ -68,6 +75,7 @@ public class ConcurrentRecallService {
         AutoCloseable registration = run == null ? () -> {} : run.onCancel(cancel);
         try (registration) {
             List<BranchOutcome> results = new ArrayList<>();
+            List<String> reasons = new ArrayList<>();
             for (var entry : futures.entrySet()) {
                 if (run != null) run.check();
                 try {
@@ -83,6 +91,10 @@ public class ConcurrentRecallService {
                     Thread.currentThread().interrupt();
                     throw new com.kwiki.rag.orchestration.RunFailure("cancelled");
                 } catch (Exception e) {
+                    // 降级标记保持稳定（调用方按前缀判断），具体原因写日志并带进双路失败的异常信息
+                    String reason = describe(e, timeout);
+                    reasons.add(entry.getKey().name().toLowerCase() + "=" + reason);
+                    log.warn("retrieval branch failed branch={} topK={} reason={}", entry.getKey(), topK, reason);
                     results.add(
                             new BranchOutcome(
                                     entry.getKey(),
@@ -90,14 +102,16 @@ public class ConcurrentRecallService {
                                     entry.getKey().name().toLowerCase() + "-degraded"));
                 }
             }
-            if (strategy != RetrievalStrategy.BM25 && embedding == null)
+            if (strategy != RetrievalStrategy.BM25 && embedding == null) {
+                reasons.add("vector=no-query-embedding");
                 results.add(
                         new BranchOutcome(
                                 ChildRecallPort.Branch.VECTOR,
                                 List.of(),
                                 "vector-degraded:no-query-embedding"));
+            }
             if (results.stream().noneMatch(o -> o.degradation() == null))
-                throw new RetrievalBranchException("both branches failed");
+                throw new RetrievalBranchException("both branches failed: " + String.join(", ", reasons));
             return results;
         } catch (RuntimeException e) {
             throw e;
@@ -106,6 +120,17 @@ public class ConcurrentRecallService {
         } finally {
             cancel.run();
         }
+    }
+
+    /** 失败类型与根因：超时写明时限，异常取最内层原因（脱敏、截断）。 */
+    private static String describe(Exception e, long timeoutMs) {
+        if (e instanceof TimeoutException) return "timeout(" + timeoutMs + "ms)";
+        Throwable root = e instanceof ExecutionException && e.getCause() != null ? e.getCause() : e;
+        while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+        String message = root.getMessage() == null ? "" : root.getMessage().replaceAll("\\s+", " ").strip();
+        message = com.kwiki.infrastructure.observability.SecretRedaction.redact(message);
+        if (message.length() > MAX_REASON_CHARS) message = message.substring(0, MAX_REASON_CHARS) + "…";
+        return "error(" + root.getClass().getSimpleName() + (message.isEmpty() ? "" : ": " + message) + ")";
     }
 
     @jakarta.annotation.PreDestroy

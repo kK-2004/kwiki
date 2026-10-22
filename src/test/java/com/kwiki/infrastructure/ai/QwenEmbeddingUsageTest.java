@@ -177,4 +177,23 @@ class QwenEmbeddingUsageTest {
             assertThat(event.success()).isTrue();
         });
     }
+
+    @Test
+    void failureReasonIsLoggedForCallersThatSwallowIt() {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(QwenEmbeddingClient.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            server.enqueue(new MockResponse().setResponseCode(400).setBody("{\"error\":\"Arrearage\"}"));
+
+            assertThatThrownBy(() -> client().embed(List.of("问题"))).isInstanceOf(IllegalStateException.class);
+
+            assertThat(appender.list).extracting(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .anySatisfy(line -> assertThat(line).contains("embedding request failed")
+                            .contains("model=text-embedding-v4").contains("400").contains("Arrearage"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
 }

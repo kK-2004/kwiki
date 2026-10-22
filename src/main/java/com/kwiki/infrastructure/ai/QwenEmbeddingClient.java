@@ -8,6 +8,8 @@ import com.kwiki.usage.ModelUsageRecorder;
 import com.kwiki.usage.UsageEvent;
 import com.kwiki.usage.UsageSteps;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
@@ -24,6 +26,8 @@ import java.util.List;
  * <p>用量采集：每批 HTTP 请求记一条用量事件，调用数按批次计。
  */
 public class QwenEmbeddingClient implements ChunkEmbeddingPort {
+
+    private static final Logger log = LoggerFactory.getLogger(QwenEmbeddingClient.class);
 
     /** provider 非瞬时拒绝（HTTP 4xx）；错误码形如 rejected-400。 */
     private static final String ERROR_REJECTED_PREFIX = "rejected-";
@@ -121,8 +125,23 @@ public class QwenEmbeddingClient implements ChunkEmbeddingPort {
             return result.vectors();
         } catch (RuntimeException e) {
             recordUsage(started, 0, false, errorType(e));
+            // 调用方（检索）会把向量失败降级为 BM25 单路并吞掉异常，原因只在这里留痕
+            log.warn("embedding request failed provider={} model={} batch={} reason={}",
+                    providerName, model, batch.size(), reason(e));
             throw e;
         }
+    }
+
+    /** 异常链上的信息（异常信息已脱敏、不含 API key），截断到 500 字符。 */
+    private static String reason(Throwable error) {
+        StringBuilder text = new StringBuilder();
+        for (Throwable current = error; current != null; current = current.getCause() == current ? null : current.getCause()) {
+            if (!text.isEmpty()) text.append(" <- ");
+            text.append(current.getClass().getSimpleName());
+            if (current.getMessage() != null) text.append(": ").append(current.getMessage().replaceAll("\\s+", " "));
+        }
+        String redacted = com.kwiki.infrastructure.observability.SecretRedaction.redact(text.toString());
+        return redacted.length() > 500 ? redacted.substring(0, 500) + "…" : redacted;
     }
 
     /** 瞬时状态（429/5xx）按上限重试，非瞬时错误立即失败。 */
