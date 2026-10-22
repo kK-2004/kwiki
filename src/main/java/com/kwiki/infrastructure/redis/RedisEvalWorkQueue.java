@@ -16,6 +16,8 @@ import org.springframework.data.redis.connection.stream.StreamOffset;
 import org.springframework.data.redis.connection.stream.StreamReadOptions;
 import org.springframework.data.redis.core.StreamOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.time.Duration;
 import java.util.List;
@@ -120,8 +122,14 @@ public class RedisEvalWorkQueue implements EvalWorkQueue {
         return new ClaimedTask(record.getId().getValue(), String.valueOf(runId));
     }
 
+    /** 确认并删除：已确认的消息不再需要保留，避免 stream 无限增长；两步原子执行。 */
+    private static final RedisScript<Long> ACK_AND_DELETE = new DefaultRedisScript<>("""
+            redis.call('XACK', KEYS[1], ARGV[1], ARGV[2])
+            return redis.call('XDEL', KEYS[1], ARGV[2])
+            """, Long.class);
+
     @Override
     public void ack(ClaimedTask task) {
-        stream().acknowledge(KEY, GROUP, RecordId.of(task.id()));
+        redis.execute(ACK_AND_DELETE, List.of(KEY), GROUP, task.id());
     }
 }

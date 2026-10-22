@@ -89,7 +89,7 @@ class RedisEvalCoordinationLiveTest {
     }
 
     @Test
-    void markQueuedCasOwnershipTokenWritesAndQueueIndex() {
+    void markQueuedCasOwnershipTokenWritesAndQueueIndex() throws Exception {
         var store = new RedisEvalRunStore(redis, mapper);
         String runId = "it-" + UUID.randomUUID().toString().substring(0, 8);
         Instant t0 = Instant.now();
@@ -111,7 +111,9 @@ class RedisEvalCoordinationLiveTest {
             long first = store.claimOwnership(runId, "instance-a", t0.plusSeconds(3), Duration.ofMinutes(2).toMillis());
             // 心跳新鲜时不可抢占；过期后可接管
             assertThat(store.claimOwnership(runId, "instance-b", t0.plusSeconds(4), Duration.ofMinutes(2).toMillis())).isEqualTo(-1);
-            long second = store.claimOwnership(runId, "instance-b", t0.plusSeconds(3).plusSeconds(121), Duration.ofMinutes(2).toMillis());
+            // 过期判定用 Redis 服务器时间：阈值 1ms 并稍等，使 instance-a 的心跳过期
+            Thread.sleep(20);
+            long second = store.claimOwnership(runId, "instance-b", Instant.now(), 1);
             assertThat(first).isEqualTo(1);
             assertThat(second).isEqualTo(2);
             var claimed = store.find(runId).orElseThrow();
@@ -135,12 +137,14 @@ class RedisEvalCoordinationLiveTest {
             assertThat(store.markQueued(runId, "2", t0.plusSeconds(6), Duration.ofMinutes(2).toMillis())).isTrue();
             store.claimOwnership(runId, "instance-a", t0.plusSeconds(7), Duration.ofMinutes(2).toMillis());
             assertThat(store.markQueued(runId, "2", t0.plusSeconds(8), Duration.ofMinutes(2).toMillis())).isFalse();
-            assertThat(store.markQueued(runId, "2", t0.plusSeconds(7).plusSeconds(121),
-                    Duration.ofMinutes(2).toMillis())).isTrue();
+            Thread.sleep(20);
+            assertThat(store.markQueued(runId, "2", Instant.now(), 1)).isTrue();
 
             // 取消请求存在时认领失败且不清除标志；排队取消后认领失败
             store.requestCancel(runId);
-            assertThat(store.claimOwnership(runId, "instance-c", t0.plusSeconds(600), Duration.ofMinutes(2).toMillis())).isEqualTo(-1);
+            Thread.sleep(20);
+            assertThat(store.claimOwnership(runId, "instance-c", Instant.now(), 1))
+                    .as("即使心跳已过期，存在取消请求时也不可认领").isEqualTo(-1);
             assertThat(store.find(runId).orElseThrow().cancelRequested()).isTrue();
 
             // 记录删除后令牌写入全部失败
@@ -197,6 +201,7 @@ class RedisEvalCoordinationLiveTest {
         assertThat(List.of(first.runId(), second.runId())).containsExactlyInAnyOrder("it-task-1", "it-task-2");
         consumerA.ack(first);
         consumerB.ack(second);
+        assertThat(redis.opsForStream().size(RedisEvalWorkQueue.KEY)).as("确认后的消息被删除，stream 不增长").isZero();
         assertThat(consumerA.claim(Duration.ofMillis(150))).as("队列已空").isNull();
 
         // 读取但未确认（实例在认领过程中宕机）：空闲超过阈值后被另一实例接管
@@ -209,5 +214,6 @@ class RedisEvalCoordinationLiveTest {
         assertThat(reclaimed.runId()).isEqualTo("it-task-3");
         consumerB.ack(reclaimed);
         assertThat(consumerB.claim(Duration.ofMillis(150))).isNull();
+        assertThat(redis.opsForStream().size(RedisEvalWorkQueue.KEY)).isZero();
     }
 }

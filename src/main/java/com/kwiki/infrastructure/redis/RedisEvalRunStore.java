@@ -45,18 +45,18 @@ public class RedisEvalRunStore implements EvalRunStore {
     private static final String QUEUED_AT = "queuedAt";
     private static final String SUBMITTED_BY = "submittedBy";
 
-    /** CANCELLED / FAILED / 心跳过期 RUNNING → QUEUED，记提交人与 queuedAt，入排队索引。 */
-    private static final RedisScript<Long> MARK_QUEUED = new DefaultRedisScript<>("""
+    /** CANCELLED / FAILED / 心跳过期 RUNNING → QUEUED，记提交人与 queuedAt，入排队索引（时间取 Redis 服务器时间）。 */
+    private static final RedisScript<Long> MARK_QUEUED = new DefaultRedisScript<>(RedisLuaTime.SERVER_NOW + """
             local state = redis.call('HGET', KEYS[1], 'state')
             if not state then return 0 end
             if state ~= 'CANCELLED' and state ~= 'FAILED' then
               if state ~= 'RUNNING' then return 0 end
               local beat = redis.call('HGET', KEYS[1], 'heartbeatAt') or redis.call('HGET', KEYS[1], 'created')
-              if not beat or tonumber(beat) + tonumber(ARGV[3]) >= tonumber(ARGV[2]) then return 0 end
+              if not beat or tonumber(beat) + tonumber(ARGV[3]) >= now then return 0 end
             end
-            redis.call('HSET', KEYS[1], 'state', 'QUEUED', 'submittedBy', ARGV[1], 'queuedAt', ARGV[2])
+            redis.call('HSET', KEYS[1], 'state', 'QUEUED', 'submittedBy', ARGV[1], 'queuedAt', now)
             redis.call('HDEL', KEYS[1], 'summary', 'error', 'reportPartial', 'cancelRequested')
-            redis.call('ZADD', KEYS[2], ARGV[2], ARGV[4])
+            redis.call('ZADD', KEYS[2], now, ARGV[4])
             return 1
             """, Long.class);
 
@@ -78,17 +78,17 @@ public class RedisEvalRunStore implements EvalRunStore {
             """, Long.class);
 
     /** 认领归属：令牌自增、置 RUNNING（清错误/取消标志）、记执行实例与心跳、移出排队索引；记录不存在返回 -1。 */
-    private static final RedisScript<Long> CLAIM_OWNERSHIP = new DefaultRedisScript<>("""
+    private static final RedisScript<Long> CLAIM_OWNERSHIP = new DefaultRedisScript<>(RedisLuaTime.SERVER_NOW + """
             if redis.call('EXISTS', KEYS[1]) == 0 then return -1 end
             if redis.call('HGET', KEYS[1], 'cancelRequested') then return -1 end
             local state = redis.call('HGET', KEYS[1], 'state')
             if state ~= 'QUEUED' then
               if state ~= 'RUNNING' then return -1 end
               local beat = redis.call('HGET', KEYS[1], 'heartbeatAt') or redis.call('HGET', KEYS[1], 'created')
-              if beat and tonumber(beat) + tonumber(ARGV[4]) >= tonumber(ARGV[2]) then return -1 end
+              if beat and tonumber(beat) + tonumber(ARGV[4]) >= now then return -1 end
             end
             local token = redis.call('HINCRBY', KEYS[1], 'ownerToken', 1)
-            redis.call('HSET', KEYS[1], 'state', 'RUNNING', 'ownerInstanceId', ARGV[1], 'heartbeatAt', ARGV[2])
+            redis.call('HSET', KEYS[1], 'state', 'RUNNING', 'ownerInstanceId', ARGV[1], 'heartbeatAt', now)
             redis.call('HDEL', KEYS[1], 'summary', 'error', 'reportPartial')
             redis.call('ZREM', KEYS[2], ARGV[3])
             return token
@@ -104,11 +104,11 @@ public class RedisEvalRunStore implements EvalRunStore {
             """, Long.class);
 
     /** 令牌校验通过后刷新心跳。 */
-    private static final RedisScript<Long> HEARTBEAT_SCRIPT = new DefaultRedisScript<>("""
+    private static final RedisScript<Long> HEARTBEAT_SCRIPT = new DefaultRedisScript<>(RedisLuaTime.SERVER_NOW + """
             if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
             local token = redis.call('HGET', KEYS[1], 'ownerToken')
             if not token or token ~= ARGV[1] then return 0 end
-            redis.call('HSET', KEYS[1], 'heartbeatAt', ARGV[2])
+            redis.call('HSET', KEYS[1], 'heartbeatAt', now)
             return 1
             """, Long.class);
 
