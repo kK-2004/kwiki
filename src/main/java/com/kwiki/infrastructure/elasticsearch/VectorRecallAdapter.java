@@ -44,6 +44,10 @@ public class VectorRecallAdapter implements ChildRecallPort {
         if (client == null || queryVector == null) {
             return List.of();
         }
+        long started = System.nanoTime();
+        long requested = started;
+        co.elastic.clients.elasticsearch.core.SearchResponse<Map> response = null;
+        Throwable failure = null;
         try {
             List<Float> vector = new java.util.ArrayList<>(queryVector.length);
             for (float value : queryVector) {
@@ -58,8 +62,9 @@ public class VectorRecallAdapter implements ChildRecallPort {
                     .map(route -> co.elastic.clients.elasticsearch._types.query_dsl.Query.of(q -> q.bool(b -> b
                             .filter(scope).filter(route))))
                     .orElse(scope);
+            requested = System.nanoTime();
             // 灰度物理索引缺失时忽略该索引，不拖垮全部检索；无灰度路由时保持原请求
-            List<Hit<Map>> hits = client.search(request -> request
+            response = client.search(request -> request
                             .index(EsReadRouting.indices(routing))
                             .ignoreUnavailable(routing.isEmpty() ? null : Boolean.TRUE)
                             .source(EsSourceFilters.withoutVector())
@@ -70,12 +75,16 @@ public class VectorRecallAdapter implements ChildRecallPort {
                                     .numCandidates(topK * 10)
                                     .k(topK)
                                     .filter(knnFilter)),
-                    Map.class)
-                    .hits()
-                    .hits();
+                    Map.class);
+            List<Hit<Map>> hits = response.hits().hits();
             return Bm25RecallAdapter.toHits(hits);
         } catch (Exception e) {
+            failure = e;
             throw new IllegalStateException("vector recall failed", e);
+        } finally {
+            EsSearchTiming.logIfSlow("VECTOR", topK, started, requested,
+                    response == null ? null : response.took(),
+                    response == null ? 0 : response.hits().hits().size(), failure);
         }
     }
 }

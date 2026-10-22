@@ -49,11 +49,17 @@ public class Bm25RecallAdapter implements ChildRecallPort {
         if (client == null) {
             return List.of();
         }
+        long started = System.nanoTime();
+        long requested = started;
+        SearchResponse<Map> response = null;
+        Throwable failure = null;
         try {
             // 无灰度路由时 indices 仅为 ElasticsearchIndexManager.ALIAS，且不追加过滤
             com.kwiki.indexing.gray.ReadRouting routing = routes == null
                     ? com.kwiki.indexing.gray.ReadRouting.none() : routes.current();
-            SearchResponse<Map> response = client.search(request -> {
+            var exclusions = lifecycle.exclusions();
+            requested = System.nanoTime();
+            response = client.search(request -> {
                         if (!routing.isEmpty()) {
                             // 跨别名与灰度索引打分：用 DFS 统一词频统计，使各索引的 IDF 可比
                             request.searchType(co.elastic.clients.elasticsearch._types.SearchType.DfsQueryThenFetch);
@@ -68,7 +74,7 @@ public class Bm25RecallAdapter implements ChildRecallPort {
                                 bool.filter(filter -> filter.term(
                                                 term -> term.field("chunkLevel").value("CHILD")))
                                         .filter(EsScopeFilterBuilder.build(
-                                                scopeFilter, lifecycle.exclusions()))
+                                                scopeFilter, exclusions))
                                         .must(must -> must.match(
                                                 match -> match.field("content")
                                                         .query(effectiveQuery)));
@@ -79,7 +85,12 @@ public class Bm25RecallAdapter implements ChildRecallPort {
                     Map.class);
             return toHits(response.hits().hits());
         } catch (Exception e) {
+            failure = e;
             throw new IllegalStateException("bm25 recall failed", e);
+        } finally {
+            EsSearchTiming.logIfSlow("BM25", topK, started, requested,
+                    response == null ? null : response.took(),
+                    response == null ? 0 : response.hits().hits().size(), failure);
         }
     }
 
