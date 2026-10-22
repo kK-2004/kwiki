@@ -38,7 +38,15 @@ public class RedisEvalControlBus implements EvalControlBus, DisposableBean {
         this.container = new RedisMessageListenerContainer();
         container.setConnectionFactory(connectionFactory);
         container.addMessageListener((message, pattern) -> dispatch(message.getBody()), new ChannelTopic(CHANNEL));
-        container.start();
+        // 容器不是 Spring Bean，须手动初始化（创建订阅器）后再启动
+        container.afterPropertiesSet();
+        try {
+            container.start();
+        } catch (RuntimeException e) {
+            // 订阅失败不阻止应用启动：取消仍由执行实例的心跳轮询（5 秒）兜底送达
+            log.warn("eval control bus subscription failed, cancellations fall back to heartbeat polling reason={}",
+                    e.getMessage());
+        }
     }
 
     private void dispatch(byte[] body) {
@@ -80,7 +88,7 @@ public class RedisEvalControlBus implements EvalControlBus, DisposableBean {
     }
 
     @Override
-    public void destroy() {
-        container.stop();
+    public void destroy() throws Exception {
+        container.destroy(); // 停止并释放订阅连接
     }
 }

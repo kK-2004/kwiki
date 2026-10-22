@@ -216,4 +216,33 @@ class RedisEvalCoordinationLiveTest {
         assertThat(consumerB.claim(Duration.ofMillis(150))).isNull();
         assertThat(redis.opsForStream().size(RedisEvalWorkQueue.KEY)).isZero();
     }
+
+    @Test
+    void controlBusDeliversCancelAcrossInstances() throws Exception {
+        URI uri = URI.create(System.getenv("KWIKI_IT_REDIS_URI"));
+        RedisStandaloneConfiguration config = new RedisStandaloneConfiguration(uri.getHost(),
+                uri.getPort() > 0 ? uri.getPort() : 6379);
+        if (uri.getPath() != null && uri.getPath().length() > 1) {
+            config.setDatabase(Integer.parseInt(uri.getPath().substring(1)));
+        }
+        // 与生产装配一致：连接工厂由 Spring 初始化，控制总线自行创建监听容器
+        LettuceConnectionFactory factory = new LettuceConnectionFactory(config);
+        factory.afterPropertiesSet();
+        var publisher = new RedisEvalControlBus(factory, mapper);
+        var subscriber = new RedisEvalControlBus(factory, mapper);
+        try {
+            var received = new java.util.concurrent.CompletableFuture<String>();
+            subscriber.subscribe((runId, action) -> received.complete(runId + ":" + action));
+            // 订阅在后台建立，稍等后再发布
+            Thread.sleep(300);
+
+            publisher.publish("it-run-1", "cancel");
+
+            assertThat(received.get(3, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo("it-run-1:cancel");
+        } finally {
+            publisher.destroy();
+            subscriber.destroy();
+            factory.destroy();
+        }
+    }
 }
