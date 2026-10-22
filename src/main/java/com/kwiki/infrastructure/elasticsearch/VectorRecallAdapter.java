@@ -62,6 +62,7 @@ public class VectorRecallAdapter implements ChildRecallPort {
             List<Hit<Map>> hits = client.search(request -> request
                             .index(EsReadRouting.indices(routing))
                             .ignoreUnavailable(routing.isEmpty() ? null : Boolean.TRUE)
+                            .source(EsSourceFilters.withoutVector())
                             .size(topK)
                             .knn(knn -> knn
                                     .field("vector")

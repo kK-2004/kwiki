@@ -66,6 +66,7 @@ public class EsGraphSourceChunkListing implements GraphSourceChunkListingPort {
                                                  List<co.elastic.clients.elasticsearch._types.FieldValue> searchAfter) {
         SearchRequest.Builder builder = new SearchRequest.Builder()
                 .index(chunkPhysicalIndex)
+                .source(EsSourceFilters.withoutVector())
                 .size(PAGE_SIZE)
                 .trackTotalHits(total -> total.enabled(true))
                 .query(query -> query.bool(bool -> bool

@@ -54,6 +54,7 @@ public class CommunitySearchAdapter implements CommunitySearchPort {
     private List<CommunitySearchHit> bm25(CommunitySearchRequest request, int top) {
         try {
             return map(client.search(search -> search.index(request.physicalIndex()).size(top)
+                    .source(EsSourceFilters.withoutVector())
                     .query(query -> query.multiMatch(match -> match
                             .query(request.query()).fields("title", "summary", "keywords"))),
                     Map.class).hits().hits(), request);
@@ -67,6 +68,7 @@ public class CommunitySearchAdapter implements CommunitySearchPort {
             List<Float> values = new ArrayList<>();
             for (float value : request.queryVector()) values.add(value);
             return map(client.search(search -> search.index(request.physicalIndex()).size(top)
+                    .source(EsSourceFilters.withoutVector())
                     .knn(knn -> knn.field("vector").queryVector(values)
                             .numCandidates(top * 10).k(top)), Map.class)
                     .hits().hits(), request);

@@ -62,6 +62,7 @@ public class Bm25RecallAdapter implements ChildRecallPort {
                         }
                         return request
                             .index(EsReadRouting.indices(routing))
+                            .source(EsSourceFilters.withoutVector())
                             .size(topK)
                             .query(query -> query.bool(bool -> {
                                 bool.filter(filter -> filter.term(

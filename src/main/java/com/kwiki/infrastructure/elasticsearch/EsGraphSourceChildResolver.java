@@ -37,6 +37,7 @@ public class EsGraphSourceChildResolver implements GraphSourceChildResolverPort 
         try {
             var response = client.search(search -> search
                             .index(physicalIndex).size(1)
+                            .source(EsSourceFilters.withoutVector())
                             .query(query -> query.term(term -> term
                                     .field("sourceChunkId").value(sourceChunkId))),
                     Map.class);

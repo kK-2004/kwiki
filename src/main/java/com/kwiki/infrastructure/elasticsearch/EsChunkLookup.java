@@ -47,7 +47,8 @@ public class EsChunkLookup implements CitationService.ChunkLookup {
                 // 无灰度路由：保持原有在别名上的实时 GET
                 source = client.get(get -> get
                                 .index(com.kwiki.indexing.search.ElasticsearchIndexManager.ALIAS)
-                                .id(childChunkKey),
+                                .id(childChunkKey)
+                                .sourceExcludes(EsSourceFilters.VECTOR_FIELD),
                         Map.class)
                         .source();
             } else {
@@ -56,6 +57,7 @@ public class EsChunkLookup implements CitationService.ChunkLookup {
                                 .index(EsReadRouting.indices(routing))
                                 // 灰度物理索引缺失时忽略该索引，不拖垮全部检索
                                 .ignoreUnavailable(true)
+                                .source(EsSourceFilters.withoutVector())
                                 .size(1)
                                 .query(query -> query.bool(bool -> {
                                     bool.filter(filter -> filter.ids(ids -> ids.values(childChunkKey)));

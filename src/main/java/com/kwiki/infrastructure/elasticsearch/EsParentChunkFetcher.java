@@ -72,7 +72,8 @@ public class EsParentChunkFetcher implements ParentEvidenceResolver.ParentChunkF
     private List<Map<?, ?>> viaAlias(List<String> parentChunkKeys) throws java.io.IOException {
         var response = client.mget(request -> request
                 .index(ElasticsearchIndexManager.ALIAS)
-                .ids(parentChunkKeys),
+                .ids(parentChunkKeys)
+                .sourceExcludes(EsSourceFilters.VECTOR_FIELD),
                 Map.class);
         List<Map<?, ?>> sources = new ArrayList<>();
         for (MultiGetResponseItem<Map> item : response.docs()) {
@@ -94,6 +95,7 @@ public class EsParentChunkFetcher implements ParentEvidenceResolver.ParentChunkF
                         .index(EsReadRouting.indices(routing))
                         // 灰度物理索引缺失时忽略该索引，不拖垮全部检索
                         .ignoreUnavailable(true)
+                        .source(EsSourceFilters.withoutVector())
                         .size(parentChunkKeys.size())
                         .query(query -> query.bool(bool -> {
                             bool.filter(filter -> filter.ids(ids -> ids.values(parentChunkKeys)));
