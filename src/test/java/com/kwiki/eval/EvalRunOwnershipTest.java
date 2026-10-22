@@ -73,7 +73,7 @@ class EvalRunOwnershipTest {
         when(baseline.probe(anyString(), any())).thenReturn(new BaselineRetrievalProbe.Result(
                 List.of(), List.of(), List.of(), List.of(), List.of()));
         when(agent.answerInSession(eq(admin), anyString(), anyList(), eq(Set.of(7L)), eq(Set.of()),
-                eq(RouteInput.NONE), any())).thenAnswer(invocation -> {
+                eq(RouteInput.NON_INTERACTIVE), any())).thenAnswer(invocation -> {
                     String query = invocation.getArgument(1);
                     boolean firstHang = slowQuery.equals(query) && hangUsed.compareAndSet(false, true);
                     if (!firstHang) {
