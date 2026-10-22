@@ -4,6 +4,8 @@ import com.kwiki.infrastructure.ai.QwenVisionSummaryClient;
 import com.kwiki.infrastructure.ai.registry.ModelPurpose;
 import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import com.kwiki.infrastructure.ai.registry.ResolvedModel;
+import com.kwiki.usage.ModelUsageRecorder;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.Objects;
@@ -22,14 +24,17 @@ public class RegistryImageSummaryPort implements ImageSummaryPort {
     private final WebClient.Builder webClientBuilder;
     private final MultimodalMetrics metrics;
     private final int maxSummaryChars;
+    private final ObjectProvider<ModelUsageRecorder> usageRecorder;
     private final AtomicReference<Cached> cached = new AtomicReference<>();
 
     public RegistryImageSummaryPort(ModelRegistry models, WebClient.Builder webClientBuilder,
-                                    MultimodalMetrics metrics, int maxSummaryChars) {
+                                    MultimodalMetrics metrics, int maxSummaryChars,
+                                    ObjectProvider<ModelUsageRecorder> usageRecorder) {
         this.models = models;
         this.webClientBuilder = webClientBuilder;
         this.metrics = metrics;
         this.maxSummaryChars = maxSummaryChars;
+        this.usageRecorder = usageRecorder;
     }
 
     @Override
@@ -45,7 +50,8 @@ public class RegistryImageSummaryPort implements ImageSummaryPort {
     }
 
     private QwenVisionSummaryClient client(ResolvedModel model) {
-        Key key = new Key(model.baseUrl(), model.apiKey(), model.modelName(), model.maxRetries(),
+        Key key = new Key(model.baseUrl(), model.apiKey(), model.providerName(), model.modelName(),
+                model.maxRetries(),
                 model.timeout().toMillis(),
                 model.providerConcurrency() == null ? DEFAULT_CONCURRENCY : model.providerConcurrency());
         Cached current = cached.get();
@@ -57,12 +63,13 @@ public class RegistryImageSummaryPort implements ImageSummaryPort {
                 .defaultHeader("Authorization", "Bearer " + model.apiKey())
                 .build();
         QwenVisionSummaryClient client = new QwenVisionSummaryClient(webClient, model.modelName(),
-                model.maxRetries(), model.timeout(), key.concurrency(), metrics, maxSummaryChars);
+                model.maxRetries(), model.timeout(), key.concurrency(), metrics, maxSummaryChars,
+                model.providerName(), usageRecorder == null ? null : usageRecorder.getIfAvailable());
         cached.set(new Cached(key, client));
         return client;
     }
 
-    private record Key(String baseUrl, String apiKey, String model, int retries, long timeoutMs, int concurrency) {
+    private record Key(String baseUrl, String apiKey, String provider, String model, int retries, long timeoutMs, int concurrency) {
         @Override
         public String toString() {
             return "Key[" + baseUrl + ", " + model + "]";
@@ -71,13 +78,13 @@ public class RegistryImageSummaryPort implements ImageSummaryPort {
         @Override
         public boolean equals(Object other) {
             return other instanceof Key k && baseUrl.equals(k.baseUrl) && apiKey.equals(k.apiKey)
-                    && model.equals(k.model) && retries == k.retries && timeoutMs == k.timeoutMs
+                    && Objects.equals(provider, k.provider) && model.equals(k.model) && retries == k.retries && timeoutMs == k.timeoutMs
                     && concurrency == k.concurrency;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(baseUrl, model, retries, timeoutMs, concurrency);
+            return Objects.hash(baseUrl, provider, model, retries, timeoutMs, concurrency);
         }
     }
 

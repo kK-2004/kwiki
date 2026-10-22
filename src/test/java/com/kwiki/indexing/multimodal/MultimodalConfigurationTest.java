@@ -2,6 +2,7 @@ package com.kwiki.indexing.multimodal;
 
 import com.kwiki.indexing.config.MultimodalIndexingProperties;
 import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.testutil.StandardTestProperties;
 import com.kwiki.testutil.StubModelRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -21,7 +22,8 @@ class MultimodalConfigurationTest {
     @Test
     void missingVisionAssignmentKeepsBeanAvailableButFailsClosedOnUse() {
         ImageSummaryPort port = new MultimodalConfiguration().qwenVisionSummaryClient(
-                WebClient.builder(), StubModelRegistry.empty(), multimodal(), new MultimodalMetrics(null));
+                WebClient.builder(), StubModelRegistry.empty(), multimodal(), new MultimodalMetrics(null),
+                StandardTestProperties.nullProvider());
 
         assertThat(port.modelName()).isEqualTo("unconfigured");
         assertThatThrownBy(() -> port.summarize("https://cdn.example/image.png"))
@@ -34,7 +36,8 @@ class MultimodalConfigurationTest {
         StubModelRegistry models = StubModelRegistry.empty()
                 .withPurpose(ModelPurpose.VISION_SUMMARY, "qwen-vl-max", null);
         ImageSummaryPort port = new MultimodalConfiguration().qwenVisionSummaryClient(
-                WebClient.builder(), models, multimodal(), new MultimodalMetrics(null));
+                WebClient.builder(), models, multimodal(), new MultimodalMetrics(null),
+                StandardTestProperties.nullProvider());
 
         assertThat(port.modelName()).isEqualTo("qwen-vl-max");
     }

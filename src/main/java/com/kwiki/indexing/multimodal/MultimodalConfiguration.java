@@ -2,6 +2,7 @@ package com.kwiki.indexing.multimodal;
 
 import com.kwiki.infrastructure.ai.registry.ModelRegistry;
 import com.kwiki.indexing.config.MultimodalIndexingProperties;
+import com.kwiki.usage.ModelUsageRecorder;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -37,10 +38,11 @@ public class MultimodalConfiguration {
             WebClient.Builder webClientBuilder,
             ModelRegistry models,
             MultimodalIndexingProperties multimodalProperties,
-            MultimodalMetrics metrics) {
+            MultimodalMetrics metrics,
+            ObjectProvider<ModelUsageRecorder> usageRecorder) {
         // 视觉模型来自模型目录的 VISION_SUMMARY 分配；未分配时调用明确失败
         return new RegistryImageSummaryPort(models, webClientBuilder, metrics,
-                multimodalProperties.maxSummaryChars());
+                multimodalProperties.maxSummaryChars(), usageRecorder);
     }
 
     @Bean

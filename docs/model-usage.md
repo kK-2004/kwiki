@@ -21,6 +21,7 @@
 
 - 对话模型：一次 LLM 调用（含流式）记一条事件，「调用数」即调用次数。
 - embedding：每次批量 HTTP 请求记一条事件（`usage.prompt_tokens` 按请求返回，只有按请求归属才精确；该口径也与 provider 的请求计费一致），因此「调用数」为 HTTP 请求批次数——一次大批量索引（如 1000 段、批大小 10）会计为 100 次调用，与对话模型的调用数不宜直接相加比较。
+- 图片摘要（`VISION_SUMMARY`）：视觉客户端自行调用 `/chat/completions`，不经过对话模型监听器，由 `QwenVisionSummaryClient` 解析 `usage.prompt_tokens` / `usage.completion_tokens` 直接记录；一次摘要（含内部重试）记一条事件，最终失败记失败事件（失败类型为异常类名，如 `VisionSummaryException`）。在索引任务中执行，来源通常为后台。
 - embedding 失败类型：`rejected-<状态码>`（provider 拒绝）、`retries-exhausted`、`dimension-mismatch`、`count-mismatch`、`request-failed` 等，见 `QwenEmbeddingClient`。
 
 ## 页面

@@ -2,6 +2,12 @@ package com.kwiki.infrastructure.ai;
 
 import com.kwiki.indexing.multimodal.MultimodalMetrics;
 import com.kwiki.indexing.multimodal.VisionSummaryException;
+import com.kwiki.testutil.StandardTestProperties;
+import com.kwiki.usage.ModelUsageContext;
+import com.kwiki.usage.ModelUsageRecorder;
+import com.kwiki.usage.UsageEvent;
+import com.kwiki.usage.UsageSource;
+import com.kwiki.usage.UsageSteps;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -14,6 +20,7 @@ import reactor.netty.http.client.HttpClient;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -206,6 +213,70 @@ class QwenVisionSummaryClientTest {
                 Thread.interrupted();
             }
         }
+    }
+
+    // ---------- 用量采集 ----------
+
+    private QwenVisionSummaryClient recordingClient(ModelUsageRecorder recorder) {
+        return new QwenVisionSummaryClient(webClientOfServer(), "qwen3.7-flash", 1,
+                Duration.ofSeconds(5), 2, new MultimodalMetrics(null), 512,
+                Duration.ofMillis(1), "dashscope", recorder);
+    }
+
+    @Test
+    void successRecordsVisionSummaryTokensUnderIndexScope() {
+        ModelUsageRecorder recorder = new ModelUsageRecorder(StandardTestProperties.nullProvider());
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"choices\":[{\"message\":{\"content\":\"一张流程图。\"}}],"
+                        + "\"usage\":{\"prompt_tokens\":1200,\"completion_tokens\":80,\"total_tokens\":1280}}"));
+
+        // 索引任务的作用域步骤为索引向量，视觉调用仍记为图片摘要
+        try (var ignored = ModelUsageContext.open(UsageSource.BACKGROUND, 0L, UsageSteps.INDEX_EMBEDDING)) {
+            assertThat(recordingClient(recorder).summarize(CDN_URL)).isEqualTo("一张流程图。");
+        }
+
+        List<UsageEvent> events = recorder.drain();
+        assertThat(events).hasSize(1);
+        UsageEvent event = events.get(0);
+        assertThat(event.step()).isEqualTo("VISION_SUMMARY");
+        assertThat(event.source()).isEqualTo(UsageSource.BACKGROUND);
+        assertThat(event.provider()).isEqualTo("dashscope");
+        assertThat(event.model()).isEqualTo("qwen3.7-flash");
+        assertThat(event.inputTokens()).isEqualTo(1200);
+        assertThat(event.outputTokens()).isEqualTo(80);
+        assertThat(event.success()).isTrue();
+        assertThat(event.errorType()).isNull();
+    }
+
+    @Test
+    void missingUsageRecordsZeroTokens() {
+        ModelUsageRecorder recorder = new ModelUsageRecorder(StandardTestProperties.nullProvider());
+        server.enqueue(completion("一张表格截图。"));
+
+        recordingClient(recorder).summarize(CDN_URL);
+
+        List<UsageEvent> events = recorder.drain();
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).inputTokens()).isZero();
+        assertThat(events.get(0).outputTokens()).isZero();
+        assertThat(events.get(0).success()).isTrue();
+    }
+
+    @Test
+    void retriesRecordOneEventAndFinalFailureIsRecorded() {
+        ModelUsageRecorder recorder = new ModelUsageRecorder(StandardTestProperties.nullProvider());
+        server.enqueue(new MockResponse().setResponseCode(503));
+        server.enqueue(new MockResponse().setResponseCode(503));
+
+        assertThatThrownBy(() -> recordingClient(recorder).summarize(CDN_URL))
+                .isInstanceOf(VisionSummaryException.class);
+
+        List<UsageEvent> events = recorder.drain();
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).step()).isEqualTo("VISION_SUMMARY");
+        assertThat(events.get(0).success()).isFalse();
+        assertThat(events.get(0).errorType()).isEqualTo("VisionSummaryException");
+        assertThat(events.get(0).inputTokens()).isZero();
     }
 
     private WebClient webClientOfServer() {

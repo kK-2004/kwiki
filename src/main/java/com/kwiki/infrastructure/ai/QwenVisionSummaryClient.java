@@ -1,10 +1,15 @@
 package com.kwiki.infrastructure.ai;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.kwiki.indexing.multimodal.ImageSummaryPort;
 import com.kwiki.indexing.multimodal.MultimodalMetrics;
 import com.kwiki.indexing.multimodal.ProtectedBlockProtocol;
 import com.kwiki.indexing.multimodal.VisionSummaryException;
+import com.kwiki.infrastructure.ai.registry.ModelPurpose;
+import com.kwiki.usage.ModelUsageContext;
+import com.kwiki.usage.ModelUsageRecorder;
+import com.kwiki.usage.UsageEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -24,6 +29,9 @@ import java.util.concurrent.TimeUnit;
  * 4xx 与响应结构错误判为永久失败。并发受信号量限制；取消
  * 经由中断位与 RunContext 传播。日志、异常与指标绝不包含
  * API Key、完整 CDN URL 或请求体。
+ *
+ * <p>用量采集：每次 summarize 调用（含重试，最终成功或失败）记一条用量事件，
+ * 步骤固定为图片摘要；recorder 为 null 时不采集。
  */
 public class QwenVisionSummaryClient implements ImageSummaryPort {
 
@@ -48,6 +56,8 @@ public class QwenVisionSummaryClient implements ImageSummaryPort {
     private final MultimodalMetrics metrics;
     private final Duration backoffBase;
     private final int maxSummaryChars;
+    private final String providerName;
+    private final ModelUsageRecorder recorder;
 
     public QwenVisionSummaryClient(WebClient webClient, String model, int maxRetries,
                                    Duration requestTimeout, int concurrency,
@@ -60,6 +70,23 @@ public class QwenVisionSummaryClient implements ImageSummaryPort {
                                    Duration requestTimeout, int concurrency,
                                    MultimodalMetrics metrics, int maxSummaryChars,
                                    Duration backoffBase) {
+        this(webClient, model, maxRetries, requestTimeout, concurrency, metrics, maxSummaryChars,
+                backoffBase, null, null);
+    }
+
+    /** 带 provider 名与用量记录器的构建：provider 名用于用量归属，recorder 为 null 时不采集。 */
+    public QwenVisionSummaryClient(WebClient webClient, String model, int maxRetries,
+                                   Duration requestTimeout, int concurrency,
+                                   MultimodalMetrics metrics, int maxSummaryChars,
+                                   String providerName, ModelUsageRecorder recorder) {
+        this(webClient, model, maxRetries, requestTimeout, concurrency, metrics, maxSummaryChars,
+                DEFAULT_BACKOFF_BASE, providerName, recorder);
+    }
+
+    public QwenVisionSummaryClient(WebClient webClient, String model, int maxRetries,
+                                   Duration requestTimeout, int concurrency,
+                                   MultimodalMetrics metrics, int maxSummaryChars,
+                                   Duration backoffBase, String providerName, ModelUsageRecorder recorder) {
         this.webClient = webClient;
         this.model = model;
         this.maxRetries = Math.max(0, maxRetries);
@@ -68,15 +95,32 @@ public class QwenVisionSummaryClient implements ImageSummaryPort {
         this.metrics = metrics;
         this.maxSummaryChars = maxSummaryChars;
         this.backoffBase = backoffBase;
+        this.providerName = providerName;
+        this.recorder = recorder;
     }
 
+    /** 记录一次摘要调用的用量（失败也记录），任何采集异常都不影响摘要结果。 */
     @Override
     public String summarize(String cdnUrl) {
+        long started = System.nanoTime();
+        VisionUsage[] usage = new VisionUsage[1];
+        try {
+            String summary = summarizeWithRetry(cdnUrl, usage);
+            recordUsage(started, usage[0], true, null);
+            return summary;
+        } catch (RuntimeException e) {
+            recordUsage(started, usage[0], false, e.getClass().getSimpleName());
+            throw e;
+        }
+    }
+
+    /** usage 携带最近一次拿到响应体的用量；响应被判无效时 token 仍已消耗，照常计入。 */
+    private String summarizeWithRetry(String cdnUrl, VisionUsage[] usage) {
         VisionSummaryException lastTransient = null;
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             try {
                 checkCancelled();
-                return callOnce(cdnUrl);
+                return callOnce(cdnUrl, usage);
             } catch (WebClientResponseException e) {
                 int status = e.getStatusCode().value();
                 if (!isTransient(status)) {
@@ -107,7 +151,7 @@ public class QwenVisionSummaryClient implements ImageSummaryPort {
                 "vision summary retries exhausted after transient failures", lastTransient);
     }
 
-    private String callOnce(String cdnUrl) throws InterruptedException {
+    private String callOnce(String cdnUrl, VisionUsage[] usage) throws InterruptedException {
         long start = System.nanoTime();
         try {
             checkCancelled();
@@ -121,6 +165,7 @@ public class QwenVisionSummaryClient implements ImageSummaryPort {
                         .retrieve()
                         .bodyToMono(VisionResponse.class)
                         .block(timeout);
+                if (response != null) usage[0] = response.usage();
                 String summary = extractSummary(response);
                 metrics.visionCall("ok", Duration.ofNanos(System.nanoTime() - start));
                 log.debug("vision summary completed model={} latencyMs={}",
@@ -137,6 +182,22 @@ public class QwenVisionSummaryClient implements ImageSummaryPort {
             throw cancelled;
         }
         // WebClientResponseException 与传输错误原样上抛，由外层重试循环分类。
+    }
+
+    private void recordUsage(long startedNanos, VisionUsage usage, boolean success, String errorType) {
+        if (recorder == null) return;
+        try {
+            var owner = ModelUsageContext.resolve();
+            int input = usage == null || usage.promptTokens() == null ? 0 : usage.promptTokens();
+            int output = usage == null || usage.completionTokens() == null ? 0 : usage.completionTokens();
+            // 步骤固定为图片摘要：索引任务的作用域步骤（索引向量）不适用于视觉调用
+            recorder.record(new UsageEvent(java.time.Instant.now(), owner.source(),
+                    ModelPurpose.VISION_SUMMARY.name(), providerName, model, owner.userId(), owner.requestId(),
+                    input, output, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos),
+                    success, errorType));
+        } catch (RuntimeException ignored) {
+            // 采集失败不影响图片摘要
+        }
     }
 
     private VisionRequest requestBody(String cdnUrl) {
@@ -243,7 +304,13 @@ public class QwenVisionSummaryClient implements ImageSummaryPort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record VisionResponse(List<Choice> choices) {
+    public record VisionResponse(List<Choice> choices, VisionUsage usage) {
+    }
+
+    /** provider 回报的 token 用量；缺失时为 null，按 0 记。 */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record VisionUsage(@JsonProperty("prompt_tokens") Integer promptTokens,
+                              @JsonProperty("completion_tokens") Integer completionTokens) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
