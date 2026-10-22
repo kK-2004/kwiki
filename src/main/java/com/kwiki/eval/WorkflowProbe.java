@@ -47,7 +47,7 @@ public class WorkflowProbe {
             }
         };
         List<ChatStreamEvent> events = workflow.answerInSession(user, query, List.of(), Set.of(kbId), Set.of(),
-                RouteInput.NONE, evalObserver).collectList().block(timeout);
+                RouteInput.NON_INTERACTIVE, evalObserver).collectList().block(timeout);
         StringBuilder answer = new StringBuilder();
         String outcome = null;
         String error = null;

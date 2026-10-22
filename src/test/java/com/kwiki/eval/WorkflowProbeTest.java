@@ -63,4 +63,18 @@ class WorkflowProbeTest {
         assertThat(result.rewrites()).isNotEmpty();
         assertThat(result.outcome()).isEqualTo("insufficient");
     }
+
+    @Test
+    void evalRunsNeverStopAtAClarificationQuestion() {
+        var harness = harness();
+        harness.bm25.hits = List.of(new ChunkHit("C1", "P1", 7, "PAGE", 1, 1L, "heading", 0, 6, "候选依据 C1"));
+        harness.vector.hits = harness.bm25.hits;
+        harness.answer.scripted.add("基于证据的回答 [P0]");
+
+        // 无上下文的指代问题在线上会触发反问；评测无人回答，必须照常检索作答
+        var result = new WorkflowProbe(harness.workflow).run(user, 7L, "它怎么用", Duration.ofSeconds(10));
+
+        assertThat(result.outcome()).isNotEqualTo("clarification");
+        assertThat(result.context()).contains("候选依据 C1");
+    }
 }

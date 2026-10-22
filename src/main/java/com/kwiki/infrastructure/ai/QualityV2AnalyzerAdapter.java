@@ -133,7 +133,12 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
                     node.path("reasonCode").asText("invalid"),
                     node.path("reasonSummary").asText(""));
         } catch (Exception e) {
-            log.warn("quality-v2 response rejected: reason={}, chars={}", e.getMessage(), output == null ? 0 : output.length());
+            // 记录违反了哪些 schema 规则与输出开头（脱敏、截断），便于定位模型输出格式问题
+            String head = output == null ? "" : SecretRedaction.redact(output.replaceAll("\\s+", " ").strip());
+            if (head.length() > 300) head = head.substring(0, 300) + "…";
+            log.warn("quality-v2 response rejected: reason={}, chars={}, violations={}, output={}", e.getMessage(),
+                    output == null ? 0 : output.length(), registry.violations("quality-v2", normalizeOutput(output)),
+                    head);
             throw new com.kwiki.rag.orchestration.RunFailure(QA_V2_UNAVAILABLE);
         }
     }

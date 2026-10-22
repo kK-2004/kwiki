@@ -107,3 +107,10 @@ run 记录不设 TTL，由管理端删除。不再写本地报告文件（原 `k
 - **不在本期：多实例全局限流。** `kwiki.langfuse.max-requests-per-minute` 与模型 provider 的并发/QPS 限制
   均按实例计算，多实例部署时需按实例数调低每个实例的配额（例如 2 实例时各配 45 次/分钟），
   或另行引入 Redis 全局令牌桶。
+
+## 评测运行注意
+
+- 评测以「无人交互」方式调用问答工作流（`RouteInput.NON_INTERACTIVE`）：路由不反问、规划器不提供 ask_user、不改道直答。
+  线上同一问题可能触发澄清，评测中会直接检索作答。
+- 单路检索时限 `kwiki.retrieval.branch-deadline`（默认 `5s`）同时作用于线上问答与评测工作流。到 ES 的链路延迟高时
+  （日志 `es search slow` 中 `esTookMs` 很小而 `searchMs` 很大），可在 Nacos 临时调大，根治办法是让后端走内网直连 ES。

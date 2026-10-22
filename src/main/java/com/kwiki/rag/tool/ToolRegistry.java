@@ -158,6 +158,18 @@ public final class ToolRegistry {
         }
     }
 
+    /** 诊断用：raw 违反 schema 的规则（最多 10 条，JSON 解析失败时为 invalid-json）；校验通过返回空列表。 */
+    public List<String> violations(String schema, String raw) {
+        JsonNode node;
+        try {
+            node = parse(raw);
+        } catch (RunFailure e) {
+            return List.of(e.getMessage());
+        }
+        if (node == null) return List.of("invalid-json");
+        return compiled.get(schema).validate(node).stream().limit(10).map(String::valueOf).toList();
+    }
+
     public JsonNode validate(String schema, String raw) {
         JsonNode node = parse(raw);
         if (node == null || !compiled.get(schema).validate(node).isEmpty())

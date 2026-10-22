@@ -165,4 +165,18 @@ class QualityV2AnalyzerAdapterTest {
         // 回退也失败时不记忆，第二次仍先试 json_schema
         assertThat(requests.get(2).responseFormat().jsonSchema()).isNotNull();
     }
+
+    @Test void schemaViolationsAreReportedForDiagnostics() {
+        var registry = new ToolRegistry();
+        // reasonCode 用了下划线与大写、缺少 reasonSummary
+        String bad = """
+            {"relevance":0.9,"coverage":0.9,"faithfulness":0.9,"passed":true,
+            "supportedEvidenceIds":[],"unsupportedClaims":[],"missingAspects":[],"reasonCode":"Answer_Supported"}
+            """;
+        assertThat(registry.violations("quality-v2", bad)).isNotEmpty()
+                .anySatisfy(v -> assertThat(v).contains("reasonCode"))
+                .anySatisfy(v -> assertThat(v).contains("reasonSummary"));
+        assertThat(registry.violations("quality-v2", VALID)).isEmpty();
+        assertThat(registry.violations("quality-v2", "不是 JSON")).containsExactly("invalid-json");
+    }
 }

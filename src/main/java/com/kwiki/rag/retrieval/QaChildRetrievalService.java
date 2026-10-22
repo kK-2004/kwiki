@@ -32,11 +32,24 @@ public class QaChildRetrievalService {
     private final ConcurrentRecallService recall;
     private final ScopeVersionService scopeVersions;
     private final QaRetrievalBudgets budgets;
+    private final java.time.Duration branchDeadline;
 
     public QaChildRetrievalService(ChunkEmbeddingPort embeddings,
                                    ConcurrentRecallService recall,
                                    ScopeVersionService scopeVersions,
                                    QaRetrievalBudgets budgets) {
+        this(embeddings, recall, scopeVersions, budgets, java.time.Duration.ofSeconds(5));
+    }
+
+    /** branchDeadline：单路召回时限，与混合检索共用 kwiki.retrieval.branch-deadline（默认 5s，链路慢时可调大）。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    public QaChildRetrievalService(ChunkEmbeddingPort embeddings,
+                                   ConcurrentRecallService recall,
+                                   ScopeVersionService scopeVersions,
+                                   QaRetrievalBudgets budgets,
+                                   @org.springframework.beans.factory.annotation.Value(
+                                           "${kwiki.retrieval.branch-deadline:5s}") java.time.Duration branchDeadline) {
+        this.branchDeadline = branchDeadline;
         this.embeddings = embeddings;
         this.recall = recall;
         this.scopeVersions = scopeVersions;
@@ -81,7 +94,7 @@ public class QaChildRetrievalService {
         Map<String, Integer> vectorOrder = null;
 
         var outcomes = recall.recall(query, vector, filter, stage.branchTopK(),
-                run.timeout(java.time.Duration.ofSeconds(5)).toMillis(),
+                run.timeout(branchDeadline).toMillis(),
                 strategy);
         for (var outcome : outcomes) {
             if (outcome.degradation() != null) {
