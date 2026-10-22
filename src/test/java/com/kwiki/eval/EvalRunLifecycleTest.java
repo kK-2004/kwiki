@@ -1,14 +1,13 @@
 package com.kwiki.eval;
 
-import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
 import com.kwiki.rag.answer.ChatStreamEvent;
 import com.kwiki.rag.orchestration.AgenticWorkflowPort;
 import com.kwiki.rag.orchestration.RouteInput;
 import com.kwiki.rag.retrieval.QaRetrievalBudgets;
 import com.kwiki.security.CurrentUser;
-import com.kwiki.testutil.StandardTestProperties;
 import com.kwiki.wiki.access.AuthorizationScope;
 import com.kwiki.wiki.access.AuthorizationScopeResolver;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
 
@@ -17,11 +16,13 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,21 +39,23 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** 中断 / 继续 / 删除：用真实 WorkflowProbe + 可控的工作流 Flux 验证在途题被取消。 */
+/** 中断 / 继续 / 删除 / 接管：用真实 WorkflowProbe + 可控的工作流 Flux 验证在途题被取消。 */
 class EvalRunLifecycleTest {
 
-    final CurrentUser admin = new CurrentUser(1L, "admin", true);
+    final EvalRunTestContext ctx = new EvalRunTestContext();
+    final InMemoryEvalRunStore store = ctx.store;
+    final CurrentUser admin = EvalRunTestContext.admin();
     final EvalDatasetLoader loader = mock(EvalDatasetLoader.class);
     final BaselineRetrievalProbe baseline = mock(BaselineRetrievalProbe.class);
     final AgenticWorkflowPort agent = mock(AgenticWorkflowPort.class);
     final AuthorizationScopeResolver scopes = mock(AuthorizationScopeResolver.class);
     final EvalCorpusService corpus = mock(EvalCorpusService.class);
     final InMemoryReport report = new InMemoryReport();
-    final InMemoryEvalRunStore store = new InMemoryEvalRunStore();
     /** 慢题：订阅后挂起，直到被取消；记录订阅与取消。 */
     final Set<String> slow = ConcurrentHashMap.newKeySet();
     final Map<String, CountDownLatch> subscribed = new ConcurrentHashMap<>();
     final Map<String, AtomicBoolean> cancelled = new ConcurrentHashMap<>();
+    final List<EvalWorker> workers = new CopyOnWriteArrayList<>();
 
     static EvalCase positive(String id, String query) {
         return new EvalCase(id, "dragonball", 50, "事实性问题", "Finance", query,
@@ -62,19 +65,32 @@ class EvalRunLifecycleTest {
     EvalRunService service(Clock clock) {
         when(scopes.resolve(eq(admin), eq(Set.of(7L)), eq(Set.of())))
                 .thenReturn(new AuthorizationScope(1L, false, Set.of(7L), Map.of()));
-        return new EvalRunService(loader, baseline, new WorkflowProbe(agent), scopes, corpus, report, store,
-                new KwikiDistributedLocks(StandardTestProperties.nullProvider()),
+        return ctx.service(loader, baseline, new WorkflowProbe(agent), scopes, corpus, report,
                 new QaRetrievalBudgets(20, 8, 50, 20, 8, 16, 12000, 24000, 24000),
-                2, List.of("无法回答"), clock);
+                ctx.instanceA, 2, 2, List.of("无法回答"), clock);
     }
 
     EvalRunService service() {
         return service(Clock.systemUTC());
     }
 
+    /** 手动启动认领线程（50ms 轮询），测毕统一停止。 */
+    EvalWorker startWorker(EvalRunService service) {
+        EvalWorker worker = ctx.worker(service, ctx.instanceA, 2, Duration.ofMillis(50));
+        worker.start();
+        workers.add(worker);
+        return worker;
+    }
+
+    @AfterEach
+    void stopWorkers() {
+        workers.forEach(EvalWorker::stop);
+        workers.clear();
+    }
+
     void stubCases(String... queries) {
         when(corpus.pageDocIds(admin, 7L, EvalCorpusService.DEFAULT_CORPUS)).thenReturn(Map.of(1L, 5));
-        List<EvalCase> cases = new java.util.ArrayList<>();
+        List<EvalCase> cases = new ArrayList<>();
         for (int i = 0; i < queries.length; i++) cases.add(positive("c-" + i, queries[i]));
         when(loader.load()).thenReturn(cases);
         when(baseline.probe(anyString(), any())).thenReturn(new BaselineRetrievalProbe.Result(
@@ -111,6 +127,7 @@ class EvalRunLifecycleTest {
         stubCases("快题", "慢题一", "慢题二");
         slow.addAll(List.of("慢题一", "慢题二"));
         var service = service();
+        startWorker(service);
 
         var started = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-x", null, false));
         // 并发 2：快题完成后两道慢题都在执行
@@ -125,9 +142,9 @@ class EvalRunLifecycleTest {
         await(() -> cancelled.containsKey("慢题一") && cancelled.containsKey("慢题二"));
         assertThat(store.cases(started.runId())).containsOnlyKeys("c-0");
         assertThat(report.traces).extracting(EvalReportPort.TraceRecord::name).containsExactly("eval:c-0");
-        assertThat(report.flushes).as("中断时上报已缓冲的结果").isEqualTo(1);
+        assertThat(report.batches).as("中断时上报已缓冲的结果").containsExactly(1);
         assertThat(status.summary().total()).isEqualTo(1);
-        // 中断后可立即启动新 run（互斥已释放）
+        // 中断后可立即启动新 run（本实例名额与集群名额已释放）
         slow.clear();
         var next = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-y", null, true));
         await(() -> service.status(next.runId()).state() == EvalRunState.COMPLETED);
@@ -138,6 +155,7 @@ class EvalRunLifecycleTest {
         stubCases("快题", "慢题一", "慢题二");
         slow.addAll(List.of("慢题一", "慢题二"));
         var service = service();
+        startWorker(service);
         var started = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-r", "基线", false));
         assertThat(subscription("慢题二").await(5, TimeUnit.SECONDS)).isTrue();
         await(() -> store.caseCount(started.runId()) == 1);
@@ -147,7 +165,7 @@ class EvalRunLifecycleTest {
         var resumed = service.resume(admin, started.runId());
 
         assertThat(resumed.runId()).isEqualTo(started.runId());
-        assertThat(resumed.state()).isEqualTo(EvalRunState.RUNNING);
+        assertThat(resumed.state()).isEqualTo(EvalRunState.QUEUED);
         await(() -> service.status(started.runId()).state() == EvalRunState.COMPLETED);
         var done = service.status(started.runId());
         assertThat(done.completed()).isEqualTo(3);
@@ -163,6 +181,7 @@ class EvalRunLifecycleTest {
         assertThat(cases).extracting(result -> result.evalCase().id()).containsExactly("c-0", "c-1", "c-2");
         assertThat(service.report(started.runId())).containsEntry("runName", "run-r")
                 .containsKey("summary").containsKey("config");
+        assertThat(store.reportedCaseIds(started.runId())).containsExactlyInAnyOrder("c-0", "c-1", "c-2");
     }
 
     @Test
@@ -170,6 +189,7 @@ class EvalRunLifecycleTest {
         stubCases("慢题一");
         slow.add("慢题一");
         var service = service();
+        startWorker(service);
         var started = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-s", null, true));
         assertThat(subscription("慢题一").await(5, TimeUnit.SECONDS)).isTrue();
 
@@ -220,8 +240,11 @@ class EvalRunLifecycleTest {
         stubCases("快题", "第二题");
         Instant now = Instant.parse("2026-10-21T10:00:00Z");
         store.create(new EvalRunStore.RunMeta("old-run", "run-old", "50q", 7L, "", true, 2,
-                Map.of("dataset", "50q"), now.minus(Duration.ofMinutes(10))));
-        store.saveCase("old-run", new CaseResult(positive("c-0", "快题"), null, null, null, "", List.of(),
+                Map.of("dataset", "50q"), now.minus(Duration.ofMinutes(10)), "1"));
+        // 种子为「另一实例执行中且心跳已过期」：先认领（置 RUNNING、发放令牌 1）再写检查点
+        assertThat(store.claimOwnership("old-run", "other-instance", now.minus(Duration.ofMinutes(10))))
+                .isEqualTo(1L);
+        store.saveCase("old-run", 1L, new CaseResult(positive("c-0", "快题"), null, null, null, "", List.of(),
                 Map.of(), Map.of(), "boom", 1));
         var service = service(Clock.fixed(now, ZoneOffset.UTC));
 
@@ -230,26 +253,61 @@ class EvalRunLifecycleTest {
         assertThat(status.error()).isEqualTo("interrupted");
         assertThat(service.list()).extracting(EvalRunService.RunStatus::state).containsExactly(EvalRunState.CANCELLED);
 
-        service.resume(admin, "old-run");
+        var resumed = service.resume(admin, "old-run");
+        assertThat(resumed.state()).isEqualTo(EvalRunState.QUEUED);
+        startWorker(service);
         await(() -> service.status("old-run").state() == EvalRunState.COMPLETED);
         verify(baseline, times(0)).probe(eq("快题"), any());
         assertThat(service.status("old-run").completed()).isEqualTo(2);
     }
 
     @Test
-    void cancelReceivedByAnotherInstanceIsPickedUpByHeartbeat() throws Exception {
+    void cancelFromAnotherInstanceIsDeliveredImmediatelyViaControlBus() throws Exception {
         stubCases("慢题一");
         slow.add("慢题一");
         var owner = service();
         owner.heartbeatInterval(Duration.ofMillis(50));
+        startWorker(owner);
         var other = service();
         var started = owner.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-h", null, true));
         assertThat(subscription("慢题一").await(5, TimeUnit.SECONDS)).isTrue();
 
-        var requested = other.cancel(started.runId());
+        other.cancel(started.runId());
 
-        assertThat(requested.state()).isEqualTo(EvalRunState.RUNNING);
         await(() -> owner.status(started.runId()).state() == EvalRunState.CANCELLED);
         await(() -> cancelled.containsKey("慢题一"));
+    }
+
+    @Test
+    void cancelFlagWithoutNotificationIsPickedUpByHeartbeat() throws Exception {
+        stubCases("慢题一");
+        slow.add("慢题一");
+        var owner = service();
+        owner.heartbeatInterval(Duration.ofMillis(50));
+        startWorker(owner);
+        var started = owner.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-i", null, true));
+        assertThat(subscription("慢题一").await(5, TimeUnit.SECONDS)).isTrue();
+
+        // 模拟控制通知丢失：另一实例只写了取消标志
+        store.requestCancel(started.runId());
+
+        await(() -> owner.status(started.runId()).state() == EvalRunState.CANCELLED);
+        await(() -> cancelled.containsKey("慢题一"));
+    }
+
+    @Test
+    void cancelQueuedRunFinishesItWithoutExecuting() throws Exception {
+        stubCases("快题");
+        var service = service(); // 不启动认领线程，保持排队
+        var started = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-q", null, true));
+        assertThat(service.status(started.runId()).state()).isEqualTo(EvalRunState.QUEUED);
+
+        var status = service.cancel(started.runId());
+
+        assertThat(status.state()).isEqualTo(EvalRunState.CANCELLED);
+        assertThat(store.caseCount(started.runId())).isZero();
+        verify(baseline, times(0)).probe(anyString(), any());
+        // 排队中取消后可重新继续
+        assertThat(service.resume(admin, started.runId()).state()).isEqualTo(EvalRunState.QUEUED);
     }
 }

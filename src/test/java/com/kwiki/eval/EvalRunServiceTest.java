@@ -1,23 +1,20 @@
 package com.kwiki.eval;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kwiki.infrastructure.redis.KwikiDistributedLocks;
 import com.kwiki.rag.orchestration.RunObserver;
 import com.kwiki.rag.retrieval.ChunkHit;
 import com.kwiki.rag.retrieval.QaRetrievalBudgets;
 import com.kwiki.security.CurrentUser;
-import com.kwiki.testutil.StandardTestProperties;
 import com.kwiki.wiki.access.AuthorizationScope;
 import com.kwiki.wiki.access.AuthorizationScopeResolver;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -28,8 +25,9 @@ import static org.mockito.Mockito.when;
 
 class EvalRunServiceTest {
 
-    final InMemoryEvalRunStore store = new InMemoryEvalRunStore();
-    final CurrentUser admin = new CurrentUser(1L, "admin", true);
+    final EvalRunTestContext ctx = new EvalRunTestContext();
+    final InMemoryEvalRunStore store = ctx.store;
+    final CurrentUser admin = EvalRunTestContext.admin();
     final EvalDatasetLoader loader = mock(EvalDatasetLoader.class);
     final BaselineRetrievalProbe baseline = mock(BaselineRetrievalProbe.class);
     final WorkflowProbe workflow = mock(WorkflowProbe.class);
@@ -55,13 +53,36 @@ class EvalRunServiceTest {
     }
 
     EvalRunService service() {
+        return service(Clock.systemUTC());
+    }
+
+    EvalRunService service(Clock clock) {
         when(scopes.resolve(eq(admin), eq(Set.of(7L)), eq(Set.of())))
                 .thenReturn(new AuthorizationScope(1L, false, Set.of(7L), Map.of()));
-        return new EvalRunService(loader, baseline, workflow, scopes, corpus, report,
-                store,
-                new KwikiDistributedLocks(StandardTestProperties.nullProvider()),
+        return ctx.service(loader, baseline, workflow, scopes, corpus, report,
                 new QaRetrievalBudgets(20, 8, 50, 20, 8, 16, 12000, 24000, 24000),
-                2, List.of("无法回答", "没有相关信息"), Clock.systemUTC());
+                ctx.instanceA, 2, 2, List.of("无法回答", "没有相关信息"), clock);
+    }
+
+    /** 每次 instant() 前进 1 毫秒，保证两次提交的 queuedAt 可比较先后。 */
+    private static Clock advancingClock() {
+        java.util.concurrent.atomic.AtomicLong tick = new java.util.concurrent.atomic.AtomicLong();
+        return new Clock() {
+            @Override
+            public java.time.ZoneId getZone() {
+                return java.time.ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(java.time.ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                return Instant.parse("2026-10-22T08:00:00Z").plusMillis(tick.getAndIncrement());
+            }
+        };
     }
 
     void stubCases() {
@@ -95,6 +116,7 @@ class EvalRunServiceTest {
         assertThat(status.state()).isEqualTo(EvalRunState.COMPLETED);
         assertThat(status.total()).isEqualTo(3);
         assertThat(status.completed()).isEqualTo(3);
+        assertThat(status.ownerInstanceId()).isEqualTo("instance-a");
         EvalSummary summary = status.summary();
         assertThat(summary.errors()).isEqualTo(1);
         assertThat(summary.scored()).isEqualTo(1);
@@ -106,8 +128,9 @@ class EvalRunServiceTest {
         assertThat(report.traces).extracting(EvalReportPort.TraceRecord::datasetItemId)
                 .contains("kwiki-rag-50q:p-1");
         assertThat(report.traces).extracting(EvalReportPort.TraceRecord::runName).containsOnly("run-a");
-        assertThat(report.flushes).isEqualTo(1);
+        assertThat(report.batches).as("收尾时剩余缓冲一次上报").containsExactly(3);
         assertThat(store.cases(status.runId())).containsOnlyKeys("p-1", "p-err", "n-1");
+        assertThat(store.reportedCaseIds(status.runId())).containsExactlyInAnyOrder("p-1", "p-err", "n-1");
         String json = new ObjectMapper().writeValueAsString(service.report(status.runId()));
         assertThat(json).contains("\"runName\":\"run-a\"").contains("p-err").contains("\"summary\"");
     }
@@ -177,19 +200,31 @@ class EvalRunServiceTest {
         assertThat(status.state()).isEqualTo(EvalRunState.COMPLETED);
         assertThat(status.runName()).startsWith("50q-");
         assertThat(report.traces).isEmpty();
-        assertThat(report.flushes).isZero();
+        assertThat(report.batches).isEmpty();
     }
 
     @Test
-    void langfuseFailureMarksReportPartialButKeepsStoredResults() {
+    void uploadFailureMarksReportPartialButKeepsStoredResults() {
         stubCases();
-        report.failFlush = true;
+        report.failUpload = true;
 
         var status = service().runNow(admin, new EvalRunService.StartRequest("50q", 7L, "run-b", null, false));
 
         assertThat(status.state()).isEqualTo(EvalRunState.REPORT_PARTIAL);
         assertThat(status.reportPartial()).isTrue();
         assertThat(store.caseCount(status.runId())).isEqualTo(3);
+        assertThat(store.reportedCaseIds(status.runId())).isEmpty();
+    }
+
+    @Test
+    void uploadPartialSuccessOnlyMarksUploadedCases() {
+        stubCases();
+        report.failTraceIds.add(EvalRunService.traceId("run-p", "p-1"));
+
+        var status = service().runNow(admin, new EvalRunService.StartRequest("50q", 7L, "run-p", null, false));
+
+        assertThat(status.state()).isEqualTo(EvalRunState.REPORT_PARTIAL);
+        assertThat(store.reportedCaseIds(status.runId())).containsExactlyInAnyOrder("p-err", "n-1");
     }
 
     @Test
@@ -208,24 +243,30 @@ class EvalRunServiceTest {
     }
 
     @Test
-    void secondRunIsRejectedWhileOneIsInProgress() throws Exception {
+    void startQueuesRunsInsteadOfRejectingWithBusy() {
         stubCases();
-        var gate = new CountDownLatch(1);
-        when(workflow.run(eq(admin), eq(7L), eq("排放量是多少"), any(Duration.class))).thenAnswer(invocation -> {
-            gate.await(5, TimeUnit.SECONDS);
-            return new WorkflowProbe.Result("completed", null, "", "", List.of(), List.of());
-        });
-        var service = service();
+        var service = service(advancingClock());
 
         var first = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-c", null, true));
-        assertThat(first.state()).isEqualTo(EvalRunState.RUNNING);
-        assertThatThrownBy(() -> service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-d", null, true)))
-                .isInstanceOf(EvalException.class).hasMessageContaining("eval-busy");
-        gate.countDown();
-        for (int i = 0; i < 50 && service.status(first.runId()).state() == EvalRunState.RUNNING; i++) {
-            Thread.sleep(100);
-        }
-        assertThat(service.status(first.runId()).state()).isEqualTo(EvalRunState.COMPLETED);
+        var second = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-d", null, true));
+
+        assertThat(first.state()).isEqualTo(EvalRunState.QUEUED);
+        assertThat(second.state()).isEqualTo(EvalRunState.QUEUED);
+        assertThat(first.queuePosition()).isZero();
+        assertThat(second.queuePosition()).isEqualTo(1);
+        assertThat(store.caseCount(first.runId())).as("认领前不执行").isZero();
+        assertThat(service.list()).extracting(EvalRunService.RunStatus::state)
+                .containsExactly(EvalRunState.QUEUED, EvalRunState.QUEUED);
+    }
+
+    @Test
+    void startRecordsSubmittedByForClaimTimeAuthorization() {
+        stubCases();
+        var service = service();
+
+        var status = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-s", null, true));
+
+        assertThat(store.find(status.runId()).orElseThrow().meta().submittedBy()).isEqualTo("1");
     }
 
     @Test

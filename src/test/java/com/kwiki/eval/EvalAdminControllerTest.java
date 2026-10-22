@@ -46,7 +46,7 @@ class EvalAdminControllerTest {
 
     static EvalRunService.RunStatus run(EvalRunState state) {
         return new EvalRunService.RunStatus("r-1", "run-a", "50q", state, 50, 12, null, null, false, false,
-                Instant.parse("2026-10-21T10:00:00Z"));
+                Instant.parse("2026-10-21T10:00:00Z"), null, null);
     }
 
     @Test
