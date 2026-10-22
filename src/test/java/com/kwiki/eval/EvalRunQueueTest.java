@@ -127,6 +127,30 @@ class EvalRunQueueTest {
     }
 
     @Test
+    void cancelRacingWithAConcurrentClaimIsNotLost() {
+        stub("快题");
+        // 中断读到 QUEUED 后、取消前，另一实例恰好认领了该 run
+        var racing = new InMemoryEvalRunStore() {
+            @Override
+            public synchronized boolean cancelQueued(String runId) {
+                claimOwnership(runId, "instance-b", java.time.Instant.now(),
+                        EvalRunService.STALE_AFTER.toMillis());
+                return super.cancelQueued(runId);
+            }
+        };
+        ctx.store = racing;
+        var service = service(ctx.instanceA, 2);
+        var started = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-race", null, true));
+
+        var status = service.cancel(started.runId());
+
+        var record = racing.find(started.runId()).orElseThrow();
+        assertThat(record.cancelRequested()).as("中断转为运行中取消，交由执行实例收尾").isTrue();
+        assertThat(record.ownerInstanceId()).isEqualTo("instance-b");
+        assertThat(status.state()).isEqualTo(EvalRunState.RUNNING);
+    }
+
+    @Test
     void secondRunWaitsUntilFirstFinishesOnTheSameInstance() throws Exception {
         stub("慢题", "快题");
         var service = service(ctx.instanceA, 2);

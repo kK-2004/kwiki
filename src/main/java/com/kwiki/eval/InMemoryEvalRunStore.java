@@ -67,7 +67,7 @@ public class InMemoryEvalRunStore implements EvalRunStore {
     }
 
     @Override
-    public boolean cancelQueued(String runId) {
+    public synchronized boolean cancelQueued(String runId) {
         RunRecord run = runs.get(runId);
         if (run == null || run.state() != EvalRunState.QUEUED) return false;
         runs.computeIfPresent(runId, (id, current) ->
@@ -92,8 +92,14 @@ public class InMemoryEvalRunStore implements EvalRunStore {
     }
 
     @Override
-    public long claimOwnership(String runId, String instanceId, Instant now) {
-        if (!runs.containsKey(runId)) return -1;
+    public synchronized long claimOwnership(String runId, String instanceId, Instant now, long staleAfterMillis) {
+        RunRecord existing = runs.get(runId);
+        if (existing == null || existing.cancelRequested()) return -1;
+        boolean waiting = existing.state() == EvalRunState.QUEUED;
+        Instant beat = existing.heartbeatAt() == null ? existing.meta().createdAt() : existing.heartbeatAt();
+        boolean staleRunning = existing.state() == EvalRunState.RUNNING
+                && beat.plusMillis(staleAfterMillis).isBefore(now);
+        if (!waiting && !staleRunning) return -1;
         AtomicLong token = tokens.computeIfAbsent(runId, id -> new AtomicLong());
         long value = token.incrementAndGet();
         runs.computeIfPresent(runId, (id, current) -> new RunRecord(current.meta(), EvalRunState.RUNNING,
@@ -167,7 +173,7 @@ public class InMemoryEvalRunStore implements EvalRunStore {
     }
 
     @Override
-    public void requestCancel(String runId) {
+    public synchronized void requestCancel(String runId) {
         runs.computeIfPresent(runId, (id, run) -> new RunRecord(run.meta(), run.state(), run.summary(),
                 run.error(), run.reportPartial(), run.heartbeatAt(), true, run.ownerInstanceId(),
                 run.queuedAt()));

@@ -19,7 +19,8 @@ import static org.mockito.Mockito.when;
  */
 final class EvalRunTestContext {
 
-    final InMemoryEvalRunStore store = new InMemoryEvalRunStore();
+    /** 非 final：并发竞态测试可替换为注入时序的子类（须在构造服务前替换）。 */
+    InMemoryEvalRunStore store = new InMemoryEvalRunStore();
     final InMemoryEvalWorkQueue queue = new InMemoryEvalWorkQueue();
     final InMemoryEvalClusterSlots slots = new InMemoryEvalClusterSlots();
     final InMemoryEvalControlBus bus = new InMemoryEvalControlBus();

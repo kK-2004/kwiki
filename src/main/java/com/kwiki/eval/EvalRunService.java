@@ -238,8 +238,9 @@ public class EvalRunService {
         EvalRunStore.RunRecord record = record(runId);
         EvalRunState state = effectiveState(record);
         if (state == EvalRunState.QUEUED) {
-            store.cancelQueued(runId);
-            return status(runId);
+            if (store.cancelQueued(runId)) return status(runId);
+            // 与认领并发：已被某实例认领为 RUNNING，按运行中中断处理，避免中断被吞掉
+            state = effectiveState(record(runId));
         }
         if (state != EvalRunState.RUNNING) throw new EvalException(409, "eval-run-not-running");
         store.requestCancel(runId);
@@ -415,7 +416,7 @@ public class EvalRunService {
                 return false;
             }
         }
-        long token = store.claimOwnership(runId, instance.get(), clock.instant());
+        long token = store.claimOwnership(runId, instance.get(), clock.instant(), STALE_AFTER.toMillis());
         if (token < 0) {
             closeQuietly(lock);
             return true;

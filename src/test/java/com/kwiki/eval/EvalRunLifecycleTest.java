@@ -242,7 +242,8 @@ class EvalRunLifecycleTest {
         store.create(new EvalRunStore.RunMeta("old-run", "run-old", "50q", 7L, "", true, 2,
                 Map.of("dataset", "50q"), now.minus(Duration.ofMinutes(10)), "1"));
         // 种子为「另一实例执行中且心跳已过期」：先认领（置 RUNNING、发放令牌 1）再写检查点
-        assertThat(store.claimOwnership("old-run", "other-instance", now.minus(Duration.ofMinutes(10))))
+        assertThat(store.claimOwnership("old-run", "other-instance", now.minus(Duration.ofMinutes(10)),
+                Duration.ofMinutes(2).toMillis()))
                 .isEqualTo(1L);
         store.saveCase("old-run", 1L, new CaseResult(positive("c-0", "快题"), null, null, null, "", List.of(),
                 Map.of(), Map.of(), "boom", 1));

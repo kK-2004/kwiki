@@ -108,8 +108,10 @@ class RedisEvalCoordinationLiveTest {
             assertThat(store.find(runId).orElseThrow().meta().submittedBy()).isEqualTo("2");
 
             // 认领发放递增令牌；旧令牌的检查点 / 心跳 / 已上报 / 终态写入被拒
-            long first = store.claimOwnership(runId, "instance-a", t0.plusSeconds(3));
-            long second = store.claimOwnership(runId, "instance-b", t0.plusSeconds(4));
+            long first = store.claimOwnership(runId, "instance-a", t0.plusSeconds(3), Duration.ofMinutes(2).toMillis());
+            // 心跳新鲜时不可抢占；过期后可接管
+            assertThat(store.claimOwnership(runId, "instance-b", t0.plusSeconds(4), Duration.ofMinutes(2).toMillis())).isEqualTo(-1);
+            long second = store.claimOwnership(runId, "instance-b", t0.plusSeconds(3).plusSeconds(121), Duration.ofMinutes(2).toMillis());
             assertThat(first).isEqualTo(1);
             assertThat(second).isEqualTo(2);
             var claimed = store.find(runId).orElseThrow();
@@ -131,10 +133,15 @@ class RedisEvalCoordinationLiveTest {
 
             // 终态 CANCELLED 可重新提交回 QUEUED；认领后心跳新鲜的 RUNNING 不可提交，过期后可重新提交（CAS）
             assertThat(store.markQueued(runId, "2", t0.plusSeconds(6), Duration.ofMinutes(2).toMillis())).isTrue();
-            store.claimOwnership(runId, "instance-a", t0.plusSeconds(7));
+            store.claimOwnership(runId, "instance-a", t0.plusSeconds(7), Duration.ofMinutes(2).toMillis());
             assertThat(store.markQueued(runId, "2", t0.plusSeconds(8), Duration.ofMinutes(2).toMillis())).isFalse();
             assertThat(store.markQueued(runId, "2", t0.plusSeconds(7).plusSeconds(121),
                     Duration.ofMinutes(2).toMillis())).isTrue();
+
+            // 取消请求存在时认领失败且不清除标志；排队取消后认领失败
+            store.requestCancel(runId);
+            assertThat(store.claimOwnership(runId, "instance-c", t0.plusSeconds(600), Duration.ofMinutes(2).toMillis())).isEqualTo(-1);
+            assertThat(store.find(runId).orElseThrow().cancelRequested()).isTrue();
 
             // 记录删除后令牌写入全部失败
             store.delete(runId);
@@ -159,8 +166,9 @@ class RedisEvalCoordinationLiveTest {
             assertThat(store.queuePosition(failed)).isEqualTo(-1);
 
             store.create(meta(cancelled, Instant.now()));
+            assertThat(store.claimOwnership(cancelled, "instance-a", Instant.now(),
+                    Duration.ofMinutes(2).toMillis())).isEqualTo(1);
             store.requestCancel(cancelled);
-            store.claimOwnership(cancelled, "instance-a", Instant.now());
             store.markCancelled(cancelled);
             var record = store.find(cancelled).orElseThrow();
             assertThat(record.state()).isEqualTo(EvalRunState.CANCELLED);

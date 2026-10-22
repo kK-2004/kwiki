@@ -80,9 +80,16 @@ public class RedisEvalRunStore implements EvalRunStore {
     /** 认领归属：令牌自增、置 RUNNING（清错误/取消标志）、记执行实例与心跳、移出排队索引；记录不存在返回 -1。 */
     private static final RedisScript<Long> CLAIM_OWNERSHIP = new DefaultRedisScript<>("""
             if redis.call('EXISTS', KEYS[1]) == 0 then return -1 end
+            if redis.call('HGET', KEYS[1], 'cancelRequested') then return -1 end
+            local state = redis.call('HGET', KEYS[1], 'state')
+            if state ~= 'QUEUED' then
+              if state ~= 'RUNNING' then return -1 end
+              local beat = redis.call('HGET', KEYS[1], 'heartbeatAt') or redis.call('HGET', KEYS[1], 'created')
+              if beat and tonumber(beat) + tonumber(ARGV[4]) >= tonumber(ARGV[2]) then return -1 end
+            end
             local token = redis.call('HINCRBY', KEYS[1], 'ownerToken', 1)
             redis.call('HSET', KEYS[1], 'state', 'RUNNING', 'ownerInstanceId', ARGV[1], 'heartbeatAt', ARGV[2])
-            redis.call('HDEL', KEYS[1], 'summary', 'error', 'reportPartial', 'cancelRequested')
+            redis.call('HDEL', KEYS[1], 'summary', 'error', 'reportPartial')
             redis.call('ZREM', KEYS[2], ARGV[3])
             return token
             """, Long.class);
@@ -238,9 +245,9 @@ public class RedisEvalRunStore implements EvalRunStore {
     }
 
     @Override
-    public long claimOwnership(String runId, String instanceId, Instant now) {
+    public long claimOwnership(String runId, String instanceId, Instant now, long staleAfterMillis) {
         Long token = redis.execute(CLAIM_OWNERSHIP, List.of(runKey(runId), QUEUED_INDEX),
-                instanceId, Long.toString(now.toEpochMilli()), runId);
+                instanceId, Long.toString(now.toEpochMilli()), runId, Long.toString(staleAfterMillis));
         return token == null ? -1 : token;
     }
 

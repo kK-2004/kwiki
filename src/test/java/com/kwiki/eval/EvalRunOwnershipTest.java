@@ -121,12 +121,13 @@ class EvalRunOwnershipTest {
         assertThat(subscribed("挂起题").await(5, TimeUnit.SECONDS)).isTrue();
         await(() -> store.caseCount(started.runId()) == 1);
 
-        // 模拟实例 A 失联后被挂起回收重新认领：新实例取得新令牌（run 锁随宕机进程消失，
-        // 这里用独立锁实例代替），A 的后续写入因令牌不符被拒
+        // 模拟实例 A 失联（如长时间 GC 停顿）后被接管：B 的时钟超前 3 分钟，看到 A 的心跳已过期
+        // （心跳新鲜的 run 不允许被抢占）；run 锁随失联进程失效，这里用独立锁实例代替。
+        // B 取得新令牌后，A 恢复时的后续写入因令牌不符被拒
         var takeover = new EvalRunService(loader, baseline, new WorkflowProbe(agent), scopes, corpus, report,
                 store, ctx.queue, ctx.slots, ctx.bus, new InMemoryEvalRunLocks(),
                 new QaRetrievalBudgets(20, 8, 50, 20, 8, 16, 12000, 24000, 24000), ctx.instanceB, 2, 2,
-                List.of("无法回答"), Clock.systemUTC());
+                List.of("无法回答"), Clock.offset(Clock.systemUTC(), Duration.ofMinutes(3)));
         assertThat(takeover.claimForExecution(started.runId(), admin)).isTrue();
 
         await(() -> cancelled.containsKey("挂起题")); // 旧实例令牌校验失败，取消在途题

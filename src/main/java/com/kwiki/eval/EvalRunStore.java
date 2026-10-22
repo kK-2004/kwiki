@@ -53,10 +53,12 @@ public interface EvalRunStore {
     long queuePosition(String runId);
 
     /**
-     * 认领归属：令牌自增、置 RUNNING（清除错误与取消标志）、记录执行实例并刷新心跳、移出排队索引；
-     * 记录不存在（已删除）返回 -1。
+     * 认领归属（原子条件写）：仅当 run 为 QUEUED、或为心跳已过期（heartbeatAt + staleAfterMillis &lt; now）的
+     * RUNNING，且未被请求取消时，令牌自增、置 RUNNING（清除错误）、记录执行实例并刷新心跳、移出排队索引，
+     * 返回新令牌；否则（已删除、已取消、已终态、他人执行中、有取消请求）不写入并返回 -1。
+     * 条件判断与写入必须原子，防止认领覆盖并发的中断。
      */
-    long claimOwnership(String runId, String instanceId, Instant now);
+    long claimOwnership(String runId, String instanceId, Instant now, long staleAfterMillis);
 
     /** 逐题检查点，以 caseId 幂等覆盖；令牌校验失败或记录已删除返回 false 且不写入。 */
     boolean saveCase(String runId, long ownerToken, CaseResult result);

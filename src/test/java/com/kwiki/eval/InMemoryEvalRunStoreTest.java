@@ -67,7 +67,7 @@ class InMemoryEvalRunStoreTest {
         assertThat(store.find("a").orElseThrow().meta().submittedBy()).isEqualTo("2");
 
         // 运行中（心跳新鲜）不可提交
-        long token = store.claimOwnership("a", "instance-1", t0.plusSeconds(6));
+        long token = store.claimOwnership("a", "instance-1", t0.plusSeconds(6), Duration.ofMinutes(2).toMillis());
         assertThat(token).isEqualTo(1);
         assertThat(store.find("a").orElseThrow().state()).isEqualTo(EvalRunState.RUNNING);
         assertThat(store.find("a").orElseThrow().ownerInstanceId()).isEqualTo("instance-1");
@@ -79,7 +79,7 @@ class InMemoryEvalRunStoreTest {
                 Duration.ofMinutes(2).toMillis())).isTrue();
 
         // 终态 COMPLETED 不可提交
-        store.claimOwnership("a", "instance-1", t0.plusSeconds(10));
+        store.claimOwnership("a", "instance-1", t0.plusSeconds(10), Duration.ofMinutes(2).toMillis());
         store.finish("a", 2, EvalRunState.COMPLETED, null, false, null);
         assertThat(store.markQueued("a", "2", t0.plusSeconds(11), Duration.ofMinutes(2).toMillis())).isFalse();
 
@@ -88,12 +88,14 @@ class InMemoryEvalRunStoreTest {
     }
 
     @Test
-    void claimOwnershipIssuesIncrementingTokensAndClearsErrorFields() {
+    void claimOwnershipOnlyTakesQueuedOrStaleRunsAndIssuesIncrementingTokens() {
         store.create(meta("a", t0));
-        store.markFailed("a", "submitter-not-authorized");
 
-        long first = store.claimOwnership("a", "i-1", t0.plusSeconds(1));
-        long second = store.claimOwnership("a", "i-2", t0.plusSeconds(2));
+        long first = store.claimOwnership("a", "i-1", t0.plusSeconds(1), Duration.ofMinutes(2).toMillis());
+        // 心跳新鲜的运行中 run 不可被抢占
+        assertThat(store.claimOwnership("a", "i-2", t0.plusSeconds(2), Duration.ofMinutes(2).toMillis())).isEqualTo(-1);
+        // 心跳过期后可被接管，令牌递增
+        long second = store.claimOwnership("a", "i-2", t0.plusSeconds(1).plusSeconds(121), Duration.ofMinutes(2).toMillis());
 
         assertThat(first).isEqualTo(1);
         assertThat(second).isEqualTo(2);
@@ -101,15 +103,37 @@ class InMemoryEvalRunStoreTest {
         assertThat(record.state()).isEqualTo(EvalRunState.RUNNING);
         assertThat(record.ownerInstanceId()).isEqualTo("i-2");
         assertThat(record.error()).isNull();
-        store.claimOwnership("ghost", "i-1", t0);
+        assertThat(store.claimOwnership("ghost", "i-1", t0, Duration.ofMinutes(2).toMillis())).isEqualTo(-1);
         assertThat(store.find("ghost")).isEmpty();
+    }
+
+    @Test
+    void claimNeverOverridesAConcurrentCancel() {
+        // 排队中被取消：认领失败，状态保持 CANCELLED
+        store.create(meta("a", t0));
+        assertThat(store.cancelQueued("a")).isTrue();
+        assertThat(store.claimOwnership("a", "i-1", t0.plusSeconds(1), Duration.ofMinutes(2).toMillis())).isEqualTo(-1);
+        assertThat(store.find("a").orElseThrow().state()).isEqualTo(EvalRunState.CANCELLED);
+
+        // 已有取消请求（如过期运行中被请求中断）：认领失败且不清除取消标志
+        store.create(meta("b", t0));
+        store.claimOwnership("b", "i-1", t0.plusSeconds(1), Duration.ofMinutes(2).toMillis());
+        store.requestCancel("b");
+        assertThat(store.claimOwnership("b", "i-2", t0.plusSeconds(500), Duration.ofMinutes(2).toMillis())).isEqualTo(-1);
+        assertThat(store.find("b").orElseThrow().cancelRequested()).isTrue();
+
+        // 终态 / 失败的 run 不可直接认领（须先重新提交为 QUEUED）
+        store.create(meta("c", t0));
+        store.markFailed("c", "submitter-not-authorized");
+        assertThat(store.claimOwnership("c", "i-1", t0.plusSeconds(1), Duration.ofMinutes(2).toMillis())).isEqualTo(-1);
     }
 
     @Test
     void tokenCheckedWritesAreRejectedAfterTakeover() {
         store.create(meta("a", t0));
-        long oldToken = store.claimOwnership("a", "i-1", t0.plusSeconds(1));
-        long newToken = store.claimOwnership("a", "i-2", t0.plusSeconds(2));
+        long oldToken = store.claimOwnership("a", "i-1", t0.plusSeconds(1), Duration.ofMinutes(2).toMillis());
+        // 旧实例失联（心跳过期）后被接管
+        long newToken = store.claimOwnership("a", "i-2", t0.plusSeconds(1).plusSeconds(121), Duration.ofMinutes(2).toMillis());
 
         assertThat(store.saveCase("a", oldToken, result("p-1"))).isFalse();
         assertThat(store.caseCount("a")).isZero();
@@ -139,7 +163,7 @@ class InMemoryEvalRunStoreTest {
     @Test
     void requestCancelKeepsStateUntilOwnerActs() {
         store.create(meta("a", t0));
-        long token = store.claimOwnership("a", "i-1", t0.plusSeconds(1));
+        long token = store.claimOwnership("a", "i-1", t0.plusSeconds(1), Duration.ofMinutes(2).toMillis());
         store.saveCase("a", token, result("p-1"));
 
         store.requestCancel("a");
