@@ -38,6 +38,9 @@ const CONFIRM_TITLES: Record<ConfirmAction, string> = { cancel: "中断评测", 
 let timer: number | undefined;
 let pollDelay = 3000;
 let disposed = false;
+// 历史列表有排队或运行中的评测时静默刷新（可能由其他实例执行，当前查看的 run 之外也要更新）
+const HISTORY_REFRESH_MS = 5000;
+let historyTimer: number | undefined;
 
 /** 排队中与运行中都需要持续轮询状态。 */
 const running = computed(() => run.value?.state === "RUNNING" || run.value?.state === "QUEUED");
@@ -141,9 +144,12 @@ async function poll() {
   try {
     const status = await api.evalRunStatus(id);
     if (id !== runId.value) return;
-    const finished = run.value?.state === "RUNNING" && status.state !== "RUNNING";
+    const stateChanged = run.value != null && run.value.state !== status.state;
     run.value = status;
-    if (finished) void loadHistory();
+    const index = history.value.findIndex((row) => row.runId === status.runId);
+    if (index >= 0) history.value.splice(index, 1, status);
+    // 状态变化会影响其他行的排队位次，整表刷新
+    if (stateChanged) void loadHistory(true);
     expired.value = false;
     pollDelay = 3000;
   } catch (error) {
@@ -168,15 +174,23 @@ function schedule(retry = false) {
   timer = window.setTimeout(() => void poll(), pollDelay);
 }
 
-async function loadHistory() {
-  historyLoading.value = true;
+async function loadHistory(silent = false) {
+  window.clearTimeout(historyTimer);
+  if (!silent) historyLoading.value = true;
   try {
     history.value = await api.evalListRuns();
   } catch (error) {
-    if (!handleAuth(error)) ElMessage.error(evalErrorMessage(error, "加载历史评测失败"));
+    if (!handleAuth(error) && !silent) ElMessage.error(evalErrorMessage(error, "加载历史评测失败"));
   } finally {
-    historyLoading.value = false;
+    if (!silent) historyLoading.value = false;
+    scheduleHistory();
   }
+}
+function scheduleHistory() {
+  window.clearTimeout(historyTimer);
+  const active = history.value.some((row) => row.state === "RUNNING" || row.state === "QUEUED");
+  if (disposed || !active) return;
+  historyTimer = window.setTimeout(() => void loadHistory(true), HISTORY_REFRESH_MS);
 }
 
 /** 在「运行状态」中查看某个历史 run。 */
@@ -239,7 +253,11 @@ onMounted(() => {
   void loadHistory();
   if (runId.value) void poll();
 });
-onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
+onBeforeUnmount(() => {
+  disposed = true;
+  window.clearTimeout(timer);
+  window.clearTimeout(historyTimer);
+});
 </script>
 
 <template>
@@ -311,7 +329,7 @@ onBeforeUnmount(() => { disposed = true; window.clearTimeout(timer); });
         <h2>3. 历史评测</h2>
         <div class="toggles">
           <span class="hint">运行状态与逐题结果保存在服务端，重启后可继续未完成的评测。</span>
-          <el-button text size="small" :loading="historyLoading" @click="loadHistory">刷新</el-button>
+          <el-button text size="small" :loading="historyLoading" @click="loadHistory()">刷新</el-button>
         </div>
       </header>
       <el-table :data="history" row-key="runId" size="small" empty-text="暂无评测记录">

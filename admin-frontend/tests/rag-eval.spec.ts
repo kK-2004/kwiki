@@ -186,6 +186,42 @@ describe("RAG 评测页", () => {
     expect(mocks.evalRunStatus).toHaveBeenCalledTimes(2);
   });
 
+  it("历史列表中当前查看的评测随轮询实时更新进度", async () => {
+    vi.useFakeTimers();
+    mocks.adminKnowledgeBases.mockResolvedValue([]);
+    localStorage.setItem("kwiki_admin_eval_run", "r-1");
+    mocks.evalListRuns.mockResolvedValue([running]);
+    mocks.evalRunStatus.mockResolvedValueOnce(running).mockResolvedValue({ ...running, completed: 25 });
+    render(RagEvalView, { global: { plugins } });
+    await vi.waitFor(() => expect(screen.getAllByText("10 / 50").length).toBeGreaterThan(0));
+
+    await vi.advanceTimersByTimeAsync(3000);
+
+    await vi.waitFor(() => expect(screen.getAllByText("25 / 50").length).toBeGreaterThan(0));
+    expect(screen.queryByText("10 / 50")).toBeNull();
+  });
+
+  it("有排队或运行中的评测时历史列表自动刷新，全部结束后停止", async () => {
+    vi.useFakeTimers();
+    mocks.adminKnowledgeBases.mockResolvedValue([]);
+    const other = { ...queued, runId: "r-2", runName: "other-50q" };
+    mocks.evalListRuns
+      .mockResolvedValueOnce([other])
+      .mockResolvedValueOnce([{ ...other, state: "RUNNING", queuePosition: null, completed: 3 }])
+      .mockResolvedValue([{ ...other, state: "COMPLETED", queuePosition: null, completed: 50 }]);
+    render(RagEvalView, { global: { plugins } });
+    await vi.waitFor(() => expect(screen.getByText(/前面还有 2 个/)).toBeTruthy());
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await vi.waitFor(() => expect(screen.getByText("3 / 50")).toBeTruthy());
+    await vi.advanceTimersByTimeAsync(5000);
+    await vi.waitFor(() => expect(screen.getByText("50 / 50")).toBeTruthy());
+    const calls = mocks.evalListRuns.mock.calls.length;
+
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(mocks.evalListRuns.mock.calls.length).toBe(calls);
+  });
+
   it("记住的 runId 查不到时提示已失效，可清除", async () => {
     mocks.adminKnowledgeBases.mockResolvedValue([]);
     localStorage.setItem("kwiki_admin_eval_run", "gone");
