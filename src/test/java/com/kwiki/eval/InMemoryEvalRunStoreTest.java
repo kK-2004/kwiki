@@ -88,6 +88,34 @@ class InMemoryEvalRunStoreTest {
     }
 
     @Test
+    void markRetryQueuedRemovesGivenCasesAndRequeuesFinishedRuns() {
+        store.create(meta("a", t0));
+        assertThat(store.markRetryQueued("a", "2", t0, Duration.ofMinutes(2).toMillis(), Set.of("c-1")))
+                .as("排队中不可重试").isFalse();
+        long token = store.claimOwnership("a", "i-1", t0.plusSeconds(1), Duration.ofMinutes(2).toMillis());
+        store.saveCase("a", token, result("c-0"));
+        store.saveCase("a", token, result("c-1"));
+        store.markReported("a", token, "c-0");
+        store.markReported("a", token, "c-1");
+        assertThat(store.markRetryQueued("a", "2", t0.plusSeconds(2), Duration.ofMinutes(2).toMillis(),
+                Set.of("c-1"))).as("运行中（心跳新鲜）不可重试").isFalse();
+        store.finish("a", token, EvalRunState.COMPLETED, null, false, null);
+
+        assertThat(store.markRetryQueued("a", "2", t0.plusSeconds(3), Duration.ofMinutes(2).toMillis(),
+                Set.of("c-1"))).isTrue();
+
+        var run = store.find("a").orElseThrow();
+        assertThat(run.state()).isEqualTo(EvalRunState.QUEUED);
+        assertThat(run.meta().submittedBy()).isEqualTo("2");
+        assertThat(store.queuePosition("a")).isZero();
+        assertThat(store.cases("a")).containsOnlyKeys("c-0");
+        assertThat(store.reportedCaseIds("a")).containsExactly("c-0");
+        assertThat(store.markRetryQueued("a", "2", t0.plusSeconds(4), Duration.ofMinutes(2).toMillis(),
+                Set.of("c-0"))).as("重复提交只有一个成功").isFalse();
+        assertThat(store.markRetryQueued("ghost", "2", t0, 1, Set.of())).isFalse();
+    }
+
+    @Test
     void claimOwnershipOnlyTakesQueuedOrStaleRunsAndIssuesIncrementingTokens() {
         store.create(meta("a", t0));
 

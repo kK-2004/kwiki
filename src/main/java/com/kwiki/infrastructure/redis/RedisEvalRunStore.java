@@ -60,6 +60,28 @@ public class RedisEvalRunStore implements EvalRunStore {
             return 1
             """, Long.class);
 
+    /**
+     * 重试出错题：结束状态（COMPLETED / REPORT_PARTIAL / CANCELLED / FAILED）或心跳过期 RUNNING → QUEUED，
+     * 同 MARK_QUEUED 记提交人与 queuedAt 并入排队索引，同时删除 ARGV[5..] 各题的检查点与已上报标记。
+     */
+    private static final RedisScript<Long> RETRY_QUEUED = new DefaultRedisScript<>(RedisLuaTime.SERVER_NOW + """
+            local state = redis.call('HGET', KEYS[1], 'state')
+            if not state then return 0 end
+            if state ~= 'COMPLETED' and state ~= 'REPORT_PARTIAL' and state ~= 'CANCELLED' and state ~= 'FAILED' then
+              if state ~= 'RUNNING' then return 0 end
+              local beat = redis.call('HGET', KEYS[1], 'heartbeatAt') or redis.call('HGET', KEYS[1], 'created')
+              if not beat or tonumber(beat) + tonumber(ARGV[3]) >= now then return 0 end
+            end
+            for i = 5, #ARGV do
+              redis.call('HDEL', KEYS[3], ARGV[i])
+              redis.call('HDEL', KEYS[4], ARGV[i])
+            end
+            redis.call('HSET', KEYS[1], 'state', 'QUEUED', 'submittedBy', ARGV[1], 'queuedAt', now)
+            redis.call('HDEL', KEYS[1], 'summary', 'error', 'reportPartial', 'cancelRequested')
+            redis.call('ZADD', KEYS[2], now, ARGV[4])
+            return 1
+            """, Long.class);
+
     /** QUEUED → CANCELLED 并移出排队索引；其余状态返回 0。 */
     private static final RedisScript<Long> CANCEL_QUEUED = new DefaultRedisScript<>("""
             local state = redis.call('HGET', KEYS[1], 'state')
@@ -229,6 +251,17 @@ public class RedisEvalRunStore implements EvalRunStore {
     public boolean markQueued(String runId, String submittedBy, Instant now, long staleAfterMillis) {
         Long result = redis.execute(MARK_QUEUED, List.of(runKey(runId), QUEUED_INDEX),
                 submittedBy, Long.toString(now.toEpochMilli()), Long.toString(staleAfterMillis), runId);
+        return Long.valueOf(1L).equals(result);
+    }
+
+    @Override
+    public boolean markRetryQueued(String runId, String submittedBy, Instant now, long staleAfterMillis,
+                                   Set<String> caseIds) {
+        List<String> args = new ArrayList<>(List.of(submittedBy, Long.toString(now.toEpochMilli()),
+                Long.toString(staleAfterMillis), runId));
+        args.addAll(caseIds);
+        Long result = redis.execute(RETRY_QUEUED,
+                List.of(runKey(runId), QUEUED_INDEX, casesKey(runId), reportedKey(runId)), args.toArray());
         return Long.valueOf(1L).equals(result);
     }
 

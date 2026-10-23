@@ -101,6 +101,7 @@ export const api={
   evalListRuns:()=>request<EvalRunStatus[]>("/admin/eval/runs"),
   evalCancelRun:(runId:string)=>request<EvalRunStatus>(`/admin/eval/runs/${encodeURIComponent(runId)}/cancel`,{method:"POST"}),
   evalResumeRun:(runId:string)=>request<EvalRunStatus>(`/admin/eval/runs/${encodeURIComponent(runId)}/resume`,{method:"POST"}),
+  evalRetryFailedRun:(runId:string)=>request<EvalRunStatus>(`/admin/eval/runs/${encodeURIComponent(runId)}/retry-failed`,{method:"POST"}),
   evalDeleteRun:(runId:string,langfuse:boolean)=>request<EvalDeleteResult>(`/admin/eval/runs/${encodeURIComponent(runId)}?langfuse=${langfuse}`,{method:"DELETE"}),
   evalRunReport:(runId:string)=>request<Record<string,unknown>>(`/admin/eval/runs/${encodeURIComponent(runId)}/report`),
   modelUsageSeries:(q:UsageQuery)=>request<UsageSeriesResponse>(`/admin/model-usage/series?${usageParams(q)}`),

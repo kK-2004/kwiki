@@ -10,7 +10,8 @@ import java.util.Set;
  * 评测 run 的持久化与执行协调：元信息、状态、逐题检查点、排队索引与写入令牌。
  * 启用 Redis 时跨重启、跨实例可见，否则退化为进程内存储（重启即丢失）。
  * 状态机：QUEUED ─认领─▶ RUNNING ─▶ COMPLETED / REPORT_PARTIAL / FAILED，
- * QUEUED/RUNNING 可中断为 CANCELLED；CANCELLED / FAILED 可重新提交回 QUEUED。
+ * QUEUED/RUNNING 可中断为 CANCELLED；CANCELLED / FAILED 可重新提交回 QUEUED；
+ * 任一结束状态可「重试出错题」回到 QUEUED（先删除出错题的检查点）。
  *
  * <p>写入令牌：认领（{@link #claimOwnership}）时发放，此后逐题检查点、心跳、终态、
  * 已上报标记一律经令牌校验写入——run 被其他实例接管后旧实例的写入被拒绝，
@@ -45,6 +46,13 @@ public interface EvalRunStore {
      * 记录提交人与 queuedAt；并发重复提交只有一个成功。
      */
     boolean markQueued(String runId, String submittedBy, Instant now, long staleAfterMillis);
+
+    /**
+     * 重试出错题 CAS：COMPLETED / REPORT_PARTIAL / CANCELLED / FAILED / 心跳过期超过 staleAfterMillis 的 RUNNING
+     * → QUEUED（同 {@link #markQueued} 记录提交人与 queuedAt），并在同一原子操作中删除 caseIds 的检查点与
+     * 已上报标记，使这些题按未完成题重新评测；并发重复提交只有一个成功。
+     */
+    boolean markRetryQueued(String runId, String submittedBy, Instant now, long staleAfterMillis, Set<String> caseIds);
 
     /** 排队中取消：QUEUED → CANCELLED 并移出排队索引；非 QUEUED 返回 false。 */
     boolean cancelQueued(String runId);

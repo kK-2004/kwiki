@@ -5,7 +5,7 @@ import { api, ApiError, type EvalDataset, type EvalImportResult, type EvalRunSta
 import { useAuth } from "../auth";
 import {
   EVAL_DATASETS, EVAL_LAYERS, LOSS_LAYERS, RUN_STATE_LABELS,
-  canCancel, canDelete, canDownload, canResume, domainLabel, downloadJson, evalErrorMessage, formatTime,
+  canCancel, canDelete, canDownload, canResume, canRetryFailed, domainLabel, downloadJson, evalErrorMessage, formatTime,
   groupRows, layerRows, lossRows, percent, progressPercent, runErrorMessage,
 } from "../evalReport";
 
@@ -32,9 +32,9 @@ const groupMetric = ref<"coverage" | "fullHit">("coverage");
 const history = ref<EvalRunStatus[]>([]);
 const historyLoading = ref(false);
 const acting = ref(false);
-type ConfirmAction = "cancel" | "resume" | "delete";
+type ConfirmAction = "cancel" | "resume" | "retry" | "delete";
 const confirm = reactive({ visible: false, action: "cancel" as ConfirmAction, run: null as EvalRunStatus | null, langfuse: true });
-const CONFIRM_TITLES: Record<ConfirmAction, string> = { cancel: "中断评测", resume: "继续评测", delete: "删除评测" };
+const CONFIRM_TITLES: Record<ConfirmAction, string> = { cancel: "中断评测", resume: "继续评测", retry: "重试出错题", delete: "删除评测" };
 let timer: number | undefined;
 let pollDelay = 3000;
 let disposed = false;
@@ -222,6 +222,12 @@ async function confirmAction() {
       ElMessage.success("评测已继续");
       pollDelay = 3000;
       schedule();
+    } else if (confirm.action === "retry") {
+      const status = await api.evalRetryFailedRun(target.runId);
+      remember(status);
+      ElMessage.success("出错题已重新排队评测");
+      pollDelay = 3000;
+      schedule();
     } else {
       const result = await api.evalDeleteRun(target.runId, confirm.langfuse && !target.localOnly);
       if (runId.value === target.runId) forget();
@@ -358,6 +364,7 @@ onBeforeUnmount(() => {
             <el-button link type="primary" size="small" @click="view(row)">查看</el-button>
             <el-button v-if="canCancel(row)" link type="warning" size="small" @click="ask('cancel', row)">中断</el-button>
             <el-button v-if="canResume(row)" link type="primary" size="small" @click="ask('resume', row)">继续</el-button>
+            <el-button v-if="canRetryFailed(row)" link type="primary" size="small" @click="ask('retry', row)">重试出错题</el-button>
             <el-button v-if="canDownload(row)" link size="small" @click="download(row)">下载 JSON</el-button>
             <el-button v-if="canDelete(row)" link type="danger" size="small" @click="ask('delete', row)">删除</el-button>
           </template>
@@ -383,6 +390,7 @@ onBeforeUnmount(() => {
           <span class="run-actions">
             <el-button v-if="canCancel(run)" size="small" type="warning" plain @click="ask('cancel', run)">中断</el-button>
             <el-button v-if="canResume(run)" size="small" type="primary" plain @click="ask('resume', run)">继续</el-button>
+            <el-button v-if="canRetryFailed(run)" size="small" type="primary" plain @click="ask('retry', run)">重试出错题</el-button>
             <el-button v-if="canDownload(run)" size="small" @click="download(run)">下载 JSON</el-button>
             <el-button v-if="canDelete(run)" size="small" type="danger" plain @click="ask('delete', run)">删除</el-button>
           </span>
@@ -405,6 +413,9 @@ onBeforeUnmount(() => {
         <p v-else-if="confirm.action === 'resume'">
           继续「{{ confirm.run.runName }}」：只评测尚未完成的 {{ Math.max(confirm.run.total - confirm.run.completed, 0) }} 题（中断时正在执行的题会重新召回、重新生成），沿用同一个运行名称，最终汇总包含全部题目。
         </p>
+        <p v-else-if="confirm.action === 'retry'">
+          重试「{{ confirm.run.runName }}」的 {{ confirm.run.summary?.errors ?? 0 }} 道出错题：删除这些题的结果后重新召回、重新生成，<template v-if="confirm.run.state === 'CANCELLED' || confirm.run.state === 'FAILED'">尚未完成的题也会一并评测，</template>其余题的结果保留；沿用同一个运行名称，Langfuse 上对应的 trace 会被覆盖，最终汇总包含全部题目。
+        </p>
         <template v-else>
           <p>确定删除「{{ confirm.run.runName }}」？服务端保存的运行状态与全部逐题结果将被删除，且不可恢复。</p>
           <el-checkbox v-model="confirm.langfuse" :disabled="confirm.run.localOnly">同时删除 Langfuse 上的 trace 与 dataset run</el-checkbox>
@@ -422,7 +433,7 @@ onBeforeUnmount(() => {
         <div class="metric">
           <span class="metric-label">计分题数</span>
           <strong>{{ summary.scored }} / {{ summary.total }}</strong>
-          <div class="hint">出错 {{ summary.errors }} 题（不计分）</div>
+          <div class="hint">另有出错 {{ summary.errors }} 题、无关无解 {{ summary.negatives }} 题（均不计覆盖率）</div>
         </div>
         <div class="metric">
           <span class="metric-label">负样本拒答正确率</span>

@@ -106,6 +106,9 @@ class LangfuseRestClientTest {
                 .containsExactly("trace-create", "span-create", "score-create");
         assertThat(batch.get(1).get("body").get("traceId").asText()).isEqualTo("trace-1");
         assertThat(batch.get(2).get("body").get("value").asDouble()).isEqualTo(0.5);
+        assertThat(batch.get(2).get("body").get("id").asText()).as("score id 确定，重复上报覆盖同名分数")
+                .isEqualTo(java.util.UUID.nameUUIDFromBytes("trace-1:score:coverage@answer"
+                        .getBytes(StandardCharsets.UTF_8)).toString());
         RecordedRequest runItem = server.takeRequest();
         assertThat(runItem.getPath()).isEqualTo("/api/public/dataset-run-items");
         JsonNode link = body(runItem);

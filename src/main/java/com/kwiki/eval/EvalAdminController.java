@@ -79,6 +79,13 @@ public class EvalAdminController {
         return TransDTO.success(runs.resume(user, runId));
     }
 
+    /** 重试出错题：删除出错题的结果后重新排队，只重新评测这些题。 */
+    @PostMapping("/runs/{runId}/retry-failed")
+    TransDTO<EvalRunService.RunStatus> retryFailed(@AuthenticationPrincipal CurrentUser user,
+                                                   @PathVariable String runId) {
+        return TransDTO.success(runs.retryFailed(user, runId));
+    }
+
     @DeleteMapping("/runs/{runId}")
     TransDTO<EvalRunService.DeleteResult> delete(@PathVariable String runId,
                                                  @RequestParam(defaultValue = "false") boolean langfuse) {

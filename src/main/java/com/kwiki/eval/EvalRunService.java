@@ -241,6 +241,40 @@ public class EvalRunService {
     }
 
     /**
+     * 重试出错题：已结束（含已中断、失败）的 run 原子地删除出错题的检查点与已上报标记并置回 QUEUED，
+     * 由空闲实例认领后只评测缺失的题（出错题，以及中断留下的未完成题），收尾时按全部题重算汇总；
+     * 同一 trace id 重新上报会覆盖 Langfuse 上原来的出错记录。
+     */
+    public RunStatus retryFailed(CurrentUser user, String runId) {
+        EvalRunStore.RunRecord record = record(runId);
+        EvalRunState state = effectiveState(record);
+        if (state == EvalRunState.QUEUED || state == EvalRunState.RUNNING) {
+            throw new EvalException(409, "eval-run-not-retryable");
+        }
+        EvalRunStore.RunMeta meta = record.meta();
+        if (!meta.localOnly() && !report.available()) throw new EvalException(503, "langfuse-not-configured");
+        List<EvalCase> cases = EvalDatasetLoader.select(loader.load(), EvalDatasetSize.parse(meta.dataset()));
+        if (cases.isEmpty()) throw new EvalException(409, "eval-dataset-empty");
+        Set<String> selected = cases.stream().map(EvalCase::id).collect(Collectors.toSet());
+        Set<String> failed = store.cases(runId).values().stream()
+                .filter(CaseResult::error)
+                .map(result -> result.evalCase().id())
+                .filter(selected::contains)
+                .collect(Collectors.toSet());
+        if (failed.isEmpty()) throw new EvalException(409, "eval-run-no-failed-cases");
+        corpus.requireReady(user, meta.kbId());
+        if (!store.markRetryQueued(runId, String.valueOf(user.id()), clock.instant(), STALE_AFTER.toMillis(),
+                failed)) {
+            // 并发重复「重试」或与「继续」并发只有一个成功
+            throw new EvalException(409, "eval-run-not-retryable");
+        }
+        queue.enqueue(runId);
+        log.info("eval run retry queued runId={} runName={} failedCases={} submittedBy={}",
+                runId, meta.runName(), failed.size(), user.id());
+        return status(runId);
+    }
+
+    /**
      * 中断：排队中直接取消；运行中写取消标志并广播控制通知（本实例在执行则立即取消在途题，
      * 等待收尾最多 {@link #CANCEL_WAIT}；通知丢失时执行实例的心跳轮询兜底）。
      */
@@ -720,8 +754,10 @@ public class EvalRunService {
         Instant now = Instant.now();
         List<EvalReportPort.SpanRecord> spans = new ArrayList<>();
         List<EvalReportPort.ScoreRecord> scores = new ArrayList<>();
+        // 每题都写 error（0/1）：均值即出错率，且重试成功后能覆盖同一 trace 上原来的 error=1
+        scores.add(new EvalReportPort.ScoreRecord("error", result.error() ? 1 : 0, result.errorCode()));
         if (result.error()) {
-            scores.add(new EvalReportPort.ScoreRecord("error", 1, result.errorCode()));
+            // 出错题只有 error 分，不写拒答与分层分
         } else if (evalCase.negative()) {
             scores.add(new EvalReportPort.ScoreRecord("refusal",
                     Boolean.TRUE.equals(result.refusedCorrectly()) ? 1 : 0,

@@ -39,6 +39,9 @@ export const RUN_STATE_LABELS: Record<EvalRunStatus["state"], { label: string; t
 export const canCancel = (run: Pick<EvalRunStatus, "state">) => run.state === "RUNNING" || run.state === "QUEUED";
 export const canResume = (run: Pick<EvalRunStatus, "state">) => run.state === "CANCELLED" || run.state === "FAILED";
 export const canDelete = (run: Pick<EvalRunStatus, "state">) => run.state !== "RUNNING";
+/** 已结束（含中断、失败）且有出错题的 run 可重试出错题。 */
+export const canRetryFailed = (run: Pick<EvalRunStatus, "state" | "summary">) =>
+  run.state !== "RUNNING" && run.state !== "QUEUED" && (run.summary?.errors ?? 0) > 0;
 export const canDownload = (run: Pick<EvalRunStatus, "completed">) => run.completed > 0;
 
 /** run 的 error 字段（稳定码）→ 中文说明。 */
@@ -98,6 +101,10 @@ export function evalErrorMessage(error: unknown, fallback: string): string {
       return "该评测已不在运行中";
     case "eval-run-not-resumable":
       return "只有已中断或失败的评测可以继续";
+    case "eval-run-not-retryable":
+      return "排队中或运行中的评测不能重试，请等待结束";
+    case "eval-run-no-failed-cases":
+      return "该评测没有出错的题目";
     case "eval-run-running":
       return "运行中的评测不能删除，请先中断";
     case "eval-dataset-empty":

@@ -52,13 +52,35 @@ public class InMemoryEvalRunStore implements EvalRunStore {
         boolean resumable = state == EvalRunState.CANCELLED || state == EvalRunState.FAILED
                 || (state == EvalRunState.RUNNING && stale(run, now, staleAfterMillis));
         if (!resumable) return false;
+        requeue(run, submittedBy, now);
+        return true;
+    }
+
+    @Override
+    public synchronized boolean markRetryQueued(String runId, String submittedBy, Instant now,
+                                                long staleAfterMillis, Set<String> caseIds) {
+        RunRecord run = runs.get(runId);
+        if (run == null) return false;
+        EvalRunState state = run.state();
+        boolean retryable = state == EvalRunState.COMPLETED || state == EvalRunState.REPORT_PARTIAL
+                || state == EvalRunState.CANCELLED || state == EvalRunState.FAILED
+                || (state == EvalRunState.RUNNING && stale(run, now, staleAfterMillis));
+        if (!retryable) return false;
+        caseIds.forEach(caseId -> {
+            cases.getOrDefault(runId, new ConcurrentHashMap<>()).remove(caseId);
+            reported.getOrDefault(runId, ConcurrentHashMap.newKeySet()).remove(caseId);
+        });
+        requeue(run, submittedBy, now);
+        return true;
+    }
+
+    private void requeue(RunRecord run, String submittedBy, Instant now) {
         RunMeta meta = run.meta();
-        runs.computeIfPresent(runId, (id, current) -> new RunRecord(
+        runs.computeIfPresent(meta.runId(), (id, current) -> new RunRecord(
                 new RunMeta(meta.runId(), meta.runName(), meta.dataset(), meta.kbId(), meta.notes(),
                         meta.localOnly(), meta.total(), meta.config(), meta.createdAt(), submittedBy),
                 EvalRunState.QUEUED, null, null, false, current.heartbeatAt(), false, null, now));
-        queued.put(runId, now.toEpochMilli());
-        return true;
+        queued.put(meta.runId(), now.toEpochMilli());
     }
 
     private static boolean stale(RunRecord run, Instant now, long staleAfterMillis) {

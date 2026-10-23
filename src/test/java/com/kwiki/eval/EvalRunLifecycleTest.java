@@ -201,6 +201,61 @@ class EvalRunLifecycleTest {
     }
 
     @Test
+    void retryFailedReevaluatesOnlyErroredCasesAndOverwritesTheirTraces() throws Exception {
+        stubCases("快题", "坏题");
+        when(baseline.probe(eq("坏题"), any()))
+                .thenThrow(new IllegalStateException("es down"))
+                .thenReturn(new BaselineRetrievalProbe.Result(List.of(), List.of(), List.of(), List.of(), List.of()));
+        var service = service();
+        var status = service.runNow(admin, new EvalRunService.StartRequest("50q", 7L, "run-e", null, false));
+        assertThat(status.state()).isEqualTo(EvalRunState.COMPLETED);
+        assertThat(status.summary().errors()).isEqualTo(1);
+        assertThat(report.traces).filteredOn(trace -> trace.name().equals("eval:c-1"))
+                .flatExtracting(EvalReportPort.TraceRecord::scores)
+                .extracting(EvalReportPort.ScoreRecord::name, EvalReportPort.ScoreRecord::value)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("error", 1.0));
+
+        var retried = service.retryFailed(admin, status.runId());
+
+        assertThat(retried.state()).isEqualTo(EvalRunState.QUEUED);
+        assertThat(retried.completed()).as("出错题的结果已删除").isEqualTo(1);
+        assertThat(store.reportedCaseIds(status.runId())).containsExactly("c-0");
+        startWorker(service);
+        await(() -> service.status(status.runId()).state() == EvalRunState.COMPLETED);
+        var done = service.status(status.runId());
+        assertThat(done.completed()).isEqualTo(2);
+        assertThat(done.summary().errors()).isZero();
+        assertThat(done.summary().scored()).isEqualTo(2);
+        verify(baseline, times(1)).probe(eq("快题"), any());
+        verify(baseline, times(2)).probe(eq("坏题"), any());
+        var last = report.traces.get(report.traces.size() - 1);
+        assertThat(last.traceId()).isEqualTo(traceId("run-e", "c-1"));
+        assertThat(last.scores()).extracting(EvalReportPort.ScoreRecord::name)
+                .contains("error", "coverage@answer");
+        assertThat(last.scores()).filteredOn(score -> score.name().equals("error"))
+                .extracting(EvalReportPort.ScoreRecord::value).containsExactly(0.0);
+        assertThat(store.reportedCaseIds(status.runId())).containsExactlyInAnyOrder("c-0", "c-1");
+        assertThatThrownBy(() -> service.retryFailed(admin, status.runId()))
+                .hasMessageContaining("eval-run-no-failed-cases");
+    }
+
+    @Test
+    void retryFailedRejectsQueuedOrRunningRuns() throws Exception {
+        stubCases("慢题一");
+        slow.add("慢题一");
+        var service = service();
+        var queued = service.start(admin, new EvalRunService.StartRequest("50q", 7L, "run-t", null, true));
+        assertThatThrownBy(() -> service.retryFailed(admin, queued.runId()))
+                .hasMessageContaining("eval-run-not-retryable");
+        startWorker(service);
+        assertThat(subscription("慢题一").await(5, TimeUnit.SECONDS)).isTrue();
+        assertThatThrownBy(() -> service.retryFailed(admin, queued.runId()))
+                .hasMessageContaining("eval-run-not-retryable");
+        assertThatThrownBy(() -> service.retryFailed(admin, "nope")).hasMessageContaining("eval-run-not-found");
+        service.cancel(queued.runId());
+    }
+
+    @Test
     void deleteRemovesStoredRunAndOptionallyLangfuseTraces() {
         stubCases("快题", "另一道快题");
         var service = service();

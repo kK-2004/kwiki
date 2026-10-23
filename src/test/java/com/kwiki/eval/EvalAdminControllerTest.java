@@ -61,6 +61,7 @@ class EvalAdminControllerTest {
         when(runs.list()).thenReturn(List.of(run(EvalRunState.CANCELLED)));
         when(runs.cancel("r-1")).thenReturn(run(EvalRunState.CANCELLED));
         when(runs.resume(any(), eq("r-1"))).thenReturn(run(EvalRunState.RUNNING));
+        when(runs.retryFailed(any(), eq("r-1"))).thenReturn(run(EvalRunState.QUEUED));
         when(runs.delete("r-1", true)).thenReturn(new EvalRunService.DeleteResult(false, "langfuse down"));
         when(runs.report("r-1")).thenReturn(Map.of("runName", "run-a", "cases", List.of()));
 
@@ -71,6 +72,8 @@ class EvalAdminControllerTest {
                 .andExpect(jsonPath("$.data.state").value("CANCELLED"));
         mvc.perform(post("/api/v1/admin/eval/runs/r-1/resume").with(csrf())).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.state").value("RUNNING"));
+        mvc.perform(post("/api/v1/admin/eval/runs/r-1/retry-failed").with(csrf())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("QUEUED"));
         mvc.perform(delete("/api/v1/admin/eval/runs/r-1").param("langfuse", "true").with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.langfuseDeleted").value(false))

@@ -223,7 +223,9 @@ public class LangfuseRestClient implements EvalReportPort {
             }
             for (ScoreRecord score : trace.scores()) {
                 Map<String, Object> scoreBody = new LinkedHashMap<>();
-                scoreBody.put("id", UUID.randomUUID().toString());
+                // 确定性 id：同一 trace 重新上报（补报、重试出错题）时覆盖同名分数而不是追加
+                scoreBody.put("id", UUID.nameUUIDFromBytes((trace.traceId() + ":score:" + score.name())
+                        .getBytes(StandardCharsets.UTF_8)).toString());
                 scoreBody.put("traceId", trace.traceId());
                 scoreBody.put("name", score.name());
                 scoreBody.put("value", score.value());

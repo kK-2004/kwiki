@@ -3,11 +3,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/vue";
 import { createPinia } from "pinia";
 import ElementPlus from "element-plus";
 import { ApiError, type EvalRunStatus, type EvalSummary } from "../src/api";
-import { canCancel, canDelete, canDownload, canResume, evalErrorMessage, groupRows, layerRows, lossRows, percent, progressPercent, runErrorMessage } from "../src/evalReport";
+import { canCancel, canDelete, canDownload, canResume, canRetryFailed, evalErrorMessage, groupRows, layerRows, lossRows, percent, progressPercent, runErrorMessage } from "../src/evalReport";
 
 const mocks = vi.hoisted(() => ({
   adminKnowledgeBases: vi.fn(), evalImportCorpus: vi.fn(), evalSyncDatasets: vi.fn(), evalStartRun: vi.fn(), evalRunStatus: vi.fn(),
-  evalListRuns: vi.fn(), evalCancelRun: vi.fn(), evalResumeRun: vi.fn(), evalDeleteRun: vi.fn(), evalRunReport: vi.fn(),
+  evalListRuns: vi.fn(), evalCancelRun: vi.fn(), evalResumeRun: vi.fn(), evalRetryFailedRun: vi.fn(), evalDeleteRun: vi.fn(), evalRunReport: vi.fn(),
 }));
 vi.mock("../src/api", async original => {
   const actual = await original<typeof import("../src/api")>();
@@ -45,6 +45,7 @@ describe("evalReport", () => {
     expect(evalErrorMessage(null, "兜底")).toBe("兜底");
     expect(evalErrorMessage(new ApiError(409, "eval-run-running"), "x")).toContain("请先中断");
     expect(evalErrorMessage(new ApiError(409, "eval-run-not-resumable"), "x")).toContain("已中断或失败");
+    expect(evalErrorMessage(new ApiError(409, "eval-run-no-failed-cases"), "x")).toContain("没有出错");
     expect(runErrorMessage("interrupted")).toContain("服务重启");
     expect(runErrorMessage("cancelled")).toContain("手动中断");
     expect(runErrorMessage("submitter-not-authorized")).toContain("管理员");
@@ -58,6 +59,13 @@ describe("evalReport", () => {
     expect(canResume({ state: "FAILED" })).toBe(true);
     expect(canResume(done)).toBe(false);
     expect(canDownload({ completed: 0 })).toBe(false);
+    const withErrors = { ...summary, errors: 2 };
+    expect(canRetryFailed({ ...done, summary: withErrors })).toBe(true);
+    expect(canRetryFailed({ ...cancelled, summary: withErrors })).toBe(true);
+    expect(canRetryFailed({ ...running, summary: withErrors })).toBe(false);
+    expect(canRetryFailed({ ...queued, summary: withErrors })).toBe(false);
+    expect(canRetryFailed({ ...done, summary: { ...summary, errors: 0 } })).toBe(false);
+    expect(canRetryFailed({ ...cancelled, summary: null })).toBe(false);
   });
 
   it("格式化百分比与进度", () => {
@@ -261,6 +269,21 @@ describe("RAG 评测页", () => {
     await waitFor(() => expect(mocks.evalResumeRun).toHaveBeenCalledWith("r-1"));
     expect(localStorage.getItem("kwiki_admin_eval_run")).toBe("r-1");
     await waitFor(() => expect(screen.getAllByText("运行中").length).toBeGreaterThan(0));
+  });
+
+  it("重试出错题后重新排队并轮询该 run", async () => {
+    const failed: EvalRunStatus = { ...done, summary: { ...summary, errors: 4 } };
+    mocks.adminKnowledgeBases.mockResolvedValue([]);
+    mocks.evalListRuns.mockResolvedValue([failed]);
+    mocks.evalRetryFailedRun.mockResolvedValue({ ...failed, state: "QUEUED", completed: 46, queuePosition: 0 });
+    mocks.evalRunStatus.mockResolvedValue({ ...failed, state: "RUNNING", completed: 46 });
+    render(RagEvalView, { global: { plugins } });
+    await screen.findByText("baseline-50q");
+    await fireEvent.click(screen.getByRole("button", { name: "重试出错题" }));
+    await screen.findByText(/的 4 道出错题/);
+    await fireEvent.click(screen.getByRole("button", { name: "确定重试" }));
+    await waitFor(() => expect(mocks.evalRetryFailedRun).toHaveBeenCalledWith("r-1"));
+    expect(localStorage.getItem("kwiki_admin_eval_run")).toBe("r-1");
   });
 
   it("删除时可选择是否同时删除 Langfuse 数据，失败给出提示", async () => {

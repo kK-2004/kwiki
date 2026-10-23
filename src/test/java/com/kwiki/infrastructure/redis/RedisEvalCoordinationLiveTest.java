@@ -158,6 +158,39 @@ class RedisEvalCoordinationLiveTest {
     }
 
     @Test
+    void markRetryQueuedRemovesGivenCasesAndRequeuesFinishedRuns() {
+        var store = new RedisEvalRunStore(redis, mapper);
+        String runId = "it-" + UUID.randomUUID().toString().substring(0, 8);
+        try {
+            store.create(meta(runId, Instant.now()));
+            assertThat(store.markRetryQueued(runId, "2", Instant.now(), Duration.ofMinutes(2).toMillis(),
+                    java.util.Set.of("c-1"))).as("排队中不可重试").isFalse();
+            long token = store.claimOwnership(runId, "instance-a", Instant.now(), Duration.ofMinutes(2).toMillis());
+            store.saveCase(runId, token, result("c-0"));
+            store.saveCase(runId, token, result("c-1"));
+            store.markReported(runId, token, "c-0");
+            store.markReported(runId, token, "c-1");
+            assertThat(store.markRetryQueued(runId, "2", Instant.now(), Duration.ofMinutes(2).toMillis(),
+                    java.util.Set.of("c-1"))).as("运行中（心跳新鲜）不可重试").isFalse();
+            store.finish(runId, token, EvalRunState.COMPLETED, null, false, null);
+
+            assertThat(store.markRetryQueued(runId, "2", Instant.now(), Duration.ofMinutes(2).toMillis(),
+                    java.util.Set.of("c-1"))).isTrue();
+
+            var record = store.find(runId).orElseThrow();
+            assertThat(record.state()).isEqualTo(EvalRunState.QUEUED);
+            assertThat(record.meta().submittedBy()).isEqualTo("2");
+            assertThat(store.queuePosition(runId)).isGreaterThanOrEqualTo(0);
+            assertThat(store.cases(runId)).containsOnlyKeys("c-0");
+            assertThat(store.reportedCaseIds(runId)).containsExactly("c-0");
+            assertThat(store.markRetryQueued(runId, "2", Instant.now(), Duration.ofMinutes(2).toMillis(),
+                    java.util.Set.of("c-0"))).as("重复提交只有一个成功").isFalse();
+        } finally {
+            store.delete(runId);
+        }
+    }
+
+    @Test
     void systemLevelFailAndCancelWrites() {
         var store = new RedisEvalRunStore(redis, mapper);
         String failed = "it-" + UUID.randomUUID().toString().substring(0, 8);
