@@ -204,7 +204,8 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
 
     /**
      * 请求级透传参数：先带上客户端级参数（模型 / 用途分配的 extra，请求级会整体覆盖客户端级），
-     * 再按「用途分配」的 thinking 设置 enable_thinking——设为开才开启，关或留空均关闭（评审默认追求低延迟）。
+     * 再按「用途分配」的 thinking 设置 enable_thinking——开 / 关如实下发；留空表示「provider 默认」，不下发该参数
+     * （始终思考的模型不接受 enable_thinking=false，留空时强制关闭会被直接拒绝）。
      */
     private Map<String, Object> requestParameters(StreamingChatModel model) {
         Map<String, Object> parameters = new java.util.LinkedHashMap<>();
@@ -218,7 +219,8 @@ public class QualityV2AnalyzerAdapter implements QualityV2AnalyzerPort {
         } catch (RuntimeException e) {
             thinking = null;
         }
-        parameters.put("enable_thinking", Boolean.TRUE.equals(thinking));
+        if (thinking != null) parameters.put("enable_thinking", thinking);
+        else parameters.remove("enable_thinking");
         return parameters;
     }
 

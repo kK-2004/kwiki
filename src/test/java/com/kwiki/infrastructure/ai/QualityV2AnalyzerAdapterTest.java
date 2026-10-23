@@ -79,7 +79,8 @@ class QualityV2AnalyzerAdapterTest {
                 .isInstanceOf(dev.langchain4j.model.chat.request.json.JsonRawSchema.class);
         var parameters = (dev.langchain4j.model.openai.OpenAiChatRequestParameters)
                 request.get().parameters();
-        assertThat(parameters.customParameters()).containsEntry("enable_thinking", false);
+        assertThat(parameters.customParameters()).as("用途分配未设 thinking：沿用 provider 默认")
+                .doesNotContainKey("enable_thinking");
         var raw = (dev.langchain4j.model.chat.request.json.JsonRawSchema)
                 format.jsonSchema().rootElement();
         assertThat(raw.schema()).contains("supportedEvidenceIds", "additionalProperties");
@@ -242,10 +243,11 @@ class QualityV2AnalyzerAdapterTest {
                 .customParameters();
     }
 
-    @Test void thinkingFollowsThePurposeAssignmentAndDefaultsToOff() {
+    @Test void thinkingFollowsThePurposeAssignmentAndBlankUsesProviderDefault() {
         assertThat(customParametersOfFirstRequest(true)).containsEntry("enable_thinking", true);
         assertThat(customParametersOfFirstRequest(false)).containsEntry("enable_thinking", false);
-        assertThat(customParametersOfFirstRequest(null)).as("留空沿用默认关闭").containsEntry("enable_thinking", false);
+        assertThat(customParametersOfFirstRequest(null)).as("留空为 provider 默认，不下发")
+                .doesNotContainKey("enable_thinking");
     }
 
     @Test void clientLevelExtraParametersAreKeptOnTheRequest() {
