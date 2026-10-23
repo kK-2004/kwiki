@@ -59,7 +59,7 @@ public class ExpandParentsTool implements AgentToolExecutor {
         var stage = args.range() == AgentToolArguments.Range.EXPANDED
                 ? budgets.expanded() : budgets.base();
         var outcome = parentFetch.fetchParents(context.run().scope, context.run(), selected,
-                stage.parentLimit(), budgets.parentCharBudget, pool.usedParentKeys());
+                stage.parentLimit(), budgets.parentCharBudget(), pool.usedParentKeys());
         if (outcome.skipped()) {
             return new Outcome(List.of(), List.of("parent-fetch-skipped:" + outcome.reason()), Map.of(
                     "parentCount", pool.parents().size(),

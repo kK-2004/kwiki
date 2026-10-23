@@ -798,7 +798,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 ActivityEvent.Phase.PARENT_FETCH, startedAt, "正在补充完整上下文"));
         var outcome = parentFetch.fetchParents(
                 s.run.scope, s.run, s.children, budget.parentLimit(),
-                retrievalBudgets.parentCharBudget, s.usedParentKeys);
+                retrievalBudgets.parentCharBudget(), s.usedParentKeys);
         if (outcome.skipped()) {
             s.recordStageFailure(outcome.reason());
             s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, s.stage.name(),

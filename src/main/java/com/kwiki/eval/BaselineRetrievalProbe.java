@@ -55,9 +55,10 @@ public class BaselineRetrievalProbe {
     public Result probe(String query, ScopeFilter filter) {
         LinkedHashSet<String> degradations = new LinkedHashSet<>();
         float[] vector = embed(query, degradations);
-        var base = recall.recall(query, vector, filter, budgets.baseBranchTopK,
+        var stages = budgets.snapshot();
+        var base = recall.recall(query, vector, filter, stages.baseBranchTopK(),
                 BRANCH_TIMEOUT_MS, RetrievalStrategy.HYBRID);
-        var expanded = recall.recall(query, vector, filter, budgets.expandedBranchTopK,
+        var expanded = recall.recall(query, vector, filter, stages.expandedBranchTopK(),
                 BRANCH_TIMEOUT_MS, RetrievalStrategy.HYBRID);
         Map<String, ChunkHit> hits = new LinkedHashMap<>();
         for (var outcome : base) remember(outcome, hits, degradations);
@@ -70,8 +71,8 @@ public class BaselineRetrievalProbe {
             else vectorHits = List.copyOf(outcome.hits());
         }
         return new Result(bm25, vectorHits,
-                fuse(base, hits, budgets.baseFinalTopK),
-                fuse(expanded, hits, budgets.expandedFinalTopK),
+                fuse(base, hits, stages.baseFinalTopK()),
+                fuse(expanded, hits, stages.expandedFinalTopK()),
                 List.copyOf(degradations));
     }
 

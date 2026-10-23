@@ -115,5 +115,10 @@ run 记录不设 TTL，由管理端删除。不再写本地报告文件（原 `k
 - 质量评审的 thinking 跟随「模型配置 → 用途分配」中「质量分析」的设置（开 / 关如实下发 `enable_thinking`；留空为 provider 默认，不下发该参数——始终思考的模型只能留空或设为开）；评审节点时限
   `kwiki.agentic.quality-deadline`（默认 `120s`）。开启思考时请确认 provider 的请求超时不小于该时限，
   且问答运行总时限 `kwiki.agentic.timeout`（默认 `300s`）足够容纳生成与评审；评测单题等待上限为 330 秒。
+- 检索预算 `kwiki.retrieval.qa.*`（`base-branch-topk` 20、`base-final-topk` 8、`expanded-branch-topk` 50、
+  `expanded-final-topk` 20、`base-parent-limit` 8、`expanded-parent-limit` 16、`base-child-chars` 12000、
+  `expanded-child-chars` 24000、`parent-chars` 24000）支持 Nacos 热更新：推送后整组重新校验，通过即生效（日志
+  `qa retrieval budgets refreshed`），不通过则保留原值（日志 `qa retrieval budgets refresh rejected`）；启动时非法仍直接失败。
+  run 的 `config` 只在创建时记录一次，评测进行中改预算会让后续题按新值检索，对比实验请等 run 结束后再改。
 - 单路检索时限 `kwiki.retrieval.branch-deadline`（默认 `5s`）同时作用于线上问答与评测工作流。到 ES 的链路延迟高时
   （日志 `es search slow` 中 `esTookMs` 很小而 `searchMs` 很大），可在 Nacos 临时调大，根治办法是让后端走内网直连 ES。
