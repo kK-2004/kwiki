@@ -24,6 +24,8 @@ public final class AgenticErrorCodes {
     public static final String ANSWER_PROVIDER_FAILED = "answer-provider-failed";
     public static final String ANSWER_EMPTY = "answer-empty";
     public static final String ANSWER_TOKEN_LIMIT = "answer-token-limit";
+    /** 模型提供方内容审核拦截了回答（finishReason=CONTENT_FILTER）。 */
+    public static final String ANSWER_CONTENT_FILTERED = "answer-content-filtered";
     public static final String ANSWER_TOO_LONG = "answer-too-long";
     public static final String ANSWER_VALIDATION_FAILED = "answer-validation-failed";
     public static final String BACKPRESSURE_OVERFLOW = "backpressure-overflow";

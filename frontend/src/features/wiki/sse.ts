@@ -381,6 +381,7 @@ function chatError(code: string): string {
     'answer-provider-failed': '回答模型暂时不可用，请稍后重试',
     'answer-empty': '模型未返回回答正文，请重试',
     'answer-token-limit': '模型输出额度已耗尽，未能完成回答，请缩小问题范围或联系管理员提高输出额度',
+    'answer-content-filtered': '回答被模型服务的内容审核拦截，请调整问题表述后重试',
     'answer-too-long': '候选回答超出长度限制，请换个问法重试',
   };
   return labels[code] || code;

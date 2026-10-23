@@ -59,4 +59,21 @@ class StreamingAnswerLlmAdapterTest {
                 .streamAnswer("q").collectList().block(Duration.ofSeconds(2)))
                 .isInstanceOf(RunFailure.class).hasMessage("answer-token-limit");
     }
+
+    @Test
+    void reportsContentFilterSeparately() {
+        assertThatThrownBy(() -> adapter(null, "", FinishReason.CONTENT_FILTER)
+                .streamAnswer("q").collectList().block(Duration.ofSeconds(2)))
+                .isInstanceOf(RunFailure.class).hasMessage("answer-content-filtered");
+        assertThatThrownBy(() -> adapter("部分", "部分", FinishReason.CONTENT_FILTER)
+                .streamAnswer("q").collectList().block(Duration.ofSeconds(2)))
+                .as("流到一半被拦截同样视为审核拦截").isInstanceOf(RunFailure.class)
+                .hasMessage("answer-content-filtered");
+    }
+
+    @Test
+    void emptyStopCompletesWithoutTextSoGeneratorReportsAnswerEmpty() {
+        assertThat(adapter(null, "", FinishReason.STOP).streamAnswer("q")
+                .collectList().block(Duration.ofSeconds(2))).allMatch(String::isBlank);
+    }
 }
