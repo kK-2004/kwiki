@@ -48,6 +48,10 @@
   --k-auth-sky: #e3eef8;
   --k-auth-sand: #f7efe2;
 
+  /* 图表强调色：与模型用量图分类色板的 1 号色一致 */
+  --k-chart-accent: #2a78d6;
+  --k-chart-accent-soft: rgba(42, 120, 214, 0.12);
+
   /* 形状与层次 */
   --k-r-sm: 6px;
   --k-r: 8px;
@@ -105,6 +109,9 @@
 
   --k-auth-sky: rgba(56, 189, 248, 0.08);
   --k-auth-sand: rgba(52, 211, 153, 0.06);
+
+  --k-chart-accent: #3987e5;
+  --k-chart-accent-soft: rgba(57, 135, 229, 0.16);
 
   --k-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --k-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);

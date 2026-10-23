@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UsageSeries } from "../src/api";
-import { allLeafKeys, buildLines, buildTree, leafKey, rangeFor, tableRows, totals } from "../src/usageSeries";
+import { allLeafKeys, bucketLabel, buildLines, buildTree, focusRange, foldLines, leafKey, rangeFor, sumRange, tableRows, totals } from "../src/usageSeries";
 
 const s = (step: string, stepLabel: string, model: string, input: number[], output: number[] = input.map(() => 0)): UsageSeries => ({
   step, stepLabel, provider: "dashscope", model,
@@ -68,5 +68,36 @@ describe("时间范围", () => {
   it("近 7 天以今天结束", () => {
     const { from, to } = rangeFor("7d", new Date(2026, 9, 21, 15, 30));
     expect((to.getTime() - from.getTime()) / 86_400_000).toBe(7);
+  });
+});
+
+describe("图表选区", () => {
+  it("聚焦最后一段连续调用，前后各留 2 个桶", () => {
+    const v = [0, 5, 0, 0, 0, 0, 0, 0, 0, 3, 0, 4, 0, 0];
+    expect(focusRange(v, 3)).toEqual([7, 13]);
+  });
+  it("间隔不超过 gap 时并入同一波", () => {
+    expect(focusRange([0, 0, 1, 0, 0, 1, 0], 3)).toEqual([0, 6]);
+  });
+  it("全为零或为空时返回全部范围", () => {
+    expect(focusRange([0, 0, 0], 3)).toEqual([0, 2]);
+    expect(focusRange([], 3)).toEqual([0, 0]);
+  });
+  it("区间求和含两端", () => {
+    expect(sumRange([1, 2, 3, 4], [1, 2])).toBe(5);
+  });
+  it("超过上限的维度折叠为「其他」", () => {
+    const line = (name: string, v: number) => ({ name, values: [v, v], leaves: [] });
+    const folded = foldLines([line("a", 1), line("b", 2), line("c", 3), line("d", 4)], 3);
+    expect(folded.map(l => l.name)).toEqual(["a", "b", "其他（2 项）"]);
+    expect(folded[2].values).toEqual([7, 7]);
+    expect(foldLines([line("a", 1)], 3)).toHaveLength(1);
+  });
+  it("跨天范围的时间标签带日期", () => {
+    const t = new Date(2026, 9, 23, 9, 5).getTime();
+    expect(bucketLabel(t, false)).toBe("09:05");
+    expect(bucketLabel(t, true)).toBe("10-23 09:05");
+    expect(bucketLabel(new Date(2026, 9, 24).getTime(), false, true)).toBe("24:00");
+    expect(bucketLabel(new Date(2026, 9, 24).getTime(), true, true)).toBe("10-24 00:00");
   });
 });

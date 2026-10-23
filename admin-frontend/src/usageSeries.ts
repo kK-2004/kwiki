@@ -103,3 +103,38 @@ export function rangeFor(preset: RangePreset, now = new Date()): { from: Date; t
     default: return { from: today, to: tomorrow };
   }
 }
+
+/**
+ * 默认聚焦区间（含两端的桶下标）：取最后一段连续有数据的时段，前后各留 pad 个桶。
+ * 零值间隔超过 gap 个桶视为断开（稀疏数据里只看最近一波调用）；全为零时返回全部范围。
+ */
+export function focusRange(values: number[], gap: number, pad = 2): [number, number] {
+  const last = values.length - 1;
+  let end = -1;
+  for (let i = last; i >= 0; i--) if (values[i]) { end = i; break; }
+  if (end < 0) return [0, Math.max(0, last)];
+  let start = end;
+  for (let i = end - 1; i >= 0 && start - i <= gap; i--) if (values[i]) start = i;
+  return [Math.max(0, start - pad), Math.min(last, end + pad)];
+}
+
+/** 图表最多展示 max 条维度，其余合并为「其他」，避免颜色超出固定色板后循环复用 */
+export function foldLines(lines: Line[], max: number): Line[] {
+  if (lines.length <= max) return lines;
+  const kept = lines.slice(0, max - 1);
+  const rest = lines.slice(max - 1);
+  const length = rest[0]?.values.length ?? 0;
+  return [...kept, { name: `其他（${rest.length} 项）`, values: sum(rest.map(l => l.values), length), leaves: rest.flatMap(l => l.leaves) }];
+}
+
+/** 区间内求和（含两端） */
+export const sumRange = (values: number[], [a, b]: [number, number]) => values.slice(a, b + 1).reduce((x, y) => x + y, 0);
+
+/** 桶时间标签：跨天的范围带日期；asEnd 时不带日期的午夜显示为 24:00（区间终点） */
+export function bucketLabel(t: number, withDate: boolean, asEnd = false): string {
+  const d = new Date(t);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (asEnd && !withDate && d.getHours() === 0 && d.getMinutes() === 0) return "24:00";
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return withDate ? `${d.getMonth() + 1}-${pad(d.getDate())} ${time}` : time;
+}

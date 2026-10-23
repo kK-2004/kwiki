@@ -5,13 +5,18 @@ import VChart from "vue-echarts";
 import { use } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import { LineChart } from "echarts/charts";
-import { DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
+import { GridComponent, TooltipComponent } from "echarts/components";
 import { api, ApiError, type UsageSeriesResponse, type UsageSourceName, type UsageUser } from "../api";
 import { useAuth } from "../auth";
+import { useTheme } from "../theme/useTheme";
+import UsageRangeCapsule from "../components/UsageRangeCapsule.vue";
 import { formatTokens } from "../usageFormat";
-import { allLeafKeys, buildLines, buildTree, rangeFor, tableRows, totals, type GroupBy, type Metric, type RangePreset } from "../usageSeries";
+import {
+  allLeafKeys, bucketLabel, buildLines, buildTree, focusRange, foldLines, rangeFor, sumRange, tableRows, totals,
+  type GroupBy, type Metric, type RangePreset,
+} from "../usageSeries";
 
-use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent]);
+use([CanvasRenderer, LineChart, GridComponent, TooltipComponent]);
 
 const STORE_KEY = "kwiki_admin_model_usage";
 const SOURCES: Array<{ value: UsageSourceName; label: string }> = [
@@ -20,7 +25,13 @@ const METRICS: Array<{ value: Metric; label: string }> = [
   { value: "total", label: "总 token" }, { value: "input", label: "输入" }, { value: "output", label: "输出" },
   { value: "calls", label: "调用数" }, { value: "failures", label: "失败数" }];
 
-interface Saved { preset: RangePreset | "custom"; sources: UsageSourceName[]; users: number[]; metric: Metric; groupBy: GroupBy; stacked: boolean }
+/** 分类色板（dataviz 参考色板，已做色觉障碍校验）：顺序固定，按维度顺序分配，超出部分折叠为「其他」用中性灰 */
+const PALETTE = {
+  light: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"],
+  dark: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"],
+};
+
+interface Saved { preset: RangePreset | "custom"; sources: UsageSourceName[]; users: number[]; metric: Metric; groupBy: GroupBy; split: boolean }
 
 /** 读取本地保存的视图偏好：解析失败整体回退空对象，字段非法逐项回退默认值，避免旧版本脏数据导致页面渲染失败 */
 function readSaved(): Partial<Saved> {
@@ -33,7 +44,7 @@ function readSaved(): Partial<Saved> {
       users: Array.isArray(value.users) ? value.users.filter((n): n is number => Number.isFinite(n)) : undefined,
       metric: METRICS.some(m => m.value === value.metric) ? value.metric : undefined,
       groupBy: value.groupBy === "step" || value.groupBy === "model" ? value.groupBy : undefined,
-      stacked: typeof value.stacked === "boolean" ? value.stacked : undefined,
+      split: typeof value.split === "boolean" ? value.split : undefined,
     };
   } catch {
     return {};
@@ -48,13 +59,17 @@ const sources = ref<UsageSourceName[]>(saved.sources ?? SOURCES.map(s => s.value
 const users = ref<number[]>(saved.users ?? []);
 const metric = ref<Metric>(saved.metric ?? "total");
 const groupBy = ref<GroupBy>(saved.groupBy ?? "step");
-const stacked = ref<boolean>(saved.stacked ?? false);
+const split = ref<boolean>(saved.split ?? false);
+/** 图表选区（含两端的桶下标）；focus/all 模式下随数据刷新重算，手动拖动后保持不变 */
+const zoom = ref<[number, number]>([0, 0]);
+const zoomMode = ref<"focus" | "all" | "manual">("focus");
 const loading = ref(false);
 const data = ref<UsageSeriesResponse | null>(null);
 const userOptions = ref<UsageUser[]>([]);
 const checked = ref<Set<string>>(new Set());
 const treeRef = ref<InstanceType<typeof ElTree>>();
 const auth = useAuth();
+const { resolved: theme } = useTheme();
 let timer: ReturnType<typeof setInterval> | undefined;
 let requestSeq = 0;
 
@@ -67,22 +82,123 @@ const summary = computed(() => totals(data.value?.series ?? [], checked.value));
 const rows = computed(() => tableRows(buildLines(data.value?.series ?? [], tree.value, checked.value, groupBy.value, "total")));
 const isTokenMetric = computed(() => metric.value === "total" || metric.value === "input" || metric.value === "output");
 
-const option = computed(() => ({
-  tooltip: { trigger: "axis", valueFormatter: (v: number) => isTokenMetric.value ? formatTokens(v) : String(v) },
-  legend: { type: "scroll", top: 0 },
-  grid: { left: 56, right: 24, top: 40, bottom: 56 },
-  dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
-  xAxis: { type: "time" },
-  yAxis: { type: "value", axisLabel: { formatter: (v: number) => isTokenMetric.value ? formatTokens(v) : String(v) } },
-  series: lines.value.map(line => ({
-    name: line.name, type: "line", showSymbol: false, smooth: false,
-    stack: stacked.value ? "total" : undefined, areaStyle: stacked.value ? {} : undefined,
-    data: (data.value?.buckets ?? []).map((t, i) => [t, line.values[i] ?? 0]),
-  })),
-}));
+const metricLabel = computed(() => METRICS.find(m => m.value === metric.value)?.label ?? "");
+const fmt = (v: number) => isTokenMetric.value ? formatTokens(v) : String(Math.round(v));
+const buckets = computed(() => data.value?.buckets ?? []);
+const stepMs = computed(() => (data.value?.bucketSeconds ?? 300) * 1000);
+const chartLines = computed(() => foldLines(lines.value, PALETTE.light.length));
+const lineColor = (i: number) => chartLines.value.length > lines.value.length && i === chartLines.value.length - 1
+  ? "#8a8a8f" : PALETTE[theme.value][i];
+const totalValues = computed(() => buckets.value.map((_, i) => lines.value.reduce((acc, l) => acc + (l.values[i] ?? 0), 0)));
+/** 两次调用间隔超过约 2 小时就视为不同波次，聚焦只看最近一波 */
+const focusGap = computed(() => Math.max(3, Math.round(7_200_000 / stepMs.value)));
+const multiDay = computed(() => buckets.value.length > 1 && buckets.value[buckets.value.length - 1] - buckets.value[0] >= 86_400_000);
+const zoomLabels = computed<[string, string]>(() => buckets.value.length
+  ? [bucketLabel(buckets.value[zoom.value[0]], multiDay.value), bucketLabel(buckets.value[zoom.value[1]] + stepMs.value, multiDay.value, true)]
+  : ["", ""]);
+const zoomed = computed(() => {
+  const [a, b] = zoom.value;
+  const values = totalValues.value.slice(a, b + 1);
+  const peak = values.length ? Math.max(...values) : 0;
+  return { total: sumRange(totalValues.value, zoom.value), peak, peakAt: peak ? buckets.value[a + values.indexOf(peak)] : undefined };
+});
+const shares = computed(() => {
+  const all = zoomed.value.total || 1;
+  return chartLines.value.map((l, i) => {
+    const value = sumRange(l.values, zoom.value);
+    return { name: l.name, color: lineColor(i), value, percent: value / all * 100 };
+  });
+});
+
+function applyZoomMode() {
+  const last = Math.max(0, buckets.value.length - 1);
+  if (zoomMode.value === "focus") zoom.value = focusRange(totalValues.value, focusGap.value);
+  else if (zoomMode.value === "all") zoom.value = [0, last];
+  else zoom.value = [Math.min(zoom.value[0], last), Math.min(zoom.value[1], last)];
+}
+
+function onZoom(range: [number, number]) {
+  zoomMode.value = "manual";
+  zoom.value = range;
+}
+
+function setZoomMode(mode: "focus" | "all") {
+  zoomMode.value = mode;
+  applyZoomMode();
+}
+
+/** 图表配色跟随主题令牌；theme 变化时重新读取 CSS 变量 */
+function tokens() {
+  void theme.value;
+  const style = getComputedStyle(document.documentElement);
+  const v = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+  return { ink: v("--k-ink", "#0a0a0a"), ink2: v("--k-ink-2", "#3a3a3c"), muted: v("--k-muted", "#6b6b6e"), faint: v("--k-faint", "#a8a8aa"),
+    line: v("--k-line", "#e8e8e6"), lineStrong: v("--k-line-strong", "#dcdcd9"), canvas: v("--k-canvas", "#ffffff") };
+}
+
+const alpha = (hex: string, a: number) => `${hex}${Math.round(a * 255).toString(16).padStart(2, "0")}`;
+const gradient = (color: string, top: number) => ({
+  type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+  colorStops: [{ offset: 0, color: alpha(color, top) }, { offset: 0.7, color: alpha(color, top / 6) }, { offset: 1, color: alpha(color, 0) }],
+});
+
+function tooltipHtml(index: number, t: ReturnType<typeof tokens>) {
+  const items = chartLines.value.map((l, i) => ({ name: l.name, color: lineColor(i), value: l.values[index] ?? 0 }))
+    .filter(x => x.value).sort((x, y) => y.value - x.value);
+  const sum = items.reduce((acc, x) => acc + x.value, 0);
+  const start = buckets.value[index];
+  const head = `<div style="display:flex;justify-content:space-between;gap:24px;margin-bottom:8px">
+    <span style="color:${t.muted}">${bucketLabel(start, multiDay.value)} – ${bucketLabel(start + stepMs.value, false, true)}</span><b>${fmt(sum)}</b></div>`;
+  if (!items.length) return `${head}<div style="color:${t.faint}">这段时间没有调用</div>`;
+  const esc = (text: string) => text.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  return head + items.map(x => `<div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+    <i style="width:8px;height:8px;border-radius:50%;background:${x.color};flex-shrink:0"></i>
+    <span style="flex:1;color:${t.ink2};max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.name)}</span>
+    <span style="color:${t.muted}">${Math.round(x.value / sum * 100)}%</span>
+    <b style="min-width:48px;text-align:right;font-variant-numeric:tabular-nums">${fmt(x.value)}</b></div>`).join("");
+}
+
+const option = computed(() => {
+  const t = tokens();
+  const [a, b] = zoom.value;
+  const xs = buckets.value.slice(a, b + 1);
+  const accent = PALETTE[theme.value][0];
+  const line = (name: string, values: number[], color: string, area: number, width: number) => ({
+    name, type: "line", smooth: 0.4, showSymbol: false, symbol: "circle", symbolSize: 9, color,
+    lineStyle: { width, color }, itemStyle: { borderColor: t.canvas, borderWidth: 2 },
+    areaStyle: { color: gradient(color, area) }, emphasis: { focus: split.value ? "series" : "none" },
+    data: xs.map((x, i) => [x, values[a + i] ?? 0]),
+  });
+  return {
+    animationDurationUpdate: 0,
+    textStyle: { fontFamily: "Inter, -apple-system, 'PingFang SC', sans-serif" },
+    grid: { left: 20, right: 8, top: 24, bottom: 0, containLabel: true },
+    tooltip: {
+      trigger: "axis", confine: true, backgroundColor: t.canvas, borderColor: t.line, borderWidth: 1, padding: [10, 12],
+      textStyle: { color: t.ink, fontSize: 12 }, extraCssText: "border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.18);min-width:220px",
+      axisPointer: { type: "line", lineStyle: { color: t.lineStrong, width: 1 } },
+      formatter: (params: Array<{ dataIndex: number }>) => tooltipHtml(a + params[0].dataIndex, t),
+    },
+    xAxis: {
+      type: "time", axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false },
+      axisLabel: {
+        color: t.faint, fontSize: 11, margin: 12, hideOverlap: true,
+        formatter: { day: multiDay.value ? "{M}-{dd}" : "{HH}:{mm}", hour: "{HH}:{mm}", minute: "{HH}:{mm}" },
+      },
+    },
+    yAxis: {
+      type: "value", position: "right", splitNumber: 3, minInterval: 1,
+      axisLabel: { color: t.faint, fontSize: 11, formatter: (v: number) => v ? fmt(v) : "" },
+      splitLine: { lineStyle: { color: t.line, type: [3, 5] } },
+    },
+    series: split.value
+      ? chartLines.value.map((l, i) => line(l.name, l.values, lineColor(i), 0.12, 2))
+      : [line(`合计${metricLabel.value}`, totalValues.value, accent, 0.35, 2.5)],
+  };
+});
 
 function persist() {
-  const value: Saved = { preset: preset.value, sources: sources.value, users: users.value, metric: metric.value, groupBy: groupBy.value, stacked: stacked.value };
+  const value: Saved = { preset: preset.value, sources: sources.value, users: users.value, metric: metric.value, groupBy: groupBy.value, split: split.value };
   localStorage.setItem(STORE_KEY, JSON.stringify(value));
 }
 
@@ -136,8 +252,9 @@ function resetTimer() {
   timer = preset.value === "today" ? setInterval(() => void load(true), 60_000) : undefined;
 }
 
-watch([preset, custom, sources, users], () => { persist(); resetTimer(); void load(); }, { deep: true });
-watch([metric, stacked], persist);
+watch([preset, custom, sources, users], () => { persist(); zoomMode.value = "focus"; resetTimer(); void load(); }, { deep: true });
+watch([metric, split], persist);
+watch(totalValues, applyZoomMode);
 watch(groupBy, async () => {
   persist();
   checked.value = new Set(allLeafKeys(tree.value));
@@ -175,7 +292,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); });
       <el-select v-model="metric" style="width: 120px" aria-label="指标">
         <el-option v-for="m in METRICS" :key="m.value" :value="m.value" :label="m.label" />
       </el-select>
-      <el-switch v-model="stacked" active-text="堆叠" />
+      <el-switch v-model="split" active-text="按维度拆分" />
     </section>
 
     <section class="cards">
@@ -198,7 +315,28 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); });
         <p v-if="!tree.length" class="hint">所选范围内没有调用</p>
       </aside>
       <div class="chart-area">
+        <div class="chart-head">
+          <div class="kpi">
+            <span>所选时段{{ metricLabel }}</span>
+            <strong data-testid="range-total">{{ fmt(zoomed.total) }}<em v-if="isTokenMetric">tokens</em></strong>
+            <small v-if="buckets.length">
+              {{ zoomLabels[0] }} – {{ zoomLabels[1] }}<template v-if="zoomed.peakAt"> · 峰值 {{ fmt(zoomed.peak) }}（{{ bucketLabel(zoomed.peakAt, multiDay) }}）</template>
+            </small>
+          </div>
+          <div class="seg" role="group" aria-label="图表范围">
+            <button type="button" :class="{ on: zoomMode === 'focus' }" @click="setZoomMode('focus')">最近一波</button>
+            <button type="button" :class="{ on: zoomMode === 'all' }" @click="setZoomMode('all')">全部</button>
+          </div>
+        </div>
         <v-chart class="chart" :option="option" autoresize />
+        <UsageRangeCapsule :values="totalValues" :model-value="zoom" :labels="zoomLabels" @update:model-value="onZoom" />
+        <ul v-if="shares.length" class="shares" data-testid="shares">
+          <li v-for="item in shares" :key="item.name">
+            <div class="share-name" :title="item.name"><i :style="{ background: item.color }" /><span>{{ item.name }}</span></div>
+            <div class="share-value"><b>{{ fmt(item.value) }}</b><span>{{ Math.round(item.percent) }}%</span></div>
+            <div class="share-bar"><div :style="{ width: `${item.percent}%`, background: item.color }" /></div>
+          </li>
+        </ul>
         <el-table :data="rows" size="small" :default-sort="{ prop: 'total', order: 'descending' }">
           <el-table-column prop="name" label="维度" min-width="220" />
           <el-table-column prop="total" label="总 token" sortable><template #default="{ row }">{{ formatTokens(row.total) }}</template></el-table-column>
@@ -305,8 +443,142 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); });
   min-width: 0;
 }
 
+.chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.kpi span {
+  color: var(--k-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.kpi strong {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.8px;
+  color: var(--k-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi strong em {
+  margin-left: 6px;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--k-muted);
+}
+
+.kpi small {
+  color: var(--k-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.seg {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-r-pill);
+  background: var(--k-surface);
+}
+
+.seg button {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: var(--k-r-pill);
+  background: none;
+  color: var(--k-muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.seg button:hover {
+  color: var(--k-ink);
+}
+
+.seg button.on {
+  background: var(--k-canvas);
+  color: var(--k-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--k-line);
+}
+
 .chart {
-  height: 380px;
+  height: 300px;
+  margin-top: -8px;
+}
+
+.shares {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px 24px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.share-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--k-ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.share-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.share-name i {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.share-value {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0 5px;
+  color: var(--k-ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.share-value span {
+  color: var(--k-muted);
+}
+
+.share-bar {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--k-line);
+}
+
+.share-bar div {
+  height: 100%;
+  border-radius: 2px;
+  transition: width var(--k-ease);
 }
 
 @media (max-width: 900px) {
