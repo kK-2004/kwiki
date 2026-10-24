@@ -91,14 +91,13 @@ public final class CancellableModelHttpClient implements HttpClient {
     public SuccessfulHttpResponse execute(HttpRequest request) {
         RunContext run = RunContext.current();
         if (!PERMITS.tryAcquire()) throw new RunFailure("model-busy");
+        long timeoutMillis = (run == null ? timeout : run.timeout(timeout)).toMillis();
+        long startedNanos = System.nanoTime();
         var span = span(run);
         var future = send(request, run, span, HttpResponse.BodyHandlers.ofString());
         try (AutoCloseable registration =
                 run == null ? () -> {} : run.onCancel(() -> future.cancel(true))) {
-            var response =
-                    future.get(
-                            (run == null ? timeout : run.timeout(timeout)).toMillis(),
-                            TimeUnit.MILLISECONDS);
+            var response = future.get(timeoutMillis, TimeUnit.MILLISECONDS);
             if (response.statusCode() >= 300)
                 throw new HttpException(response.statusCode(), rejection(response.body()));
             return SuccessfulHttpResponse.builder()
@@ -107,14 +106,16 @@ public final class CancellableModelHttpClient implements HttpClient {
                     .body(response.body())
                     .build();
         } catch (HttpException e) {
-            logFailure("request", request, run, e, null);
+            logFailure("request", request, run, e, null, startedNanos, timeoutMillis);
             throw e;
         } catch (Exception e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             Throwable cause = rootCause(e);
-            logFailure("request", request, run, cause, null);
-            throw new RunFailure(
-                    e instanceof TimeoutException ? "timeout" : "model-request-failed", cause);
+            // JDK HttpClient 自身的请求超时（HttpTimeoutException）常比 future.get 先触发，同样是超时
+            boolean timedOut = e instanceof TimeoutException || isTimeout(cause);
+            logFailure("request", request, run, cause, timedOut ? "timeout" : null,
+                    startedNanos, timeoutMillis);
+            throw new RunFailure(timedOut ? "timeout" : "model-request-failed", cause);
         } finally {
             future.cancel(true);
             if (span != null) span.end();
@@ -131,6 +132,7 @@ public final class CancellableModelHttpClient implements HttpClient {
             listener.onError(new RunFailure("model-busy"));
             return;
         }
+        long startedNanos = System.nanoTime();
         AtomicReference<InputStream> body = new AtomicReference<>();
         var transportCancelled = new java.util.concurrent.atomic.AtomicBoolean();
         AtomicReference<String> cancellationReason = new AtomicReference<>();
@@ -174,13 +176,18 @@ public final class CancellableModelHttpClient implements HttpClient {
                                             .headers(response.headers().map())
                                             .build());
                             parser.parse(input, withFailureReason(listener, cancellationReason,
-                                    error -> logFailure("stream", request, run, error, cancellationReason.get())));
+                                    error -> logFailure("stream", request, run, error, cancellationReason.get(),
+                                            startedNanos, timeoutMillis)));
                             listener.onClose();
                         }
                     } catch (Exception e) {
                         Throwable cause = rootCause(e);
+                        if (isTimeout(cause)) {
+                            // 请求级超时与本地计时器几乎同时到期，先到的是 HttpTimeoutException 时也记为超时
+                            cancellationReason.compareAndSet(null, "timeout");
+                        }
                         String reason = cancellationReason.get();
-                        logFailure("stream", request, run, cause, reason);
+                        logFailure("stream", request, run, cause, reason, startedNanos, timeoutMillis);
                         String code = reason == null ? "model-stream-failed" : reason;
                         listener.onError(new RunFailure(code, cause));
                     } finally {
@@ -268,9 +275,14 @@ public final class CancellableModelHttpClient implements HttpClient {
         return result;
     }
 
-    private static void logFailure(
+    /**
+     * @param startedNanos  请求发出前的 {@link System#nanoTime()}，用来算实际等待时长 elapsedMs
+     * @param timeoutMillis 本次请求生效的超时（provider / 模型配置，受 run 剩余时限收紧），即 timeoutMs
+     */
+    static void logFailure(
             String operation, HttpRequest request, RunContext run, Throwable error,
-            String terminationReason) {
+            String terminationReason, long startedNanos, long timeoutMillis) {
+        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
         Integer statusCode = null;
         for (Throwable current = error; current != null; current = current.getCause()) {
             if (current instanceof HttpException http) {
@@ -311,12 +323,13 @@ public final class CancellableModelHttpClient implements HttpClient {
                 statusCode == null ? "-" : statusCode,
                 structuredOutput, structuredOutputMode, thinkingMode,
                 terminationReason == null ? "-" : terminationReason,
+                elapsedMillis, timeoutMillis,
                 error == null ? "unknown" : error.getClass().getSimpleName(),
                 message == null ? "-" : message
         };
         String template = "model transport failed operation={} requestId={} method={} host={} path={} model={} "
                 + "statusCode={} structuredOutput={} structuredOutputMode={} thinkingMode={} "
-                + "terminationReason={} errorClass={} error={}";
+                + "terminationReason={} elapsedMs={} timeoutMs={} errorClass={} error={}";
         boolean cancelled = "cancelled".equals(terminationReason) || isInterruption(error);
         boolean jsonSchemaUnsupported = statusCode != null && statusCode == 400
                 && "json-schema".equals(structuredOutputMode)
@@ -329,6 +342,14 @@ public final class CancellableModelHttpClient implements HttpClient {
         } else {
             log.warn(template, fields);
         }
+    }
+
+    /** JDK HttpClient 的请求 / 连接超时（HttpConnectTimeoutException 是其子类）。 */
+    static boolean isTimeout(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause() == current ? null : current.getCause()) {
+            if (current instanceof java.net.http.HttpTimeoutException) return true;
+        }
+        return false;
     }
 
     private static boolean isInterruption(Throwable error) {
