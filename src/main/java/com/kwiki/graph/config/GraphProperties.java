@@ -6,7 +6,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
-/** 图增强总开关和不依赖外部服务的运行配置。 */
+/**
+ * 图增强总开关和不依赖外部服务的运行配置。
+ * auto-publish 不在此处：已移入支持热更新的 {@link GraphRuntimeSettings}（键名
+ * kwiki.graph.auto-publish 不变，该 record 不认识的键不会导致绑定失败）。
+ */
 @ConfigurationProperties(prefix = "kwiki.graph")
 @Validated
 public record GraphProperties(
@@ -14,7 +18,6 @@ public record GraphProperties(
     @NotNull @DefaultValue("ARCADEDB_NATIVE_UNWEIGHTED") GraphAlgorithmMode algorithmMode,
     @NotNull @DefaultValue("0 0 2 * * *") String scheduleCron,
     @NotNull @DefaultValue("Asia/Shanghai") String scheduleZone,
-    @NotNull @DefaultValue("false") Boolean autoPublish,
     @NotNull @DefaultValue("10m") java.time.Duration readLeaseDuration,
     @NotNull @DefaultValue("2") int retentionMinSnapshots,
     @NotNull @DefaultValue("30m") java.time.Duration retirementGrace,

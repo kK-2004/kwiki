@@ -2,7 +2,7 @@ import {describe,it,expect,vi} from "vitest";
 import {render,screen,fireEvent} from "@testing-library/vue";
 import {createPinia} from "pinia";
 import ElementPlus from "element-plus";
-const mocks=vi.hoisted(()=>({graphServiceStatus:vi.fn(),graphSubmit:vi.fn(),versions:vi.fn(),graphBatches:vi.fn(),graphRuns:vi.fn(),graphSchedule:vi.fn(),graphPublications:vi.fn(),graphSnapshots:vi.fn(),graphAudits:vi.fn(),adminKnowledgeBases:vi.fn(),graphPlugins:vi.fn()}));
+const mocks=vi.hoisted(()=>({graphServiceStatus:vi.fn(),graphSubmit:vi.fn(),versions:vi.fn(),graphBatches:vi.fn(),graphRuns:vi.fn(),graphSchedule:vi.fn(),graphPublications:vi.fn(),graphSnapshots:vi.fn(),graphAudits:vi.fn(),adminKnowledgeBases:vi.fn(),graphPlugins:vi.fn(),graphFreshness:vi.fn()}));
 vi.mock("../src/api",async original=>{const actual=await original<typeof import("../src/api")>();return {...actual,api:{...actual.api,...mocks}}});
 import View from "../src/views/KnowledgeGraphView.vue";
 
@@ -19,6 +19,7 @@ async function setup() {
   mocks.graphAudits.mockResolvedValue([]);
   mocks.adminKnowledgeBases.mockResolvedValue([{id:7,name:"知识库七"}]);
   mocks.graphPlugins.mockResolvedValue(pluginsFixture);
+  mocks.graphFreshness.mockResolvedValue([]);
   mocks.graphSubmit.mockResolvedValue({batchId:13,chunkIndexSchema:"kwiki-schema-1",communityIndexVersion:6,runIds:[21],replayed:false});
   render(View,{global:{plugins:[createPinia(),ElementPlus]}});
 }

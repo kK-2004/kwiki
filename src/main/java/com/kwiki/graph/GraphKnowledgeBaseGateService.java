@@ -4,9 +4,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 多库请求的按库门禁：在社区 TopK 与种子提取之前执行，未通过门禁的库
- * 整条图增强路径关闭（不查社区索引、不使用摘要、不做任何图扩展）。
- * 各库独立评估；单库输入缺失或异常只关闭该库，不阻断其他库或原检索流程。
+ * 多库请求的按库门禁：在社区 TopK 与种子提取之前执行。OFF 的库整条图增强
+ * 路径关闭（不查社区索引、不使用摘要、不做任何图扩展）；FACTS_ONLY 的库
+ * 停用社区与代表实体路径，只允许 seed-only 扩展。各库独立评估；单库输入
+ * 缺失或异常只关闭该库，不阻断其他库或原检索流程。
  */
 public class GraphKnowledgeBaseGateService {
 
@@ -33,13 +34,13 @@ public class GraphKnowledgeBaseGateService {
         return decisions;
     }
 
-    /** 通过门禁的知识库集合；被拒绝的库后续不得发起社区搜索或图调用。 */
+    /** 保持 FULL 语义的知识库集合（可使用社区召回）；被拒绝的库不得发起社区搜索或图调用。 */
     public LinkedHashMap<Long, GraphSnapshot> eligible(
             Map<Long, GateInput> inputs, long selectedChunkIndexVersion) {
         LinkedHashMap<Long, GraphSnapshot> eligible = new LinkedHashMap<>();
         for (Map.Entry<Long, GraphAuthorizationGate.Decision> entry
                 : evaluate(inputs, selectedChunkIndexVersion).entrySet()) {
-            if (entry.getValue().allowed()) {
+            if (entry.getValue().communityAllowed()) {
                 eligible.put(entry.getKey(), inputs.get(entry.getKey()).snapshot());
             }
         }

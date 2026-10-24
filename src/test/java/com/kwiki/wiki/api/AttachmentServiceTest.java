@@ -144,6 +144,82 @@ class AttachmentServiceTest {
     }
 
     @Test
+    void storedTransitionIndexingJobAndGraphEpochCommitInOneTransaction() {
+        // 记录每个副作用是否发生在收尾事务内
+        java.util.List<String> insideTransaction = new java.util.ArrayList<>();
+        boolean[] inTx = {false};
+        com.kwiki.wiki.archive.TransactionRunner runner =
+                new com.kwiki.wiki.archive.TransactionRunner(null) {
+                    @Override
+                    public void inTransaction(Runnable action) {
+                        inTx[0] = true;
+                        try {
+                            action.run();
+                        } finally {
+                            inTx[0] = false;
+                        }
+                    }
+                };
+        when(attachments.save(any(Attachment.class))).thenAnswer(inv -> {
+            Attachment attachment = inv.getArgument(0);
+            if (attachment.getId() == null) {
+                org.springframework.test.util.ReflectionTestUtils.setField(attachment, "id", 1L);
+            }
+            insideTransaction.add("save:" + attachment.getStatus() + ":" + inTx[0]);
+            return attachment;
+        });
+        org.mockito.Mockito.doAnswer(inv -> {
+            insideTransaction.add("enqueue:" + inTx[0]);
+            return null;
+        }).when(indexingJobs).enqueueAttachmentUpsert(1L);
+        com.kwiki.wiki.graph.KnowledgeSourceChangePort graph =
+                new com.kwiki.wiki.graph.KnowledgeSourceChangePort() {
+                    @Override public void contentChanged(long kbId) {
+                        insideTransaction.add("epoch:" + kbId + ":" + inTx[0]);
+                    }
+                    @Override public void securityChanged(long kbId) { }
+                    @Override public void hardDeleted(long kbId) { }
+                };
+        AttachmentService transactional = new AttachmentService(attachments, storage,
+                new KnowledgeBaseAuthorizationService(providerOf(new JpaTestLookup())),
+                indexingJobs, 1024 * 1024L, Duration.ofSeconds(300), List.of(),
+                null, null, null, fixed(graph), fixed(runner));
+
+        transactional.upload(EDITOR, KB, "arch.png", "image/png", PNG_HEADER.length, pngContent());
+
+        // PENDING 在远程上传前单独提交；STORED、索引任务与 epoch 同在收尾事务内
+        assertThat(insideTransaction).containsExactly(
+                "save:" + Attachment.STATUS_PENDING + ":false",
+                "save:" + Attachment.STATUS_STORED + ":true",
+                "enqueue:true",
+                "epoch:" + KB + ":true");
+    }
+
+    private static <T> ObjectProvider<T> fixed(T value) {
+        return new ObjectProvider<>() {
+            @Override
+            public T getIfAvailable() {
+                return value;
+            }
+
+            @Override
+            public T getObject(Object... args) {
+                return value;
+            }
+
+            @Override
+            public T getIfUnique() {
+                return value;
+            }
+
+            @Override
+            public T getObject() {
+                return value;
+            }
+        };
+    }
+
+    @Test
     void nonImageUploadStaysDisplayOnlyWithoutIndexing() {
         Attachment stored = service.upload(EDITOR, KB, "spec.docx", DOCX, 100, content(100));
 

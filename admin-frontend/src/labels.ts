@@ -84,6 +84,31 @@ export const runKindLabel = (value?: string | null) => pick(RUN_KINDS, value);
 export const runStateLabel = (value?: string | null) => pick(RUN_STATES, value);
 export const graphStateLabel = (value?: string | null) => pick(GRAPH_STATES, value);
 
+/** 子任务停下时所在阶段的名词形式，用于「中止于××阶段」。 */
+const GRAPH_STAGE_NOUNS: Record<string, string> = {
+  EXTRACTING: "抽取",
+  PROJECTING: "投影",
+  CLUSTERING: "聚类",
+  SUMMARIZING: "摘要",
+  INDEXING: "写索引",
+  VALIDATING: "校验",
+};
+
+/**
+ * 子任务「阶段」列的补充说明：进行中显示当前阶段；失败、取消、过期显示中止位置，
+ * 未开始就结束的显示「未开始」；其余（含历史数据里的 CLEANING）不显示。
+ */
+export function graphRunStageNote(state: string, stage?: string | null): string {
+  if (!stage || stage === state) return "";
+  if (["FAILED", "CANCELLED", "STALE"].includes(state)) {
+    if (stage === "QUEUED") return "未开始";
+    const noun = GRAPH_STAGE_NOUNS[stage];
+    return noun ? `中止于${noun}阶段` : "";
+  }
+  if (["READY", "PUBLISHED"].includes(state) || stage === "CLEANING") return "";
+  return graphStateLabel(stage);
+}
+
 /** 校验摘要中的检查项：布尔项为 false、计数项大于 0 即为未通过。 */
 const CHECKS: Record<string, string> = {
   revision: "配置修订不一致",

@@ -61,6 +61,10 @@ public class AttachmentService {
     private final ResourceAuthorizationService resources;
     private final JdbcOperations jdbc;
     private final com.kwiki.indexing.config.MultimodalIndexingProperties multimodal;
+    /** 图谱来源变化通知；图功能关闭时为空实现。 */
+    private final com.kwiki.wiki.graph.KnowledgeSourceChangePort sourceChanges;
+    /** 上传收尾（STORED、索引任务、epoch）的事务边界；离线装配时直接执行。 */
+    private final com.kwiki.wiki.archive.TransactionRunner transactions;
 
     public AttachmentService(AttachmentRepository attachments,
                              AttachmentStorage storage,
@@ -71,6 +75,22 @@ public class AttachmentService {
                              @Value("${kwiki.attachments.allowed-content-types:}") List<String> allowedContentTypes) {
         this(attachments, storage, authorization, indexingJobs, maxBytes, presignTtl,
                 allowedContentTypes, null, null, null);
+    }
+
+    /** 兼容旧调用（测试装配）：图谱端口为空实现。 */
+    public AttachmentService(AttachmentRepository attachments,
+                             AttachmentStorage storage,
+                             KnowledgeBaseAuthorizationService authorization,
+                             IndexingJobEnqueuer indexingJobs,
+                             @Value("${kwiki.attachments.max-bytes:52428800}") long maxBytes,
+                             @Value("${kwiki.attachments.presign-ttl:300s}") Duration presignTtl,
+                             @Value("${kwiki.attachments.allowed-content-types:}") List<String> allowedContentTypes,
+                             ResourceAuthorizationService resources,
+                             ObjectProvider<JdbcOperations> jdbc,
+                             org.springframework.beans.factory.ObjectProvider<
+                                     com.kwiki.indexing.config.MultimodalIndexingProperties> multimodal) {
+        this(attachments, storage, authorization, indexingJobs, maxBytes, presignTtl,
+                allowedContentTypes, resources, jdbc, multimodal, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -84,7 +104,11 @@ public class AttachmentService {
                              ResourceAuthorizationService resources,
                              ObjectProvider<JdbcOperations> jdbc,
                              org.springframework.beans.factory.ObjectProvider<
-                                     com.kwiki.indexing.config.MultimodalIndexingProperties> multimodal) {
+                                     com.kwiki.indexing.config.MultimodalIndexingProperties> multimodal,
+                             org.springframework.beans.factory.ObjectProvider<
+                                     com.kwiki.wiki.graph.KnowledgeSourceChangePort> sourceChanges,
+                             org.springframework.beans.factory.ObjectProvider<
+                                     com.kwiki.wiki.archive.TransactionRunner> transactions) {
         this.attachments = attachments;
         this.storage = storage;
         this.authorization = authorization;
@@ -99,12 +123,16 @@ public class AttachmentService {
         this.resources = resources;
         this.jdbc = jdbc == null ? null : jdbc.getIfAvailable();
         this.multimodal = multimodal == null ? null : multimodal.getIfAvailable();
+        this.sourceChanges = sourceChanges == null
+                ? com.kwiki.wiki.graph.KnowledgeSourceChangePort.noop()
+                : sourceChanges.getIfAvailable(com.kwiki.wiki.graph.KnowledgeSourceChangePort::noop);
+        this.transactions = transactions == null ? null : transactions.getIfAvailable();
     }
 
     /**
-     * 故意不加事务：PENDING 记录在远程上传之前就提交，
+     * 方法本身故意不加事务：PENDING 记录在远程上传之前就提交，
      * 因此上传失败会留下可供对账的痕迹（PENDING、file id 为 null），
-     * 而 STORED 的转换只在校验成功之后才提交。
+     * 而 STORED 的转换只在校验成功之后、与索引任务和图谱 epoch 一起在一个事务里提交。
      *
      * <p>媒体上传会在存储任何内容之前，将真实内容与声明的 MIME
      * （魔数字节）做校验，随后再交叉核对
@@ -154,12 +182,22 @@ public class AttachmentService {
         }
         attachment.markStored(stored.contentCenterFileId());
         attachment.recordStorageLocation(stored.storageKey(), stored.storageSource());
-        attachments.save(attachment);
-        // 索引资格：图片始终可索引；多模态开启时 PDF 也进入
-        // （由目标索引版本的解析代决定实际处理方式）。
-        if (com.kwiki.indexing.parse.AttachmentIndexEligibility.isIndexableImage(normalizedType)
-                || (multimodalEnabled() && "application/pdf".equals(normalizedType))) {
-            indexingJobs.enqueueAttachmentUpsert(attachment.getId());
+        // STORED、索引任务与图谱 epoch 在同一事务提交：任一失败都退回 PENDING，
+        // 与远程上传失败一样留给对账，不会出现「已可索引但图谱不知道」
+        Runnable commitStored = () -> {
+            attachments.save(attachment);
+            // 索引资格：图片始终可索引；多模态开启时 PDF 也进入
+            // （由目标索引版本的解析代决定实际处理方式）。
+            if (com.kwiki.indexing.parse.AttachmentIndexEligibility.isIndexableImage(normalizedType)
+                    || (multimodalEnabled() && "application/pdf".equals(normalizedType))) {
+                indexingJobs.enqueueAttachmentUpsert(attachment.getId());
+                sourceChanges.contentChanged(kbId);
+            }
+        };
+        if (transactions == null) {
+            commitStored.run();
+        } else {
+            transactions.inTransaction(commitStored);
         }
         return attachment;
     }
@@ -182,6 +220,7 @@ public class AttachmentService {
                 && (com.kwiki.indexing.parse.AttachmentIndexEligibility.isIndexableImage(attachment.getContentType())
                 || (multimodalEnabled() && "application/pdf".equals(attachment.getContentType())))) {
             indexingJobs.enqueueAttachmentUpsert(attachment.getId());
+            sourceChanges.contentChanged(attachment.getKbId());
         }
     }
 
@@ -305,5 +344,10 @@ public class AttachmentService {
         attachment.archive();
         attachments.save(attachment);
         indexingJobs.enqueueAttachmentDelete(attachment.getId());
+        // 只有曾是图谱来源的附件才推进 epoch，避免非索引附件的无谓降级
+        if (com.kwiki.indexing.parse.AttachmentIndexEligibility.isIndexableImage(attachment.getContentType())
+                || (multimodalEnabled() && "application/pdf".equals(attachment.getContentType()))) {
+            sourceChanges.contentChanged(kbId);
+        }
     }
 }

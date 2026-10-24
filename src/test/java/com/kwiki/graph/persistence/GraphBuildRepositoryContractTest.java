@@ -50,14 +50,31 @@ class GraphBuildRepositoryContractTest {
         when(jdbc.update(contains("INSERT IGNORE INTO graph_publication"), any(), any(), any(), any()))
                 .thenReturn(1);
         when(jdbc.update(contains("active_snapshot_id IS NULL"), any(), any(), any(), any(),
-                any(), any(), any(), any()))
+                any(), any()))
                 .thenReturn(1);
         JdbcGraphBuildRepository repository = new JdbcGraphBuildRepository(jdbc);
 
         assertThat(repository.compareAndSetPublication(7, 3, null, 91, 12, 4,
                 java.time.Instant.EPOCH)).isTrue();
         verify(jdbc).update(contains("active_snapshot_id IS NULL"), any(), eq(12L), eq(4L),
-                any(), eq(7L), eq(3), eq(12L), eq(4L));
+                any(), eq(7L), eq(3));
+    }
+
+    @Test
+    void republishAfterEpochAdvanceComparesOnlyThePointer() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        org.mockito.ArgumentCaptor<String> sql = org.mockito.ArgumentCaptor.forClass(String.class);
+        when(jdbc.update(contains("active_snapshot_id = 80"), any(), any(), any(), any(),
+                any(), any()))
+                .thenReturn(1);
+        JdbcGraphBuildRepository repository = new JdbcGraphBuildRepository(jdbc);
+
+        // 行上存的是上次发布时的 epoch（如 1/1），当前已推进到 12/4：仍可替换指针
+        assertThat(repository.compareAndSetPublication(7, 3, 80L, 91, 12, 4,
+                java.time.Instant.EPOCH)).isTrue();
+        verify(jdbc).update(sql.capture(), any(), eq(12L), eq(4L), any(), eq(7L), eq(3));
+        String where = sql.getValue().substring(sql.getValue().indexOf("WHERE"));
+        assertThat(where).doesNotContain("content_epoch").doesNotContain("security_epoch");
     }
 
     @Test

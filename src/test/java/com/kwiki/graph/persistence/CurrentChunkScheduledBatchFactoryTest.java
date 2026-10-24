@@ -24,7 +24,8 @@ class CurrentChunkScheduledBatchFactoryTest {
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines = mock(com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry.class);
     private final CurrentChunkScheduledBatchFactory factory =
-            new CurrentChunkScheduledBatchFactory(new GraphBuildTargets(versions, jdbc, pipelines, com.kwiki.indexing.schema.SchemaTestFixtures.schemas()), false);
+            new CurrentChunkScheduledBatchFactory(new GraphBuildTargets(versions, jdbc, pipelines, com.kwiki.indexing.schema.SchemaTestFixtures.schemas()),
+                    new com.kwiki.graph.config.GraphRuntimeSettings(false, true, "30m", "6h", true));
     private final LocalDate today = LocalDate.of(2026, 9, 28);
 
     private void selected(String schema) {

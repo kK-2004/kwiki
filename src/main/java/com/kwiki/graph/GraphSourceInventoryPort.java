@@ -8,6 +8,9 @@ import java.util.List;
  */
 public interface GraphSourceInventoryPort {
 
+    /** 资源生命周期：LIVE 为可索引有效态（PAGE=ACTIVE、ATTACHMENT=STORED），其余一律 RETIRED。 */
+    enum LifecycleState { LIVE, RETIRED }
+
     /** 知识库当前全部有效可索引资源，确定性排序去重。 */
     List<GraphResourceId> listCurrentSources(long kbId);
 
@@ -16,4 +19,29 @@ public interface GraphSourceInventoryPort {
 
     /** 知识库当前 content/security epoch。 */
     long[] currentEpochs(long kbId);
+
+    /**
+     * 批量生命周期判定：快照清单来源 LIVE/RETIRED 的唯一依据。
+     * 行不存在（含知识库整库物理删除后）计为 RETIRED；实现每次调用最多一条 SQL。
+     */
+    java.util.Map<GraphResourceId, LifecycleState> lifecycleStates(List<GraphResourceId> resources);
+
+    /** 资源行是否仍存在于业务库（任何生命周期状态）；硬删除的回滚与退役约束使用。 */
+    boolean exists(GraphResourceId resource);
+
+    /**
+     * 批量版 {@link #exists}：返回仍存在于业务库（任何生命周期状态）的资源。
+     * 快照清单可能有成千上万个来源，实现应按批查询；默认实现逐个调用 exists。
+     */
+    default java.util.Set<GraphResourceId> existingResources(List<GraphResourceId> resources) {
+        java.util.Set<GraphResourceId> existing = new java.util.LinkedHashSet<>();
+        if (resources != null) {
+            for (GraphResourceId resource : resources) {
+                if (exists(resource)) {
+                    existing.add(resource);
+                }
+            }
+        }
+        return existing;
+    }
 }

@@ -136,6 +136,44 @@ class PageRevisionServiceTest {
     }
 
     @Test
+    void publishNotifiesGraphSourceChangeInSameTransactionalFlow() {
+        // 端口在 @Transactional publish 内同步调用：业务事务回滚时
+        // epoch 与待重建记录随同一事务回滚，不会出现「epoch 前进但内容没变」
+        var sourceChanges = org.mockito.Mockito.mock(com.kwiki.wiki.graph.KnowledgeSourceChangePort.class);
+        PageRevisionService withGraph = new PageRevisionService(pages, revisions, authorization(),
+                new CommonMarkMarkdownPort(), indexingJobs, pageLinks,
+                null, null, null, drafts, sourceChanges);
+
+        lenient().when(revisions.findFirstByPageIdOrderByRevisionNoDesc(7L))
+                .thenReturn(Optional.empty());
+        WikiPageDraft draft = service.saveDraft(ADMIN, KB, 7L, "# New draft", "ready", null);
+        when(drafts.findById(7L)).thenReturn(Optional.of(draft));
+
+        withGraph.publish(ADMIN, KB, 7L);
+
+        org.mockito.Mockito.verify(sourceChanges).contentChanged(KB);
+        // 与 enqueue 同处一个事务方法：端口调用先于方法返回
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(indexingJobs, sourceChanges);
+        inOrder.verify(indexingJobs).enqueuePageUpsert(org.mockito.ArgumentMatchers.eq(7L), any(Long.class));
+        inOrder.verify(sourceChanges).contentChanged(KB);
+    }
+
+    @Test
+    void graphFeatureDisabledKeepsPublishWorkingWithoutGraphAccess() {
+        // 图功能关闭：端口为空实现，发布照常成功
+        PageRevisionService withoutGraph = new PageRevisionService(pages, revisions, authorization(),
+                new CommonMarkMarkdownPort(), indexingJobs, pageLinks,
+                null, null, null, drafts);
+
+        lenient().when(revisions.findFirstByPageIdOrderByRevisionNoDesc(7L))
+                .thenReturn(Optional.empty());
+        WikiPageDraft draft = service.saveDraft(ADMIN, KB, 7L, "# New draft", "ready", null);
+        when(drafts.findById(7L)).thenReturn(Optional.of(draft));
+
+        assertThat(withoutGraph.publish(ADMIN, KB, 7L).getMarkdown()).isEqualTo("# New draft");
+    }
+
+    @Test
     void staleLockVersionIsRejectedWithConflict() {
         org.springframework.test.util.ReflectionTestUtils.setField(page, "lockVersion", 3L);
 

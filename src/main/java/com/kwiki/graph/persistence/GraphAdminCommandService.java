@@ -19,15 +19,21 @@ public class GraphAdminCommandService {
     private final GraphSnapshotAutoPublishService autoPublish;
     private final GraphSnapshotRetirementService retirement;
     private final GraphBuildSlotService slot;
+    private final GraphBatchDeletionService batchDeletion;
+    private final GraphArtifactCleaner artifacts;
 
     public GraphAdminCommandService(GraphBuildRepository repository,
                                     GraphSnapshotAutoPublishService autoPublish,
                                     GraphSnapshotRetirementService retirement,
-                                    GraphBuildSlotService slot) {
+                                    GraphBuildSlotService slot,
+                                    GraphBatchDeletionService batchDeletion,
+                                    GraphArtifactCleaner artifacts) {
         this.repository = repository;
         this.autoPublish = autoPublish;
         this.retirement = retirement;
         this.slot = slot;
+        this.batchDeletion = batchDeletion;
+        this.artifacts = artifacts;
     }
 
     /** 幂等执行：同键已完成命令直接重放原摘要，不产生重复副作用。 */
@@ -87,8 +93,9 @@ public class GraphAdminCommandService {
                 "summary", "retire:" + retiring);
     }
 
+    /** 立即清理退役快照的外部数据（宽限期与读取租约未结束时不清理）；定时任务也会自动清理。 */
     public Map<String, Object> cleanup(long snapshotId) {
-        var result = retirement.cleanupResources(snapshotId, null);
+        var result = retirement.cleanupResources(snapshotId, artifacts);
         return Map.<String, Object>of("deleted", result.deleted(),
                 "remaining", result.remaining(), "complete", result.complete(),
                 "snapshotId", snapshotId,
@@ -103,6 +110,18 @@ public class GraphAdminCommandService {
                     "summary", "retry:" + requeued);
         }).orElse(Map.<String, Object>of("runId", runId, "busy", true,
                 "summary", "retry:busy"));
+    }
+
+    /**
+     * 删除批次：标记墓碑并清理外部数据；清理未完成时再次调用即重试。
+     * 删除前置条件不满足（子任务未结束、快照在发布中、仍有读取）抛 IllegalStateException。
+     */
+    public Map<String, Object> deleteBatch(long batchId, String operator) {
+        var result = batchDeletion.delete(batchId, operator);
+        return Map.of("batchId", batchId, "cleanupState", result.cleanupState(),
+                "cleanedRuns", result.cleanedRuns(), "failures", result.failures(),
+                "summary", "delete:" + result.cleanupState()
+                        + (result.failures().isEmpty() ? "" : ":" + result.failures().size() + " failed"));
     }
 
     public Map<String, Object> cancel(long runId) {

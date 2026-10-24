@@ -31,15 +31,15 @@ public class GraphSnapshotAutoPublishService {
 
     /**
      * 构建 READY 之后调用；批次未开启 autoPublish 时保持候选等待管理员，
-     * 返回 false 且不触发任何发布事务。
+     * 返回 false 且不触发任何发布事务。开启时替换配对当前的活动快照
+     * （重建场景下配对早已有发布快照，不能按「当前无配对」CAS）。
      */
     public boolean publishIfAutoPublishEnabled(long runId, GraphSnapshot snapshot,
                                                GraphSnapshotState state,
-                                               GraphValidationChecklist checklist,
-                                               Long expectedSnapshotId) {
+                                               GraphValidationChecklist checklist) {
         if (!repository.findBatchAutoPublishForRun(runId)) {
             return false;
         }
-        return publication.publish(snapshot, state, checklist, expectedSnapshotId);
+        return publication.publishReplacingActive(snapshot, state, checklist);
     }
 }

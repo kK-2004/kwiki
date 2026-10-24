@@ -53,6 +53,8 @@ public class RecycleBinCleanupService {
     private final JdbcOperations jdbc;
     private final AttachmentStorage attachmentStorage;
     private final Clock clock;
+    /** 图谱硬删除通知；图功能关闭时为空实现。 */
+    private final com.kwiki.wiki.graph.KnowledgeSourceChangePort sourceChanges;
     private final int batchSize;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -64,8 +66,8 @@ public class RecycleBinCleanupService {
                                     ObjectProvider<JdbcOperations> jdbc,
                                     ObjectProvider<AttachmentStorage> attachmentStorage,
                                     @Value("${kwiki.archive.cleanup-batch-size:200}") int batchSize) {
-        this(batches, batchItems, chunkIndex, writeTargets, transactions, jdbc, attachmentStorage, batchSize,
-                Clock.systemUTC());
+        this(batches, batchItems, chunkIndex, writeTargets, transactions, jdbc, attachmentStorage,
+                batchSize, Clock.systemUTC());
     }
 
     public RecycleBinCleanupService(ArchiveBatchRepository batches,
@@ -76,7 +78,8 @@ public class RecycleBinCleanupService {
                                     ObjectProvider<JdbcOperations> jdbc,
                                     int batchSize,
                                     Clock clock) {
-        this(batches, batchItems, chunkIndex, writeTargets, transactions, jdbc, null, batchSize, clock);
+        this(batches, batchItems, chunkIndex, writeTargets, transactions, jdbc, null,
+                batchSize, clock, null);
     }
 
     public RecycleBinCleanupService(ArchiveBatchRepository batches,
@@ -88,6 +91,21 @@ public class RecycleBinCleanupService {
                                     ObjectProvider<AttachmentStorage> attachmentStorage,
                                     int batchSize,
                                     Clock clock) {
+        this(batches, batchItems, chunkIndex, writeTargets, transactions, jdbc, attachmentStorage,
+                batchSize, clock, null);
+    }
+
+    public RecycleBinCleanupService(ArchiveBatchRepository batches,
+                                    ArchiveBatchItemRepository batchItems,
+                                    ObjectProvider<ChunkIndexRepository> chunkIndex,
+                                    com.kwiki.indexing.version.IndexWriteTargets writeTargets,
+                                    TransactionRunner transactions,
+                                    ObjectProvider<JdbcOperations> jdbc,
+                                    ObjectProvider<AttachmentStorage> attachmentStorage,
+                                    int batchSize,
+                                    Clock clock,
+                                    org.springframework.beans.factory.ObjectProvider<
+                                            com.kwiki.wiki.graph.KnowledgeSourceChangePort> sourceChanges) {
         this.batches = batches;
         this.batchItems = batchItems;
         this.chunkIndex = chunkIndex.getIfAvailable();
@@ -97,6 +115,9 @@ public class RecycleBinCleanupService {
         this.attachmentStorage = attachmentStorage == null ? null : attachmentStorage.getIfAvailable();
         this.batchSize = batchSize;
         this.clock = clock;
+        this.sourceChanges = sourceChanges == null
+                ? com.kwiki.wiki.graph.KnowledgeSourceChangePort.noop()
+                : sourceChanges.getIfAvailable(com.kwiki.wiki.graph.KnowledgeSourceChangePort::noop);
     }
 
     /** 对过期批次的一次完整遍历；返回聚合计数器。 */
@@ -283,6 +304,8 @@ public class RecycleBinCleanupService {
         }
         jdbc.update("UPDATE archive_batch_item SET purged = TRUE, purged_at = ? WHERE id = ?",
                 java.sql.Timestamp.from(clock.instant()), item.getId());
+        // 物理删除已落库：标记该库硬删除待重建，调度器下一轮即跳过静默期提交
+        sourceChanges.hardDeleted(locked.getKbId());
         return true;
     }
 

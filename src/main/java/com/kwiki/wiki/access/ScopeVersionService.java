@@ -23,9 +23,21 @@ public class ScopeVersionService {
 
     private final JdbcOperations jdbc;
     private final Map<Long, AtomicLong> inMemoryFallback = new ConcurrentHashMap<>();
+    /** 图谱 security epoch 通知；图功能关闭时为空实现。 */
+    private final com.kwiki.wiki.graph.KnowledgeSourceChangePort sourceChanges;
 
     public ScopeVersionService(ObjectProvider<JdbcOperations> jdbc) {
+        this(jdbc, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ScopeVersionService(ObjectProvider<JdbcOperations> jdbc,
+                               org.springframework.beans.factory.ObjectProvider<
+                                       com.kwiki.wiki.graph.KnowledgeSourceChangePort> sourceChanges) {
         this.jdbc = jdbc.getIfAvailable();
+        this.sourceChanges = sourceChanges == null
+                ? com.kwiki.wiki.graph.KnowledgeSourceChangePort.noop()
+                : sourceChanges.getIfAvailable(com.kwiki.wiki.graph.KnowledgeSourceChangePort::noop);
     }
 
     /** 知识库的当前版本（首次成员关系变更前为 1）。 */
@@ -44,27 +56,33 @@ public class ScopeVersionService {
 
     /**
      * 原子地推进版本号。守卫式更新 + 插入重试，在并发成员关系变更下
-     * 仍保持值的严格单调递增。
+     * 仍保持值的严格单调递增。同一事务内推进图谱 security epoch，
+     * 覆盖全部权限变化入口（页面受众、页面成员、知识库成员、邀请、所有权转移、归档）。
      */
     public long bump(long kbId) {
+        long version;
         if (jdbc == null) {
-            return inMemory(kbId).incrementAndGet();
-        }
-        while (true) {
-            long observed = current(kbId);
-            int updated = jdbc.update(
-                    "UPDATE scope_version SET version = version + 1 WHERE kb_id = ? AND version = ?",
-                    kbId, observed);
-            if (updated > 0) {
-                return observed + 1;
+            version = inMemory(kbId).incrementAndGet();
+        } else {
+            while (true) {
+                long observed = current(kbId);
+                int updated = jdbc.update(
+                        "UPDATE scope_version SET version = version + 1 WHERE kb_id = ? AND version = ?",
+                        kbId, observed);
+                if (updated > 0) {
+                    version = observed + 1;
+                    break;
+                }
+                try {
+                    jdbc.update("INSERT INTO scope_version (kb_id, version) VALUES (?, ?)",
+                            kbId, INITIAL_VERSION);
+                } catch (DuplicateKeyException raceLost) {
+                    // 另一写入方已先创建该行；重试守卫式更新
+                }
             }
-            try {
-                jdbc.update("INSERT INTO scope_version (kb_id, version) VALUES (?, ?)",
-                        kbId, INITIAL_VERSION);
-            } catch (DuplicateKeyException raceLost) {
-                // 另一写入方已先创建该行；重试守卫式更新
-            }
         }
+        sourceChanges.securityChanged(kbId);
+        return version;
     }
 
     private AtomicLong inMemory(long kbId) {

@@ -23,7 +23,7 @@ class GraphPropertiesTest {
 
     private static GraphProperties properties() {
         return new GraphProperties(false, GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                "0 0 2 * * *", "Asia/Shanghai", false, Duration.ofMinutes(10), 2,
+                "0 0 2 * * *", "Asia/Shanghai", Duration.ofMinutes(10), 2,
                 Duration.ofMinutes(30), GraphProperties.Capacity.defaults());
     }
 
@@ -40,7 +40,7 @@ class GraphPropertiesTest {
     void enabledGraphRequiresExplicitEndpointAndToken() {
         GraphProperties graph = new GraphProperties(true,
                 GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                "0 0 2 * * *", "Asia/Shanghai", false, Duration.ofMinutes(10), 2,
+                "0 0 2 * * *", "Asia/Shanghai", Duration.ofMinutes(10), 2,
                 Duration.ofMinutes(30), GraphProperties.Capacity.defaults());
 
         assertThatThrownBy(() -> empty().requireUsableWhenEnabled(graph))
@@ -53,7 +53,7 @@ class GraphPropertiesTest {
     void enabledGraphAcceptsSingleTokenWithBuildPermissions() {
         GraphProperties graph = new GraphProperties(true,
                 GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                "0 0 2 * * *", "Asia/Shanghai", false, Duration.ofMinutes(10), 2,
+                "0 0 2 * * *", "Asia/Shanghai", Duration.ofMinutes(10), 2,
                 Duration.ofMinutes(30), GraphProperties.Capacity.defaults());
         ArcadeDbProperties properties = new ArcadeDbProperties(
                 URI.create("https://arcadedb.internal"), "kwiki", "arcade-contract-token",
@@ -68,7 +68,7 @@ class GraphPropertiesTest {
     void 图功能开启但未锁定版本号时仍可启动_视为未锁定() {
         GraphProperties graph = new GraphProperties(true,
                 GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                "0 0 2 * * *", "Asia/Shanghai", false, Duration.ofMinutes(10), 2,
+                "0 0 2 * * *", "Asia/Shanghai", Duration.ofMinutes(10), 2,
                 Duration.ofMinutes(30), GraphProperties.Capacity.defaults());
         for (String version : new String[] {null, "", "  "}) {
             ArcadeDbProperties properties = new ArcadeDbProperties(

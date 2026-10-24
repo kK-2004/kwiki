@@ -66,7 +66,7 @@ class ClusteringStageTest {
         ClusteringStage stage = new ClusteringStage(
                 new CommunityDetectorRegistry(List.of(detector)),
                 new GraphProperties(true, GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                        "0 0 2 * * *", "Asia/Shanghai", false, Duration.ofMinutes(10), 2,
+                        "0 0 2 * * *", "Asia/Shanghai", Duration.ofMinutes(10), 2,
                         Duration.ofMinutes(30), GraphProperties.Capacity.defaults()),
                 new GraphClusteringProperties(25, 1.5),
                 new GraphBuildProperties(Duration.ofSeconds(10), 2, Duration.ofMinutes(2),
@@ -118,7 +118,7 @@ class ClusteringStageTest {
         ClusteringStage stage = new ClusteringStage(
                 new CommunityDetectorRegistry(List.of(detector)),
                 new GraphProperties(true, GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                        "0 0 2 * * *", "Asia/Shanghai", false, Duration.ofMinutes(10), 2,
+                        "0 0 2 * * *", "Asia/Shanghai", Duration.ofMinutes(10), 2,
                         Duration.ofMinutes(30), new GraphProperties.Capacity(50_000, 250_000,
                         1_000_000, 2, 20_000, 100_000, 2, 50, 500)),
                 new GraphClusteringProperties(10, 1.0),

@@ -20,13 +20,19 @@ public class GraphAdminQueryService {
         this.jdbc = jdbc;
     }
 
-    /** 批次列表：双 ES 版本徽标数据与聚合状态。 */
+    /**
+     * 批次列表：双 ES 版本徽标数据与聚合状态。已删除且外部数据清理完成的批次隐藏；
+     * 清理未完成（PENDING/FAILED）的仍显示，便于再次删除重试清理。
+     */
     public List<Map<String, Object>> batches() {
         return camel(jdbc.queryForList("SELECT id, scope_kind, chunk_index_version, "
                 + "community_index_version, state, auto_publish, requested_by, "
                 + "schedule_date, failure_summary, created_at, "
-                + "extractor, community_detector, summarizer "
-                + "FROM graph_build_batch ORDER BY id DESC LIMIT 100"));
+                + "extractor, community_detector, summarizer, "
+                + "deleted_at, cleanup_state, cleanup_summary "
+                + "FROM graph_build_batch "
+                + "WHERE deleted_at IS NULL OR cleanup_state <> 'DONE' "
+                + "ORDER BY id DESC LIMIT 100"));
     }
 
     /** 批次的按库子任务：阶段、版本对、图版本与计数。 */
@@ -62,8 +68,16 @@ public class GraphAdminQueryService {
                 + "community_index_version, community_physical_index, state, "
                 + "entity_count, relation_count, community_count, content_epoch, "
                 + "security_epoch, sealed_at, retired_at, created_at, "
-                + "extractor, community_detector, summarizer "
-                + "FROM graph_snapshot ORDER BY id DESC LIMIT 100"));
+                + "extractor, community_detector, summarizer, "
+                // 退役快照的外部数据是否已清理完：资源已登记且全部删除
+                + "(state = 'DELETING' "
+                + " AND EXISTS (SELECT 1 FROM graph_resource_reference g WHERE g.snapshot_id = graph_snapshot.id) "
+                + " AND NOT EXISTS (SELECT 1 FROM graph_resource_reference g "
+                + "                 WHERE g.snapshot_id = graph_snapshot.id AND g.cleanup_state <> 'DELETED')"
+                + ") AS cleaned "
+                + "FROM graph_snapshot WHERE run_id NOT IN (SELECT r.id FROM graph_build_run r "
+                + "JOIN graph_build_batch b ON b.id = r.batch_id WHERE b.deleted_at IS NOT NULL) "
+                + "ORDER BY id DESC LIMIT 100"));
     }
 
     /** COMMUNITY 索引版本视图：版本、映射代际、绑定批次与各库物理索引。 */

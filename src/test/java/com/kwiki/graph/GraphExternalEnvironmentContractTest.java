@@ -67,7 +67,7 @@ class GraphExternalEnvironmentContractTest {
         ArcadeDbProperties properties = properties();
         GraphProperties graph = new GraphProperties(true,
                 GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED, "0 0 2 * * *",
-                "Asia/Shanghai", false, Duration.ofMinutes(10), 2,
+                "Asia/Shanghai", Duration.ofMinutes(10), 2,
                 Duration.ofMinutes(30), GraphProperties.Capacity.defaults());
         properties.requireUsableWhenEnabled(graph);
         ArcadeDbCapabilityReport report = new ArcadeDbCapabilityProbe(

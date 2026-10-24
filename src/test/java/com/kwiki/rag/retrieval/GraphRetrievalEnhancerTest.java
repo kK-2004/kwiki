@@ -83,6 +83,10 @@ class GraphRetrievalEnhancerTest {
         boolean resolveFails;
         boolean gateClosed;
         boolean epochAdvanced;
+        /** 业务库中已退役（归档）的资源：lifecycleStates 返回 RETIRED。 */
+        java.util.Set<GraphResourceId> retiredResources = java.util.Set.of();
+        /** 每次 canRead 调用的资源，用来断言二次校验按资源去重。 */
+        final List<GraphResourceId> canReadCalls = new java.util.ArrayList<>();
         GraphSourceInventoryPort inventory = new GraphSourceInventoryPort() {
             @Override
             public List<GraphResourceId> listCurrentSources(long kbId) {
@@ -91,12 +95,31 @@ class GraphRetrievalEnhancerTest {
 
             @Override
             public boolean canRead(long userId, boolean superuser, GraphResourceId resource) {
+                canReadCalls.add(resource);
                 return !gateClosed;
             }
 
             @Override
             public long[] currentEpochs(long kbId) {
                 return epochAdvanced ? new long[]{6, 2} : new long[]{5, 2};
+            }
+
+            @Override
+            public java.util.Map<GraphResourceId, GraphSourceInventoryPort.LifecycleState> lifecycleStates(
+                    List<GraphResourceId> resources) {
+                java.util.Map<GraphResourceId, GraphSourceInventoryPort.LifecycleState> states =
+                        new LinkedHashMap<>();
+                for (GraphResourceId resource : resources) {
+                    states.put(resource, retiredResources.contains(resource)
+                            ? GraphSourceInventoryPort.LifecycleState.RETIRED
+                            : GraphSourceInventoryPort.LifecycleState.LIVE);
+                }
+                return states;
+            }
+
+            @Override
+            public boolean exists(GraphResourceId resource) {
+                return !retiredResources.contains(resource);
             }
         };
         CommunitySearchPort communitySearch = request -> {
@@ -276,7 +299,7 @@ class GraphRetrievalEnhancerTest {
     }
 
     @Test
-    void epochInvalidationDuringRunDropsGraphAdditionsButKeepsChunks() {
+    void epochBehindDegradesToFactsOnlyAndExpandsFromSeedsWithoutCommunity() {
         Env env = new Env();
         env.epochAdvanced = true;
 
@@ -284,14 +307,110 @@ class GraphRetrievalEnhancerTest {
                 GraphSelectionScope.all(), env.embeddingCache,
                 new GraphRetrievalEnhancer.SharedBudget(), false);
 
-        // epoch 变化首先使全来源门禁关闭（source-epoch-stale），
-        // 不进入任何社区或图步骤，更不会以降级方式继续输出。
-        assertThat(result.enhanced()).isFalse();
-        assertThat(result.degradations()).contains("graph-gate-closed");
+        // content epoch 落后不再整库关闭：降级为 FACTS_ONLY——不查社区、
+        // 仍允许从 Chunk 种子做 seed-only 扩展（每条关系随后逐条回查）。
+        assertThat(result.degradations()).contains("graph-facts-only");
         assertThat(env.communityCalls).isZero();
-        assertThat(env.expansionCalls).isZero();
+        assertThat(env.expansionCalls).isEqualTo(1);
+        assertThat(result.enhanced()).isTrue();
+        assertThat(result.mergedChildren()).extracting(ChildEvidence::chunkKey)
+                .contains("k1", "k2", "k9");
+    }
+
+    @Test
+    void archivedPageChildIsDroppedFromEvidenceWhenEsDeletionIsPending() {
+        Env env = new Env();
+        // 页面已归档但 ES 删除仍在 PENDING：图关系回查仍命中其 CHILD，
+        // 数据库侧二次校验按 RETIRED 丢弃该 CHILD，整条关系随之丢弃。
+        env.retiredResources = java.util.Set.of(GraphResourceId.page(9));
+
+        var result = env.enhancer().enhance(42, false, env.children, "查询",
+                GraphSelectionScope.all(), env.embeddingCache,
+                new GraphRetrievalEnhancer.SharedBudget(), false);
+
+        assertThat(result.enhanced()).isFalse();
+        assertThat(result.degradations()).contains("graph-facts-only");
         assertThat(result.mergedChildren()).extracting(ChildEvidence::chunkKey)
                 .containsExactly("k1", "k2");
+        assertThat(env.expansionCalls).isEqualTo(1);
+    }
+
+    @Test
+    void relationBackedByArchivedAndLiveSourcesKeepsTheLiveChild() {
+        Env env = new Env();
+        // 一条关系由两个来源支持：PAGE 9 已归档、PAGE 10 仍有效可读。
+        env.retiredResources = java.util.Set.of(GraphResourceId.page(9));
+        GraphRelation relation = new GraphRelation("r_2", "e_seed", GraphPredicate.USES,
+                "e_other", 0.9, List.of(new GraphSourceRef("sc_archived", 0, 1),
+                new GraphSourceRef("sc_live", 0, 1)));
+        env.expansionResult = new GraphExpansionResult(List.of(), List.of(relation), 8, false);
+        GraphSourceChildResolverPort resolver = (index, id, version, kb) -> {
+            if ("sc_archived".equals(id)) {
+                return Optional.of(new ChunkHit("k_archived", "p-k_archived", KB, "PAGE", 9,
+                        4L, "heading", 0, 8, "归档页面正文", List.of(), "sc_archived",
+                        List.of("e_seed"), ENTITY_VERSION,
+                        com.kwiki.rag.retrieval.EntityLinkingStatus.READY));
+            }
+            if ("sc_live".equals(id)) {
+                return Optional.of(new ChunkHit("k_live", "p-k_live", KB, "PAGE", 10,
+                        4L, "heading", 0, 8, "有效页面正文", List.of(), "sc_live",
+                        List.of("e_seed"), ENTITY_VERSION,
+                        com.kwiki.rag.retrieval.EntityLinkingStatus.READY));
+            }
+            return Optional.empty();
+        };
+        GraphRetrievalEnhancer enhancer = new GraphRetrievalEnhancer(
+                new GraphRetrievalEnhancer.SnapshotPinner() {
+                    @Override
+                    public Map<Long, Optional<GraphSnapshotPin>> pinAll(
+                            java.util.Collection<Long> kbIds) {
+                        Map<Long, Optional<GraphSnapshotPin>> pins = new LinkedHashMap<>();
+                        for (Long kbId : kbIds) {
+                            pins.put(kbId, Optional.of(GraphSnapshotPinGuard.pin(
+                                    snapshot(), 555L, 3)));
+                        }
+                        return pins;
+                    }
+
+                    @Override
+                    public void release(Iterable<GraphSnapshotPin> pins) {
+                    }
+                },
+                env.inventory,
+                (GraphSnapshotManifestPort) snapshotId -> List.of(GraphResourceId.page(9)),
+                resolver,
+                new CommunityRecallCoordinator(env.communitySearch, Env.embedding()),
+                env.expansion, 2, 50, 500, 20, 30);
+
+        var result = enhancer.enhance(42, false, env.children, "查询",
+                GraphSelectionScope.all(), env.embeddingCache,
+                new GraphRetrievalEnhancer.SharedBudget(), false);
+
+        // 只有仍有效来源的 CHILD 进入证据池，该关系保留
+        assertThat(result.enhanced()).isTrue();
+        assertThat(result.mergedChildren()).extracting(ChildEvidence::chunkKey)
+                .contains("k_live")
+                .doesNotContain("k_archived");
+        assertThat(result.degradations()).contains("graph-facts-only");
+    }
+
+    @Test
+    void secondPassChecksEachSourceResourceOnlyOnce() {
+        Env env = new Env();
+        // 三条关系都引用 PAGE 9 的同一个 CHILD
+        List<GraphRelation> relations = new java.util.ArrayList<>();
+        for (String id : List.of("r_a", "r_b", "r_c")) {
+            relations.add(new GraphRelation(id, "e_seed", GraphPredicate.USES, "e_other", 0.9,
+                    List.of(new GraphSourceRef(GRAPH_SOURCE, 0, 1))));
+        }
+        env.expansionResult = new GraphExpansionResult(List.of(), relations, 12, false);
+
+        env.enhancer().enhance(42, false, env.children, "查询",
+                GraphSelectionScope.all(), env.embeddingCache,
+                new GraphRetrievalEnhancer.SharedBudget(), false);
+
+        // 覆盖证明 1 次 + 二次校验 1 次；不随引用它的关系数增长
+        assertThat(env.canReadCalls).filteredOn(GraphResourceId.page(9)::equals).hasSize(2);
     }
 
     @Test

@@ -149,6 +149,33 @@ class ResourceArchiveServiceTest {
     }
 
     @Test
+    void archiveAndRestoreNotifyGraphSourceChangeInTransaction() {
+        // 归档与恢复都在 transactions.inTransactionReturning 内同步调用端口：
+        // 业务事务回滚时 content epoch 与待重建记录一并回滚
+        var sourceChanges = Mockito.mock(com.kwiki.wiki.graph.KnowledgeSourceChangePort.class);
+        var withGraph = new ResourceArchiveService(pages, knowledgeBases, attachments, sources,
+                batches, items, authorization, resources, versions, indexingJobs, indexSync,
+                transactions, jdbcProvider(null),
+                new ObjectProvider<>() {
+                    @Override
+                    public com.kwiki.wiki.graph.KnowledgeSourceChangePort getIfAvailable() {
+                        return sourceChanges;
+                    }
+                },
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        var root = page(1, 5, null, WikiPage.STATUS_ACTIVE);
+        when(knowledgeBases.findById(5L)).thenReturn(Optional.of(kb(5)));
+        when(pages.findByIdAndStatus(1L, WikiPage.STATUS_ACTIVE)).thenReturn(Optional.of(root));
+        when(pages.findByKbId(5L)).thenReturn(List.of(root));
+        when(sources.findByPageIdIn(any())).thenReturn(List.of());
+        stubArchiveSave(77L);
+
+        withGraph.archivePage(OWNER, 5, 1);
+
+        Mockito.verify(sourceChanges).contentChanged(5L);
+    }
+
+    @Test
     void rearchiveIsIdempotentAndNeverResetsTheTimer() {
         var root = page(1, 5, null, WikiPage.STATUS_ACTIVE);
         when(knowledgeBases.findById(5L)).thenReturn(Optional.of(kb(5)));

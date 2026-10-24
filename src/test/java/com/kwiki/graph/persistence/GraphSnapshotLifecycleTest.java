@@ -199,13 +199,15 @@ class GraphSnapshotLifecycleTest {
 
     private static GraphSnapshotRetirementService retirementService(
             GraphBuildRepository repository, GraphSourceEpochService epochs) {
-        return new GraphSnapshotRetirementService(repository, epochs, properties());
+        com.kwiki.graph.GraphSourceInventoryPort inventory =
+                mock(com.kwiki.graph.GraphSourceInventoryPort.class);
+        return new GraphSnapshotRetirementService(repository, epochs, inventory, properties());
     }
 
     private static GraphProperties properties() {
         return new GraphProperties(false,
                 com.kwiki.graph.GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                "0 0 2 * * *", "Asia/Shanghai", false, Duration.ofMinutes(10), 2,
+                "0 0 2 * * *", "Asia/Shanghai", Duration.ofMinutes(10), 2,
                 Duration.ofMinutes(30), GraphProperties.Capacity.defaults());
     }
 }

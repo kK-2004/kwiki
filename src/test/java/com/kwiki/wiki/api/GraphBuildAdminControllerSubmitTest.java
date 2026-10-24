@@ -2,6 +2,7 @@ package com.kwiki.wiki.api;
 
 import com.kwiki.graph.GraphAlgorithmMode;
 import com.kwiki.graph.config.GraphProperties;
+import com.kwiki.graph.config.GraphRuntimeSettings;
 import com.kwiki.graph.persistence.GraphAdminCommandService;
 import com.kwiki.graph.persistence.GraphAdminQueryService;
 import com.kwiki.graph.persistence.GraphBuildBatchRequest;
@@ -39,10 +40,12 @@ class GraphBuildAdminControllerSubmitTest {
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry pipelines = mock(com.kwiki.indexing.pipeline.VersionedIndexingPipelineRegistry.class);
     private final CurrentUser admin = mock(CurrentUser.class);
+    private final GraphRuntimeSettings settings = new GraphRuntimeSettings(false, true, "30m", "6h", true);
     private final GraphBuildAdminController controller = new GraphBuildAdminController(batches,
             mock(GraphAdminQueryService.class), mock(GraphAdminCommandService.class), mock(GraphBuildRepository.class),
             new GraphProperties(true, GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED, "0 0 2 * * *", "Asia/Shanghai",
-                    false, Duration.ofMinutes(10), 2, Duration.ofMinutes(30), GraphProperties.Capacity.defaults()),
+                    Duration.ofMinutes(10), 2, Duration.ofMinutes(30), GraphProperties.Capacity.defaults()),
+            settings,
             new GraphBuildTargets(versions, jdbc, pipelines, com.kwiki.indexing.schema.SchemaTestFixtures.schemas()));
 
     private void version(int number, String schema) {

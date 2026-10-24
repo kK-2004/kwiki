@@ -30,6 +30,10 @@ class GraphFullSourceGateTest {
     private static final class FakeInventory implements GraphSourceInventoryPort {
         List<GraphResourceId> currentSources;
         Set<GraphResourceId> readable;
+        /** 快照清单中已退役（归档/物理删除）的来源。 */
+        Set<GraphResourceId> retired = Set.of();
+        /** 业务库中已物理删除的资源。 */
+        Set<GraphResourceId> purged = Set.of();
         long contentEpoch = 5;
         long securityEpoch = 2;
         int canReadCalls;
@@ -48,6 +52,22 @@ class GraphFullSourceGateTest {
         @Override
         public long[] currentEpochs(long kbId) {
             return new long[]{contentEpoch, securityEpoch};
+        }
+
+        @Override
+        public java.util.Map<GraphResourceId, LifecycleState> lifecycleStates(
+                List<GraphResourceId> resources) {
+            java.util.Map<GraphResourceId, LifecycleState> states = new java.util.LinkedHashMap<>();
+            for (GraphResourceId resource : resources) {
+                states.put(resource, retired.contains(resource)
+                        ? LifecycleState.RETIRED : LifecycleState.LIVE);
+            }
+            return states;
+        }
+
+        @Override
+        public boolean exists(GraphResourceId resource) {
+            return !purged.contains(resource);
         }
     }
 
@@ -127,8 +147,8 @@ class GraphFullSourceGateTest {
         FakeInventory inventory = new FakeInventory();
         inventory.currentSources = List.of(GraphResourceId.page(1), GraphResourceId.page(2));
         inventory.readable = Set.of(GraphResourceId.page(1), GraphResourceId.page(2));
-        GraphSourceCoverage kb7Coverage = new GraphSourceCoverage(2, 2, 2, 5, 2, 5, 2);
-        GraphSourceCoverage kb8Coverage = new GraphSourceCoverage(2, 1, 2, 5, 2, 5, 2);
+        GraphSourceCoverage kb7Coverage = new GraphSourceCoverage(2, 2, 2, 0, 5, 2, 5, 2);
+        GraphSourceCoverage kb8Coverage = new GraphSourceCoverage(2, 1, 2, 0, 5, 2, 5, 2);
         GraphKnowledgeBaseGateService gate = new GraphKnowledgeBaseGateService();
 
         LinkedHashMap<Long, GraphKnowledgeBaseGateService.GateInput> inputs = new LinkedHashMap<>();
@@ -151,7 +171,7 @@ class GraphFullSourceGateTest {
         LinkedHashMap<Long, GraphKnowledgeBaseGateService.GateInput> inputs = new LinkedHashMap<>();
         inputs.put(7L, new GraphKnowledgeBaseGateService.GateInput(null, kb7Snapshot));
         inputs.put(8L, new GraphKnowledgeBaseGateService.GateInput(
-                new GraphSourceCoverage(1, 1, 1, 5, 2, 5, 2), snapshot(5, 2)));
+                new GraphSourceCoverage(1, 1, 1, 0, 5, 2, 5, 2), snapshot(5, 2)));
 
         Map<Long, GraphAuthorizationGate.Decision> decisions = gate.evaluate(inputs, 3);
 
@@ -177,6 +197,105 @@ class GraphFullSourceGateTest {
                 .isEqualTo(GraphRunOutboundGuard.Verdict.SNAPSHOT_EPOCH_INVALID);
         assertThat(GraphRunOutboundGuard.checkAll(Map.of(), Map.of()))
                 .isEqualTo(GraphRunOutboundGuard.Verdict.OK);
+    }
+
+    // ---- 门禁三档（spec 五场景）----
+
+    @Test
+    void archivedPageInSnapshotDegradesGateToFactsOnlyNotOff() {
+        // 快照发布后清单中的一个页面被归档，其余有效来源全部可读 → FACTS_ONLY
+        FakeInventory inventory = new FakeInventory();
+        inventory.currentSources = List.of(GraphResourceId.page(1)); // page(2) 已归档，不在当前有效来源中
+        inventory.readable = Set.of(GraphResourceId.page(1));
+        inventory.retired = Set.of(GraphResourceId.page(2));
+        GraphSourceCoverageService service = new GraphSourceCoverageService(inventory);
+
+        GraphSourceCoverage coverage = service.prove(USER, false, KB, snapshot(5, 2),
+                List.of(GraphResourceId.page(1), GraphResourceId.page(2)),
+                GraphSelectionScope.all());
+        GraphAuthorizationGate.Decision decision = new GraphAuthorizationGate()
+                .check(coverage, snapshot(5, 2), 3);
+
+        assertThat(decision.mode()).isEqualTo(GraphAuthorizationGate.Mode.FACTS_ONLY);
+        assertThat(decision.allowed()).isTrue();
+        assertThat(decision.communityAllowed()).isFalse();
+        assertThat(coverage.retiredSourceCount()).isEqualTo(1);
+        assertThat(coverage.expectedSourceCount()).isEqualTo(1); // 退役来源不进期望集合
+    }
+
+    @Test
+    void privateLiveSourceStillClosesTheGateRegardlessOfRetiredSources() {
+        // 清单中一个仍 ACTIVE 的页面对用户不可读 → OFF，与是否存在已退役来源无关
+        FakeInventory inventory = new FakeInventory();
+        inventory.currentSources = List.of(GraphResourceId.page(1), GraphResourceId.page(3));
+        inventory.readable = Set.of(GraphResourceId.page(1)); // page(3) 私有
+        inventory.retired = Set.of(GraphResourceId.page(2));
+        GraphSourceCoverageService service = new GraphSourceCoverageService(inventory);
+
+        GraphSourceCoverage coverage = service.prove(USER, false, KB, snapshot(5, 2),
+                List.of(GraphResourceId.page(1), GraphResourceId.page(2), GraphResourceId.page(3)),
+                GraphSelectionScope.all());
+        GraphAuthorizationGate.Decision decision = new GraphAuthorizationGate()
+                .check(coverage, snapshot(5, 2), 3);
+
+        assertThat(decision.mode()).isEqualTo(GraphAuthorizationGate.Mode.OFF);
+        assertThat(decision.reason()).isEqualTo("source-coverage-incomplete");
+    }
+
+    @Test
+    void contentEpochBehindAloneDegradesToFactsOnly() {
+        // 快照内全部来源仍有效且可读，其后有页面发布了新修订 → FACTS_ONLY
+        FakeInventory inventory = new FakeInventory();
+        inventory.currentSources = List.of(GraphResourceId.page(1));
+        inventory.readable = Set.of(GraphResourceId.page(1));
+        inventory.contentEpoch = 6; // 快照捕获于 epoch 5
+        GraphSourceCoverageService service = new GraphSourceCoverageService(inventory);
+
+        GraphSourceCoverage coverage = service.prove(USER, false, KB, snapshot(5, 2),
+                List.of(GraphResourceId.page(1)), GraphSelectionScope.all());
+        GraphAuthorizationGate.Decision decision = new GraphAuthorizationGate()
+                .check(coverage, snapshot(5, 2), 3);
+
+        assertThat(decision.mode()).isEqualTo(GraphAuthorizationGate.Mode.FACTS_ONLY);
+        assertThat(decision.reason()).isEqualTo("source-epoch-stale");
+        assertThat(coverage.retiredSourceCount()).isZero();
+    }
+
+    @Test
+    void securityEpochBehindFromAddedMemberDegradesToFactsOnlyNotOff() {
+        // security epoch 因新增成员前进，用户仍可读全部有效来源 → FACTS_ONLY
+        FakeInventory inventory = new FakeInventory();
+        inventory.currentSources = List.of(GraphResourceId.page(1));
+        inventory.readable = Set.of(GraphResourceId.page(1));
+        inventory.securityEpoch = 3; // 快照捕获于 security epoch 2
+        GraphSourceCoverageService service = new GraphSourceCoverageService(inventory);
+
+        GraphSourceCoverage coverage = service.prove(USER, false, KB, snapshot(5, 2),
+                List.of(GraphResourceId.page(1)), GraphSelectionScope.all());
+        GraphAuthorizationGate.Decision decision = new GraphAuthorizationGate()
+                .check(coverage, snapshot(5, 2), 3);
+
+        assertThat(decision.mode()).isEqualTo(GraphAuthorizationGate.Mode.FACTS_ONLY);
+        assertThat(decision.allowed()).isTrue();
+    }
+
+    @Test
+    void fullyConsistentSnapshotKeepsFullMode() {
+        // epoch 一致、无已退役来源、全部可读且选择范围完整 → FULL
+        FakeInventory inventory = new FakeInventory();
+        inventory.currentSources = List.of(GraphResourceId.page(1), GraphResourceId.page(2));
+        inventory.readable = Set.of(GraphResourceId.page(1), GraphResourceId.page(2));
+        GraphSourceCoverageService service = new GraphSourceCoverageService(inventory);
+
+        GraphSourceCoverage coverage = service.prove(USER, false, KB, snapshot(5, 2),
+                List.of(GraphResourceId.page(1), GraphResourceId.page(2)),
+                GraphSelectionScope.all());
+        GraphAuthorizationGate.Decision decision = new GraphAuthorizationGate()
+                .check(coverage, snapshot(5, 2), 3);
+
+        assertThat(decision.mode()).isEqualTo(GraphAuthorizationGate.Mode.FULL);
+        assertThat(decision.allowed()).isTrue();
+        assertThat(decision.communityAllowed()).isTrue();
     }
 
     @Test

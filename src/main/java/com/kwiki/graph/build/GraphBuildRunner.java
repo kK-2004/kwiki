@@ -87,6 +87,7 @@ public class GraphBuildRunner {
             repository.settleBatch(run.batchId());
             return;
         }
+        repository.markBatchRunning(run.batchId());
         RunArtifacts artifacts = new RunArtifacts();
         if (run.state() == GraphBuildState.INDEXING
                 || run.state() == GraphBuildState.VALIDATING) {

@@ -88,6 +88,6 @@ public class ValidationStage implements GraphBuildStage {
                         "快照封存后无法读回：" + artifacts.snapshotId))
                 .snapshot();
         autoPublish.publishIfAutoPublishEnabled(run.id(), snapshot, GraphSnapshotState.READY,
-                report.toChecklist(), null);
+                report.toChecklist());
     }
 }

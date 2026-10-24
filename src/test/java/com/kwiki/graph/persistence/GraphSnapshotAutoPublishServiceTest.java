@@ -32,9 +32,10 @@ class GraphSnapshotAutoPublishServiceTest {
                 new GraphSnapshotAutoPublishService(repository, publication);
 
         assertThat(service.publishIfAutoPublishEnabled(11L, SNAPSHOT,
-                GraphSnapshotState.READY, CHECKLIST, null)).isFalse();
+                GraphSnapshotState.READY, CHECKLIST)).isFalse();
 
         verify(publication, never()).publish(any(), any(), any(), any());
+        verify(publication, never()).publishReplacingActive(any(), any(), any());
     }
 
     @Test
@@ -43,15 +44,15 @@ class GraphSnapshotAutoPublishServiceTest {
         GraphSnapshotPublicationService publication =
                 mock(GraphSnapshotPublicationService.class);
         when(repository.findBatchAutoPublishForRun(11L)).thenReturn(true);
-        when(publication.publish(SNAPSHOT, GraphSnapshotState.READY, CHECKLIST, null))
+        when(publication.publishReplacingActive(SNAPSHOT, GraphSnapshotState.READY, CHECKLIST))
                 .thenReturn(true);
         GraphSnapshotAutoPublishService service =
                 new GraphSnapshotAutoPublishService(repository, publication);
 
         assertThat(service.publishIfAutoPublishEnabled(11L, SNAPSHOT,
-                GraphSnapshotState.READY, CHECKLIST, null)).isTrue();
+                GraphSnapshotState.READY, CHECKLIST)).isTrue();
 
-        verify(publication).publish(SNAPSHOT, GraphSnapshotState.READY, CHECKLIST, null);
+        verify(publication).publishReplacingActive(SNAPSHOT, GraphSnapshotState.READY, CHECKLIST);
     }
 
     @Test
@@ -90,11 +91,36 @@ class GraphSnapshotAutoPublishServiceTest {
                 new GraphSnapshotAutoPublishService(repository, publication);
 
         assertThat(service.publishIfAutoPublishEnabled(11L, SNAPSHOT,
-                GraphSnapshotState.READY, CHECKLIST, null)).isTrue();
+                GraphSnapshotState.READY, CHECKLIST)).isTrue();
 
         assertThat(shim.casCalls).isEqualTo(1);
         assertThat(shim.lastKbId).isEqualTo(7L);
         assertThat(shim.lastChunkIndexVersion).isEqualTo(4);
+    }
+
+    @Test
+    void autoPublishReplacesTheCurrentlyActiveSnapshotOfTheSamePairing() {
+        GraphBuildRepository repository = mock(GraphBuildRepository.class);
+        when(repository.findBatchAutoPublishForRun(11L)).thenReturn(true);
+        // 重建场景：配对已有发布快照 80，且其后 epoch 已推进到 5/2
+        when(repository.findPublication(7, 4)).thenReturn(java.util.Optional.of(
+                new GraphPublicationRecord(7, 4, 80L, 1, 1)));
+        // CAS 只在期望值为当前活动快照时成功
+        when(repository.compareAndSetPublication(anyLong(), anyInt(), any(), anyLong(),
+                anyLong(), anyLong(), any(Instant.class))).thenAnswer(invocation ->
+                Long.valueOf(80L).equals(invocation.getArgument(2)));
+        GraphSourceEpochService epochs = mock(GraphSourceEpochService.class);
+        when(epochs.currentForUpdate(7)).thenReturn(new long[]{5, 2});
+        GraphSnapshotAutoPublishService service = new GraphSnapshotAutoPublishService(
+                repository, new GraphSnapshotPublicationService(repository, epochs));
+
+        assertThat(service.publishIfAutoPublishEnabled(11L, SNAPSHOT,
+                GraphSnapshotState.READY, CHECKLIST)).isTrue();
+
+        verify(repository).compareAndSetPublication(org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq(4), org.mockito.ArgumentMatchers.eq(80L),
+                org.mockito.ArgumentMatchers.eq(91L), org.mockito.ArgumentMatchers.eq(5L),
+                org.mockito.ArgumentMatchers.eq(2L), any(Instant.class));
     }
 
     /** 只记录发布事务对权威指针的调用，证明不涉及别名或其他版本配对。 */

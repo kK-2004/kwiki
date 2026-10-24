@@ -1,10 +1,9 @@
 package com.kwiki.graph.persistence;
 
-import com.kwiki.graph.config.GraphProperties;
+import com.kwiki.graph.config.GraphRuntimeSettings;
 import com.kwiki.indexing.version.SearchIndexVersion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -26,17 +25,13 @@ public class CurrentChunkScheduledBatchFactory implements GraphScheduledBatchFac
     private static final String REQUESTED_BY = "graph-scheduler";
 
     private final GraphBuildTargets targets;
-    /** 与后台手动提交一致：是否自动发布跟随 kwiki.graph.auto-publish。 */
-    private final boolean autoPublish;
+    /** 与后台手动提交一致：autoPublish 每次提交时读取当前热更新快照，不缓存字段。 */
+    private final GraphRuntimeSettings settings;
 
-    CurrentChunkScheduledBatchFactory(GraphBuildTargets targets, boolean autoPublish) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public CurrentChunkScheduledBatchFactory(GraphBuildTargets targets, GraphRuntimeSettings settings) {
         this.targets = targets;
-        this.autoPublish = autoPublish;
-    }
-
-    @Autowired
-    public CurrentChunkScheduledBatchFactory(GraphBuildTargets targets, GraphProperties graph) {
-        this(targets, graph.autoPublish());
+        this.settings = settings;
     }
 
     @Override
@@ -48,7 +43,8 @@ public class CurrentChunkScheduledBatchFactory implements GraphScheduledBatchFac
         }
         try {
             return Optional.of(targets.request("GRAPH_SCHEDULE:" + scheduleDate, GraphBuildTargets.SCOPE_ALL,
-                    List.of(), selected, null, autoPublish, REQUESTED_BY, scheduleDate));
+                    List.of(), selected, null, settings.snapshot().autoPublish(),
+                    REQUESTED_BY, scheduleDate));
         } catch (IllegalArgumentException skipped) {
             log.warn("图谱每日构建跳过 {}：{}", scheduleDate, skipped.getMessage());
             return Optional.empty();

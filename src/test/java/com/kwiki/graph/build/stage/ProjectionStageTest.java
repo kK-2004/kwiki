@@ -38,7 +38,7 @@ class ProjectionStageTest {
 
     private static GraphProperties graphProperties(int maxEntities) {
         return new GraphProperties(true, com.kwiki.graph.GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                "0 0 2 * * *", "Asia/Shanghai", false, Duration.ofMinutes(10), 2,
+                "0 0 2 * * *", "Asia/Shanghai", Duration.ofMinutes(10), 2,
                 Duration.ofMinutes(30), new GraphProperties.Capacity(maxEntities, 250_000,
                 1_000_000, 5_000, 20_000, 100_000, 2, 50, 500));
     }

@@ -26,14 +26,16 @@ async function request<T>(path:string,init:RequestInit={}):Promise<T>{
 const key=()=>crypto.randomUUID();
 const graphCommand=<T>(path:string,body?:unknown)=>request<T>(`/admin/knowledge-graphs${path}`,{method:"POST",headers:{"Idempotency-Key":key()},body:body===undefined?undefined:JSON.stringify(body)});
 export interface CommunityVersion{versionNumber:number;batchId:number|null;mappingSchemaVersion:number;configRevision:number;state:string;createdAt:string;physicalIndexes:{kbId:number;communityPhysicalIndex:string;graphVersion:number;state:string}[]}
-export interface GraphBatch{id:number;scopeKind:string;chunkIndexVersion:number;communityIndexVersion:number;state:string;autoPublish:boolean;requestedBy:string;scheduleDate:string|null;failureSummary:string|null;createdAt:string;extractor:string;communityDetector:string;summarizer:string}
+export interface GraphBatch{id:number;scopeKind:string;chunkIndexVersion:number;communityIndexVersion:number;state:string;autoPublish:boolean;requestedBy:string;scheduleDate:string|null;failureSummary:string|null;createdAt:string;extractor:string;communityDetector:string;summarizer:string;deletedAt?:string|null;cleanupState?:string|null;cleanupSummary?:string|null}
 export interface GraphRun{id:number;kbId:number;chunkIndexVersion:number;communityIndexVersion:number;communityPhysicalIndex:string;graphVersion:number;state:string;stage:string;entityCount:number;relationCount:number;sourceCount:number;communityCount:number;errorCode?:string;errorSummary?:string;startedAt?:string;completedAt?:string;extractor:string;communityDetector:string;summarizer:string;sourcesTotal:number;sourcesExtracted:number;extractionCacheHits:number;communitiesTotal:number;communitiesSummarized:number}
 export interface GraphPublication{kbId:number;chunkIndexVersion:number;activeSnapshotId:number|null;graphVersion?:number;communityIndexVersion?:number;communityPhysicalIndex?:string;snapshotState?:string;publishedAt?:string}
 export interface GraphSchedule{scheduleDate:string;status:string;linkedBatchId:number|null;createdAt:string}
-export interface GraphSnapshotRow{id:number;kbId:number;graphVersion:number;chunkIndexVersion:number;communityIndexVersion:number;communityPhysicalIndex:string;state:string;entityCount:number;relationCount:number;communityCount:number;sealedAt?:string;retiredAt?:string;createdAt:string;extractor:string;communityDetector:string;summarizer:string}
+export interface GraphSnapshotRow{id:number;kbId:number;graphVersion:number;chunkIndexVersion:number;communityIndexVersion:number;communityPhysicalIndex:string;state:string;entityCount:number;relationCount:number;communityCount:number;sealedAt?:string;retiredAt?:string;createdAt:string;extractor:string;communityDetector:string;summarizer:string;cleaned?:boolean|number}
 export interface GraphPluginItem{id:string;label:string;available:boolean;unavailableReason:string|null}
 export interface GraphPlugins{extractors:GraphPluginItem[];communityDetectors:GraphPluginItem[];summarizers:GraphPluginItem[];defaults:{extractor:string;communityDetector:string;summarizer:string}}
-export interface GraphServiceStatus{enabled:boolean;algorithmMode:string;scheduleCron:string;scheduleZone:string;autoPublish:boolean;capacity:Record<string,number>;activeBatchId:number}
+export interface GraphServiceStatus{enabled:boolean;algorithmMode:string;scheduleCron:string;scheduleZone:string;autoPublish:boolean;rebuild:GraphRebuildStatus;capacity:Record<string,number>;activeBatchId:number}
+export interface GraphRebuildStatus{enabled:boolean;quietPeriod:string;maxDelay:string;autoPublish:boolean}
+export interface GraphFreshnessRow{kbId:number;gateMode:string;gateReason:string|null;chunkIndexVersion:number|null;activeSnapshotId:number|null;snapshotContentEpoch:number|null;snapshotSecurityEpoch:number|null;currentContentEpoch:number;currentSecurityEpoch:number;expectedSourceCount:number;visibleSourceCount:number;selectedSourceCount:number;retiredSourceCount:number;rebuildFirstDirtyAt:string|null;rebuildLastDirtyAt:string|null;rebuildNextEligibleAt:string|null;rebuildHardDelete:boolean|null;rebuildLastBatchId:number|null;rebuildLastOutcome:string|null}
 export interface PluginOption{id:string;label:string;available:boolean;unavailableReason:string|null}
 export interface ParserOption extends PluginOption{requiredCapabilities:string[]}
 export interface SchemaOption extends PluginOption{capabilities:string[]}
@@ -80,6 +82,7 @@ export const api={
   graphAudits:()=>request<Record<string,unknown>[]>("/admin/knowledge-graphs/audits"),
   graphServiceStatus:()=>request<GraphServiceStatus>("/admin/knowledge-graphs/service-status"),
   graphPlugins:()=>request<GraphPlugins>("/admin/knowledge-graphs/plugins"),
+  graphFreshness:()=>request<GraphFreshnessRow[]>("/admin/knowledge-graphs/freshness"),
   modelProviders:()=>request<ProviderView[]>("/admin/models/providers"),
   createModelProvider:(body:ProviderRequest)=>request<ProviderView>("/admin/models/providers",{method:"POST",body:JSON.stringify(body)}),
   updateModelProvider:(id:number,body:ProviderRequest)=>request<ProviderView>(`/admin/models/providers/${id}`,{method:"PUT",body:JSON.stringify(body)}),
@@ -106,5 +109,6 @@ export const api={
   evalRunReport:(runId:string)=>request<Record<string,unknown>>(`/admin/eval/runs/${encodeURIComponent(runId)}/report`),
   modelUsageSeries:(q:UsageQuery)=>request<UsageSeriesResponse>(`/admin/model-usage/series?${usageParams(q)}`),
   modelUsageUsers:(q:UsageQuery)=>request<UsageUser[]>(`/admin/model-usage/users?${usageParams({from:q.from,to:q.to,sources:q.sources})}`),
-  graphSubmit:(payload:Record<string,unknown>)=>graphCommand<{batchId:number;chunkIndexSchema:string;communityIndexVersion:number;runIds:number[];replayed:boolean}>("/batches",payload)
+  graphSubmit:(payload:Record<string,unknown>)=>graphCommand<{batchId:number;chunkIndexSchema:string;communityIndexVersion:number;runIds:number[];replayed:boolean}>("/batches",payload),
+  graphDeleteBatch:(batchId:number)=>request<{batchId:number;cleanupState:string;cleanedRuns:number;failures:string[]}>(`/admin/knowledge-graphs/batches/${batchId}`,{method:"DELETE",headers:{"Idempotency-Key":key()}})
 };

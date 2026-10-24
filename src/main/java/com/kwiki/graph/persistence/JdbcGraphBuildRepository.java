@@ -212,12 +212,14 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
                 kbId, chunkIndexVersion, contentEpoch, securityEpoch);
         String expected = expectedSnapshotId == null ? "active_snapshot_id IS NULL"
                 : "active_snapshot_id = " + expectedSnapshotId;
+        // 只按指针 CAS：epoch 新鲜度已由调用方在同一事务内持有 graph_source_epoch
+        // 行锁后复核。行上存的是上次发布时的 epoch，内容变化后必然与当前值不同，
+        // 不能再拿来做条件，否则一旦 epoch 推进就再也无法重新发布或回滚。
         return jdbc.update("UPDATE graph_publication SET active_snapshot_id = ?, expected_snapshot_id = NULL, "
                         + "content_epoch = ?, security_epoch = ?, published_at = ? "
-                        + "WHERE kb_id = ? AND chunk_index_version = ? AND " + expected
-                        + " AND content_epoch = ? AND security_epoch = ?",
+                        + "WHERE kb_id = ? AND chunk_index_version = ? AND " + expected,
                 nextSnapshotId, contentEpoch, securityEpoch, Timestamp.from(publishedAt),
-                kbId, chunkIndexVersion, contentEpoch, securityEpoch) == 1;
+                kbId, chunkIndexVersion) == 1;
     }
 
     @Override
@@ -397,6 +399,34 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
     }
 
     @Override
+    public void ensureSnapshotResources(long snapshotId) {
+        jdbc.update("INSERT IGNORE INTO graph_resource_reference "
+                        + "(snapshot_id, resource_kind, resource_identity) "
+                        + "SELECT id, '" + GraphArtifactCleaner.KIND_GRAPH_VERSION + "', "
+                        + "CONCAT(kb_id, ':', graph_version) FROM graph_snapshot WHERE id = ?",
+                snapshotId);
+        jdbc.update("INSERT IGNORE INTO graph_resource_reference "
+                        + "(snapshot_id, resource_kind, resource_identity) "
+                        + "SELECT id, '" + GraphArtifactCleaner.KIND_COMMUNITY_INDEX + "', "
+                        + "community_physical_index FROM graph_snapshot "
+                        + "WHERE id = ? AND community_physical_index IS NOT NULL "
+                        + "AND community_physical_index <> ''",
+                snapshotId);
+    }
+
+    @Override
+    public List<Long> findSnapshotsAwaitingCleanup() {
+        return jdbc.queryForList("SELECT s.id FROM graph_snapshot s "
+                + "JOIN graph_build_run r ON r.id = s.run_id "
+                + "JOIN graph_build_batch b ON b.id = r.batch_id "
+                + "WHERE s.state = 'DELETING' AND b.deleted_at IS NULL "
+                + "AND (NOT EXISTS (SELECT 1 FROM graph_resource_reference g WHERE g.snapshot_id = s.id) "
+                + "  OR EXISTS (SELECT 1 FROM graph_resource_reference g "
+                + "             WHERE g.snapshot_id = s.id AND g.cleanup_state <> 'DELETED')) "
+                + "ORDER BY s.id", Long.class);
+    }
+
+    @Override
     public boolean markResourceFailed(long resourceId, String errorSummary) {
         return jdbc.update("UPDATE graph_resource_reference SET cleanup_state = 'FAILED', "
                         + "last_error_summary = ? WHERE id = ? AND cleanup_state <> 'DELETED'",
@@ -440,18 +470,43 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
 
     @Override
     public boolean requeueRun(long runId) {
-        return jdbc.update("UPDATE graph_build_run SET state = 'QUEUED', "
+        // 已删除批次的子任务是墓碑，不能再被重试拉起
+        boolean requeued = jdbc.update("UPDATE graph_build_run SET state = 'QUEUED', "
                         + "stage = 'QUEUED', error_code = NULL, error_summary = NULL "
-                        + "WHERE id = ? AND state IN ('FAILED','CANCELLED','STALE')",
+                        + "WHERE id = ? AND state IN ('FAILED','CANCELLED','STALE') "
+                        + "AND batch_id NOT IN (SELECT id FROM graph_build_batch WHERE deleted_at IS NOT NULL)",
                 runId) == 1;
+        if (requeued) {
+            // 批次重新有未结束的子任务：从结束态回到排队中，开始执行时再置为进行中
+            jdbc.update("UPDATE graph_build_batch SET state = 'QUEUED' "
+                    + "WHERE id = (SELECT batch_id FROM graph_build_run WHERE id = ?) "
+                    + "AND state IN ('READY','PARTIAL_FAILED','FAILED','CANCELLED','STALE')", runId);
+        }
+        return requeued;
+    }
+
+    @Override
+    public void markBatchRunning(long batchId) {
+        jdbc.update("UPDATE graph_build_batch SET state = 'RUNNING' WHERE id = ? AND state <> 'RUNNING'",
+                batchId);
     }
 
     @Override
     public boolean cancelRun(long runId) {
-        return jdbc.update("UPDATE graph_build_run SET state = 'CANCELLED', "
-                        + "stage = 'CLEANING', completed_at = CURRENT_TIMESTAMP(6) "
+        // 阶段保持在取消时所处的位置（执行器取消后直接退出，没有真正的清理阶段）
+        boolean cancelled = jdbc.update("UPDATE graph_build_run SET state = 'CANCELLED', "
+                        + "completed_at = CURRENT_TIMESTAMP(6) "
                         + "WHERE id = ? AND state IN (" + activeStateSql() + ")",
                 runId) == 1;
+        if (cancelled) {
+            // 执行器被取消时不写任何状态，批次收尾只能在这里做，否则批次会一直停在排队中/进行中
+            Long batchId = jdbc.queryForObject(
+                    "SELECT batch_id FROM graph_build_run WHERE id = ?", Long.class, runId);
+            if (batchId != null) {
+                settleBatch(batchId);
+            }
+        }
+        return cancelled;
     }
 
     @Override
@@ -546,9 +601,16 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
         Long succeeded = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM graph_build_run WHERE batch_id = ? AND state IN "
                         + "('READY','PUBLISHED')", Long.class, batchId);
+        Long cancelled = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM graph_build_run WHERE batch_id = ? AND state = 'CANCELLED'",
+                Long.class, batchId);
         boolean anyFailed = failing != null && failing > 0;
         boolean anySucceeded = succeeded != null && succeeded > 0;
-        String target = !anyFailed ? "READY" : anySucceeded ? "PARTIAL_FAILED" : "FAILED";
+        // 全部子任务都是被取消的：批次显示已取消，而不是失败
+        boolean allCancelled = anyFailed && !anySucceeded && cancelled != null
+                && cancelled.equals(failing);
+        String target = !anyFailed ? "READY" : anySucceeded ? "PARTIAL_FAILED"
+                : allCancelled ? "CANCELLED" : "FAILED";
         jdbc.update("UPDATE graph_build_batch SET state = ? WHERE id = ?", target, batchId);
     }
 

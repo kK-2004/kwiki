@@ -3,11 +3,12 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   api, ApiError,
-  type GraphBatch, type GraphPlugins, type GraphPublication, type GraphRun, type GraphSchedule,
+  type GraphBatch, type GraphFreshnessRow, type GraphPlugins, type GraphPublication,
+  type GraphRun, type GraphSchedule,
   type GraphServiceStatus, type GraphSnapshotRow, type Version,
 } from "../api";
 import { useAuth } from "../auth";
-import { graphStateLabel } from "../labels";
+import { graphRunStageNote, graphStateLabel } from "../labels";
 
 const auth = useAuth();
 /** 图构建功能由 kwiki.graph.enabled 开关控制；关闭时后端不暴露任何图管理端点。 */
@@ -19,6 +20,7 @@ const snapshots = ref<GraphSnapshotRow[]>([]);
 const audits = ref<Record<string, unknown>[]>([]);
 const service = ref<GraphServiceStatus | null>(null);
 const plugins = ref<GraphPlugins | null>(null);
+const freshness = ref<GraphFreshnessRow[]>([]);
 const chunkVersions = ref<Version[]>([]);
 const knowledgeBases = ref<{ id: number; name: string }[]>([]);
 const runsByBatch = ref<Record<number, GraphRun[]>>({});
@@ -75,6 +77,22 @@ function dualBadge(batch: GraphBatch) {
 function communityBadge(batch: GraphBatch) {
   return batch.communityIndexVersion ? `COMMUNITY v${batch.communityIndexVersion}` : "—（不涉及）";
 }
+function gateModeTag(mode: string) {
+  if (mode === "FULL") return "success";
+  if (mode === "FACTS_ONLY") return "warning";
+  if (mode === "OFF") return "danger";
+  return "info";
+}
+/** PT30M → 30分钟 等时长的可读展示。 */
+function durationLabel(iso: string) {
+  const m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso);
+  if (!m) return iso;
+  const parts: string[] = [];
+  if (m[1]) parts.push(`${m[1]}小时`);
+  if (m[2]) parts.push(`${m[2]}分钟`);
+  if (m[3]) parts.push(`${m[3]}秒`);
+  return parts.join("") || iso;
+}
 
 /** 先探测功能开关：未开启时后端端点为 404，此时展示引导而非报错。 */
 async function probe() {
@@ -96,13 +114,14 @@ async function probe() {
 async function load(silent = false) {
   if (!silent) loading.value = true;
   try {
-    const [b, s, p, sn, au, cv, kbList, pl] = await Promise.all([
+    const [b, s, p, sn, au, cv, kbList, pl, fr] = await Promise.all([
       api.graphBatches(), api.graphSchedule(), api.graphPublications(),
       api.graphSnapshots(), api.graphAudits(), api.versions(), api.adminKnowledgeBases(),
-      api.graphPlugins(),
+      api.graphPlugins(), api.graphFreshness(),
     ]);
     batches.value = b; schedule.value = s; publications.value = p;
     snapshots.value = sn; audits.value = au;
+    freshness.value = fr;
     chunkVersions.value = cv.filter(v => v.pipelineSupported);
     knowledgeBases.value = kbList;
     plugins.value = pl;
@@ -205,6 +224,35 @@ async function runAction(run: GraphRun, action: "retry" | "cancel") {
   }
 }
 
+/** 批次排队或进行中时不能删除（服务端还会逐个核对子任务、发布指针与读取租约）。 */
+const canDeleteBatch = (batch: GraphBatch) => !!batch.deletedAt || !["QUEUED", "RUNNING"].includes(batch.state);
+
+async function deleteBatch(batch: GraphBatch) {
+  if (!batch.deletedAt) {
+    try {
+      await ElMessageBox.confirm(
+        `删除批次 ${batch.id} 会同时删除它产出的图数据、社区索引和快照（不能再发布或回滚到这些快照），且不可恢复。正在发布中的快照所在批次不能删除。`,
+        "删除批次", { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" });
+    } catch {
+      return;
+    }
+  }
+  try {
+    const result = await api.graphDeleteBatch(batch.id);
+    if (result.cleanupState === "DONE") {
+      ElMessage.success(`批次 ${batch.id} 已删除`);
+    } else {
+      ElMessage.warning(`批次 ${batch.id} 已删除，但部分外部数据清理失败，可点「重试清理」：${result.failures.join("；")}`);
+    }
+    if (selectedBatch.value === batch.id) {
+      selectedBatch.value = null;
+    }
+    await load();
+  } catch (error) {
+    showError(error);
+  }
+}
+
 async function publish(snapshot: GraphSnapshotRow) {
   const pub = publications.value.find(
     p => p.kbId === snapshot.kbId && p.chunkIndexVersion === snapshot.chunkIndexVersion);
@@ -251,8 +299,15 @@ async function retire(snapshot: GraphSnapshotRow) {
 
 async function cleanup(snapshot: GraphSnapshotRow) {
   try {
-    await api.graphCommand(`/snapshots/${snapshot.id}/cleanup`);
-    ElMessage.success("清理请求已执行（幂等，部分失败可重试）");
+    const result = await api.graphCommand<{ deleted: number; remaining: number; complete: boolean }>(
+      `/snapshots/${snapshot.id}/cleanup`);
+    if (result.complete) {
+      ElMessage.success("已删除该快照的图数据与社区索引");
+    } else if (result.deleted === 0 && result.remaining === 0) {
+      ElMessage.info("退役宽限期或读取租约尚未结束，到期后会自动清理");
+    } else {
+      ElMessage.warning(`部分资源清理失败，剩余 ${result.remaining} 项，可稍后重试（也会自动重试）`);
+    }
     await load();
   } catch (error) {
     showError(error);
@@ -384,7 +439,10 @@ function showError(error: unknown) {
                 <template #default="{ row }">{{ row.scopeKind === "ALL" ? "全部知识库" : `知识库 ${row.scopeKind}` }}</template>
               </el-table-column>
               <el-table-column prop="state" label="状态" width="130">
-                <template #default="{ row }"><el-tag>{{ graphStateLabel(row.state) }}</el-tag></template>
+                <template #default="{ row }">
+                  <el-tag v-if="row.deletedAt" type="danger">{{ row.cleanupState === "FAILED" ? "清理失败" : "删除中" }}</el-tag>
+                  <el-tag v-else>{{ graphStateLabel(row.state) }}</el-tag>
+                </template>
               </el-table-column>
               <el-table-column label="自动发布" width="100">
                 <template #default="{ row }">{{ row.autoPublish ? "是" : "否" }}</template>
@@ -394,6 +452,16 @@ function showError(error: unknown) {
               </el-table-column>
               <el-table-column prop="requestedBy" label="发起人" width="130"/>
               <el-table-column prop="createdAt" label="创建时间" width="180"/>
+              <el-table-column label="操作" width="110" fixed="right">
+                <template #default="{ row }">
+                  <el-tooltip :disabled="canDeleteBatch(row)" content="批次仍有排队或进行中的子任务，请先取消" placement="top">
+                    <span>
+                      <el-button size="small" type="danger" plain :disabled="!canDeleteBatch(row)"
+                        @click.stop="deleteBatch(row)">{{ row.deletedAt ? "重试清理" : "删除" }}</el-button>
+                    </span>
+                  </el-tooltip>
+                </template>
+              </el-table-column>
             </el-table>
             <h3 v-if="selectedBatch">批次 {{ selectedBatch }} 的子任务</h3>
             <el-table :data="selectedRuns" size="small">
@@ -406,7 +474,7 @@ function showError(error: unknown) {
               <el-table-column prop="communityPhysicalIndex" label="社区物理索引" min-width="220"/>
               <el-table-column label="阶段" width="150">
                 <!-- 状态与阶段相同时（如排队中）只显示一次 -->
-                <template #default="{ row }"><el-tag>{{ graphStateLabel(row.state) }}</el-tag><span v-if="row.stage && row.stage !== row.state"> {{ graphStateLabel(row.stage) }}</span></template>
+                <template #default="{ row }"><el-tag>{{ graphStateLabel(row.state) }}</el-tag><span v-if="graphRunStageNote(row.state, row.stage)" class="muted"> {{ graphRunStageNote(row.state, row.stage) }}</span></template>
               </el-table-column>
               <el-table-column label="进度" min-width="240">
                 <template #default="{ row }">{{ progressText(row) }}</template>
@@ -463,7 +531,10 @@ function showError(error: unknown) {
               </el-table-column>
               <el-table-column prop="communityPhysicalIndex" label="社区物理索引" min-width="200"/>
               <el-table-column prop="state" label="状态" width="110">
-                <template #default="{ row }"><el-tag>{{ graphStateLabel(row.state) }}</el-tag></template>
+                <template #default="{ row }">
+                  <el-tag v-if="row.cleaned" type="info">已清理</el-tag>
+                  <el-tag v-else>{{ graphStateLabel(row.state) }}</el-tag>
+                </template>
               </el-table-column>
               <el-table-column label="插件组合" min-width="200">
                 <template #default="{ row }">{{ pluginBadge(row) }}</template>
@@ -476,7 +547,7 @@ function showError(error: unknown) {
                   <el-button size="small" type="success" :disabled="row.state !== 'READY'" @click="publish(row)">发布</el-button>
                   <el-button size="small" type="warning"
                     :disabled="!['READY', 'RETIRED', 'PUBLISHED'].includes(row.state)" @click="retire(row)">退役</el-button>
-                  <el-button size="small" type="danger" :disabled="row.state !== 'DELETING'" @click="cleanup(row)">清理</el-button>
+                  <el-button size="small" type="danger" :disabled="row.state !== 'DELETING' || !!row.cleaned" @click="cleanup(row)">清理</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -492,6 +563,12 @@ function showError(error: unknown) {
                 <el-descriptions-item label="实体上限">{{ service.capacity.maxEntities }}（预警 {{ service.capacity.warnEntities }}）</el-descriptions-item>
                 <el-descriptions-item label="关系上限">{{ service.capacity.maxRelations }}（预警 {{ service.capacity.warnRelations }}）</el-descriptions-item>
                 <el-descriptions-item label="摘要上限">{{ service.capacity.maxCommunities }}</el-descriptions-item>
+                <el-descriptions-item v-if="service.rebuild" label="自动重建" :span="3">
+                  {{ service.rebuild.enabled ? "开启" : "关闭" }} · 静默期 {{ durationLabel(service.rebuild.quietPeriod) }}
+                  · 最长延迟 {{ durationLabel(service.rebuild.maxDelay) }}
+                  · 重建自动发布：{{ service.rebuild.autoPublish ? "开" : "关" }}
+                  <span class="muted">（autoPublish 与 rebuild.* 支持配置中心热更新，只影响之后提交的批次）</span>
+                </el-descriptions-item>
               </el-descriptions>
             </div>
             <h3>每日调度记录</h3>
@@ -506,6 +583,36 @@ function showError(error: unknown) {
                 <template #default="{ row }">{{ row.linkedBatchId ?? "-" }}</template>
               </el-table-column>
               <el-table-column prop="createdAt" label="时间"/>
+            </el-table>
+          </el-tab-pane>
+
+          <el-tab-pane label="图新鲜度">
+            <p class="tab-desc">每库门禁档位（管理员视角）与待重建状态：内容/权限变化会使快照落后（FACTS_ONLY，仅图事实），去抖调度在静默期后自动重建；已退役来源只降级不关闭。</p>
+            <el-table :data="freshness" size="small">
+              <el-table-column prop="kbId" label="知识库" width="90"/>
+              <el-table-column label="门禁档位" width="120">
+                <template #default="{ row }">
+                  <el-tag :type="gateModeTag(row.gateMode)">{{ row.gateMode }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="原因" width="180">
+                <template #default="{ row }">{{ row.gateReason ?? "-" }}</template>
+              </el-table-column>
+              <el-table-column label="来源 有效/可读/范围内/退役" width="210">
+                <template #default="{ row }">{{ row.expectedSourceCount }} / {{ row.visibleSourceCount }} / {{ row.selectedSourceCount }} / {{ row.retiredSourceCount }}</template>
+              </el-table-column>
+              <el-table-column label="epoch 快照/当前（内容·安全）" width="200">
+                <template #default="{ row }">{{ row.snapshotContentEpoch ?? "-" }}/{{ row.currentContentEpoch }} · {{ row.snapshotSecurityEpoch ?? "-" }}/{{ row.currentSecurityEpoch }}</template>
+              </el-table-column>
+              <el-table-column label="待重建起始" width="180">
+                <template #default="{ row }">{{ row.rebuildFirstDirtyAt ?? "-" }}</template>
+              </el-table-column>
+              <el-table-column label="预计可提交" width="180">
+                <template #default="{ row }">{{ row.rebuildNextEligibleAt ?? "-" }}</template>
+              </el-table-column>
+              <el-table-column label="最近自动重建" min-width="180">
+                <template #default="{ row }">{{ row.rebuildLastBatchId ? `批次 ${row.rebuildLastBatchId}` : "-" }}{{ row.rebuildLastOutcome ? ` · ${row.rebuildLastOutcome}` : "" }}</template>
+              </el-table-column>
             </el-table>
           </el-tab-pane>
 

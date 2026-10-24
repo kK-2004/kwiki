@@ -74,7 +74,8 @@ public class GraphRetrievalEnhancerConfiguration {
             ObjectProvider<CommunitySearchPort> communitySearch,
             ObjectProvider<GraphExpansionPort> expansion,
             ObjectProvider<ChunkEmbeddingPort> embeddings,
-            GraphProperties properties) {
+            GraphProperties properties,
+            ObjectProvider<com.kwiki.graph.persistence.GraphBuildMetrics> metrics) {
         return new GraphRetrievalEnhancer(
                 pinner, inventory, manifests,
                 childResolver.getIfAvailable(() -> (index, id, version, kb) -> Optional.empty()),
@@ -91,6 +92,6 @@ public class GraphRetrievalEnhancerConfiguration {
                 properties.capacity().maxHops(),
                 properties.capacity().maxEdgesPerNode(),
                 properties.capacity().maxEdgesTotal(),
-                20, 30);
+                20, 30, metrics.getIfAvailable());
     }
 }

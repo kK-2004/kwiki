@@ -2,6 +2,7 @@ package com.kwiki.wiki.api;
 
 import com.kk2004.common.response.TransDTO;
 import com.kwiki.graph.config.GraphProperties;
+import com.kwiki.graph.config.GraphRuntimeSettings;
 import com.kwiki.graph.persistence.GraphAdminCommandService;
 import com.kwiki.graph.persistence.GraphAdminQueryService;
 import com.kwiki.graph.persistence.GraphBuildBatchRequest;
@@ -15,6 +16,7 @@ import jakarta.validation.constraints.NotNull;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -43,6 +45,9 @@ public class GraphBuildAdminController {
     private final GraphAdminCommandService commands;
     private final GraphBuildRepository repository;
     private final GraphProperties graphProperties;
+    private final com.kwiki.graph.persistence.GraphFreshnessService freshness;
+    /** 热更新的发布/重建设置；提交与服务状态每次读取当前快照。 */
+    private final GraphRuntimeSettings runtimeSettings;
     /** 批次目标解析；为 null（仅用于不涉及提交的测试装配）时提交接口不可用。 */
     private final com.kwiki.graph.persistence.GraphBuildTargets targets;
 
@@ -50,8 +55,9 @@ public class GraphBuildAdminController {
                                      GraphAdminQueryService queries,
                                      GraphAdminCommandService commands,
                                      GraphBuildRepository repository,
-                                     GraphProperties graphProperties) {
-        this(batches, queries, commands, repository, graphProperties, null);
+                                     GraphProperties graphProperties,
+                                     GraphRuntimeSettings runtimeSettings) {
+        this(batches, queries, commands, repository, graphProperties, runtimeSettings, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -60,13 +66,28 @@ public class GraphBuildAdminController {
                                      GraphAdminCommandService commands,
                                      GraphBuildRepository repository,
                                      GraphProperties graphProperties,
-                                     com.kwiki.graph.persistence.GraphBuildTargets targets) {
+                                     GraphRuntimeSettings runtimeSettings,
+                                     com.kwiki.graph.persistence.GraphBuildTargets targets,
+                                     com.kwiki.graph.persistence.GraphFreshnessService freshness) {
         this.batches = batches;
         this.queries = queries;
         this.commands = commands;
         this.repository = repository;
         this.graphProperties = graphProperties;
+        this.runtimeSettings = runtimeSettings;
         this.targets = targets;
+        this.freshness = freshness;
+    }
+
+    /** 兼容旧测试装配：不注入新鲜度服务。 */
+    public GraphBuildAdminController(GraphBuildBatchService batches,
+                                     GraphAdminQueryService queries,
+                                     GraphAdminCommandService commands,
+                                     GraphBuildRepository repository,
+                                     GraphProperties graphProperties,
+                                     GraphRuntimeSettings runtimeSettings,
+                                     com.kwiki.graph.persistence.GraphBuildTargets targets) {
+        this(batches, queries, commands, repository, graphProperties, runtimeSettings, targets, null);
     }
 
     @PostMapping("/batches")
@@ -82,7 +103,7 @@ public class GraphBuildAdminController {
         try {
             batch = targets.request(idempotencyKey, request.scopeKind(), request.knowledgeBaseIds(),
                     request.chunkIndexVersion(), request.entityLinkingVersion(),
-                    graphProperties.autoPublish(), user.username(), request.scheduleDate(),
+                    runtimeSettings.snapshot().autoPublish(), user.username(), request.scheduleDate(),
                     request.extractor(), request.communityDetector(), request.summarizer());
         } catch (IllegalArgumentException invalid) {
             throw new ConflictException(invalid.getMessage());
@@ -138,15 +159,27 @@ public class GraphBuildAdminController {
         return TransDTO.success(queries.audits());
     }
 
-    /** 服务与调度状态：开关、cron/时区、容量阈值与当前活动批次。 */
+    /** 每库图新鲜度：门禁档位（管理员视角）、待重建起止时间、最近一次自动重建批次与结果。 */
+    @GetMapping("/freshness")
+    public TransDTO<List<com.kwiki.graph.persistence.GraphFreshnessService.KbFreshness>> freshness() {
+        return TransDTO.success(freshness.freshness());
+    }
+
+    /** 服务与调度状态：开关、cron/时区、容量阈值、热更新的发布/重建设置与当前活动批次。 */
     @GetMapping("/service-status")
     public TransDTO<Map<String, Object>> serviceStatus() {
+        GraphRuntimeSettings.Snapshot settings = runtimeSettings.snapshot();
         Map<String, Object> status = new LinkedHashMap<>();
         status.put("enabled", graphProperties.isEnabled());
         status.put("algorithmMode", graphProperties.algorithmMode().name());
         status.put("scheduleCron", graphProperties.scheduleCron());
         status.put("scheduleZone", graphProperties.scheduleZone());
-        status.put("autoPublish", graphProperties.autoPublish());
+        status.put("autoPublish", settings.autoPublish());
+        status.put("rebuild", Map.of(
+                "enabled", settings.rebuildEnabled(),
+                "quietPeriod", settings.rebuildQuietPeriod().toString(),
+                "maxDelay", settings.rebuildMaxDelay().toString(),
+                "autoPublish", settings.rebuildAutoPublish()));
         status.put("capacity", Map.of(
                 "maxEntities", graphProperties.capacity().maxEntities(),
                 "maxRelations", graphProperties.capacity().maxRelations(),
@@ -176,6 +209,20 @@ public class GraphBuildAdminController {
             @PathVariable long runId) {
         return TransDTO.success(commands.execute(idempotencyKey, "RUN_CANCEL",
                 user.username(), null, runId, () -> commands.cancel(runId)));
+    }
+
+    /** 删除批次（子任务须已结束、快照不在发布中）；外部数据清理失败时可再次调用重试。 */
+    @DeleteMapping("/batches/{batchId}")
+    public TransDTO<Map<String, Object>> deleteBatch(
+            @AuthenticationPrincipal CurrentUser user,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @PathVariable long batchId) {
+        try {
+            return TransDTO.success(commands.execute(idempotencyKey, "BATCH_DELETE",
+                    user.username(), batchId, null, () -> commands.deleteBatch(batchId, user.username())));
+        } catch (IllegalStateException conflict) {
+            throw new ConflictException(conflict.getMessage());
+        }
     }
 
     @PostMapping("/snapshots/{snapshotId}/publish")

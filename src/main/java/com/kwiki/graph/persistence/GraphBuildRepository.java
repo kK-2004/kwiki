@@ -89,6 +89,18 @@ public interface GraphBuildRepository {
 
     boolean markResourceDeleted(long resourceId);
 
+    /**
+     * 登记快照自有的外部资源（该 graphVersion 的图数据、社区物理索引）；幂等，
+     * 已登记（含已删除）的不会重复插入。快照创建时没有登记，清理前按快照行补齐。
+     */
+    void ensureSnapshotResources(long snapshotId);
+
+    /**
+     * 待清理的退役快照：状态 DELETING、所属批次未被删除（批次删除自己清理），
+     * 且资源尚未登记或仍有未删除的资源。
+     */
+    List<Long> findSnapshotsAwaitingCleanup();
+
     boolean markResourceFailed(long resourceId, String errorSummary);
 
     /** 快照来源清单中的去重资源身份（资源粒度），供全来源覆盖证明使用。 */
@@ -128,6 +140,9 @@ public interface GraphBuildRepository {
 
     /** 子任务均进入终态时收尾批次；仍有活动子任务时不做任何修改。 */
     void settleBatch(long batchId);
+
+    /** 子任务开始执行：批次置为进行中（批次结束态由 settleBatch 重新计算）。 */
+    void markBatchRunning(long batchId);
 
     /** 写入来源清单（state=COMPLETE）与全部清单项，返回清单 id。 */
     long persistManifest(GraphSourceManifest manifest);

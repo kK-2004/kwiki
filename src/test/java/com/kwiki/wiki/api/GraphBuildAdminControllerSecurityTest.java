@@ -43,10 +43,11 @@ class GraphBuildAdminControllerSecurityTest {
             return new GraphBuildAdminController(batches, queries, commands, repository,
                     new GraphProperties(false,
                             com.kwiki.graph.GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED,
-                            "0 0 2 * * *", "Asia/Shanghai", false,
+                            "0 0 2 * * *", "Asia/Shanghai",
                             java.time.Duration.ofMinutes(10), 2,
                             java.time.Duration.ofMinutes(30),
-                            GraphProperties.Capacity.defaults()));
+                            GraphProperties.Capacity.defaults()),
+                    new com.kwiki.graph.config.GraphRuntimeSettings(false, true, "30m", "6h", true));
         }
     }
 

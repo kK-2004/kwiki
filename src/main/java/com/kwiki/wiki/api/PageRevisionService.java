@@ -39,6 +39,8 @@ public class PageRevisionService {
     private final com.kwiki.wiki.archive.ResourceArchiveService archiveService;
     private final PageMediaReferenceService mediaReferences;
     private final WikiPageDraftRepository drafts;
+    /** 图谱来源变化通知；图功能关闭时为空实现。 */
+    private final com.kwiki.wiki.graph.KnowledgeSourceChangePort sourceChanges;
 
     public PageRevisionService(WikiPageRepository pages,
                                WikiPageRevisionRepository revisions,
@@ -46,7 +48,8 @@ public class PageRevisionService {
                                MarkdownPort markdown,
                                IndexingJobEnqueuer indexingJobs,
                                PageLinkService pageLinks) {
-        this(pages, revisions, authorization, markdown, indexingJobs, pageLinks, null, null, null, null);
+        this(pages, revisions, authorization, markdown, indexingJobs, pageLinks,
+                null, null, null, null, (com.kwiki.wiki.graph.KnowledgeSourceChangePort) null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -59,7 +62,44 @@ public class PageRevisionService {
                                ResourceAuthorizationService resources,
                                com.kwiki.wiki.archive.ResourceArchiveService archiveService,
                                PageMediaReferenceService mediaReferences,
+                               WikiPageDraftRepository drafts,
+                               org.springframework.beans.factory.ObjectProvider<
+                                       com.kwiki.wiki.graph.KnowledgeSourceChangePort> sourceChanges) {
+        this(pages, revisions, authorization, markdown, indexingJobs, pageLinks,
+                resources, archiveService, mediaReferences, drafts,
+                sourceChanges == null
+                        ? (com.kwiki.wiki.graph.KnowledgeSourceChangePort) null
+                        : sourceChanges.getIfAvailable());
+    }
+
+    /** 兼容旧调用（测试/兜底装配）：不传图谱端口时使用空实现。 */
+    public PageRevisionService(WikiPageRepository pages,
+                               WikiPageRevisionRepository revisions,
+                               KnowledgeBaseAuthorizationService authorization,
+                               MarkdownPort markdown,
+                               IndexingJobEnqueuer indexingJobs,
+                               PageLinkService pageLinks,
+                               ResourceAuthorizationService resources,
+                               com.kwiki.wiki.archive.ResourceArchiveService archiveService,
+                               PageMediaReferenceService mediaReferences,
                                WikiPageDraftRepository drafts) {
+        this(pages, revisions, authorization, markdown, indexingJobs, pageLinks,
+                resources, archiveService, mediaReferences, drafts,
+                (com.kwiki.wiki.graph.KnowledgeSourceChangePort) null);
+    }
+
+    /** 测试装配入口：不传图谱端口时使用空实现。 */
+    PageRevisionService(WikiPageRepository pages,
+                        WikiPageRevisionRepository revisions,
+                        KnowledgeBaseAuthorizationService authorization,
+                        MarkdownPort markdown,
+                        IndexingJobEnqueuer indexingJobs,
+                        PageLinkService pageLinks,
+                        ResourceAuthorizationService resources,
+                        com.kwiki.wiki.archive.ResourceArchiveService archiveService,
+                        PageMediaReferenceService mediaReferences,
+                        WikiPageDraftRepository drafts,
+                        com.kwiki.wiki.graph.KnowledgeSourceChangePort sourceChanges) {
         this.pages = pages;
         this.revisions = revisions;
         this.authorization = authorization;
@@ -70,6 +110,8 @@ public class PageRevisionService {
         this.archiveService = archiveService;
         this.mediaReferences = mediaReferences;
         this.drafts = drafts;
+        this.sourceChanges = sourceChanges == null
+                ? com.kwiki.wiki.graph.KnowledgeSourceChangePort.noop() : sourceChanges;
     }
 
     @Transactional
@@ -103,6 +145,7 @@ public class PageRevisionService {
         pages.save(page);
         // 同事务契约：当且仅当发布提交时任务才存在（任务 4.2）
         indexingJobs.enqueuePageUpsert(pageId, published.getId());
+        sourceChanges.contentChanged(kbId);
         pageLinks.refreshLinks(pageId, kbId, published.getMarkdown());
         persistMediaReferences(kbId, pageId, published.getId(), published.getMarkdown());
         drafts.deleteById(pageId);
@@ -161,6 +204,7 @@ public class PageRevisionService {
         page.setCurrentDraftRevisionId(restored.getId());
         pages.save(page);
         indexingJobs.enqueuePageUpsert(pageId, restored.getId());
+        sourceChanges.contentChanged(kbId);
         pageLinks.refreshLinks(pageId, kbId, restored.getMarkdown());
         persistMediaReferences(kbId, pageId, restored.getId(), restored.getMarkdown());
         if (drafts != null) drafts.deleteById(pageId);
@@ -182,6 +226,7 @@ public class PageRevisionService {
         page.archive();
         pages.save(page);
         indexingJobs.enqueuePageDelete(pageId);
+        sourceChanges.contentChanged(kbId);
     }
 
     private WikiPage requireActivePage(long kbId, long pageId) {

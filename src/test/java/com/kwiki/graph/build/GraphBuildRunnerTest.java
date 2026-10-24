@@ -96,7 +96,10 @@ class GraphBuildRunnerTest {
         // VALIDATING 通过 → READY 终态断点
         checkpoints.verify(coordinator).checkpoint(any(), eq("owner-a"), eq(3L),
                 eq(GraphBuildState.READY), eq(GraphBuildStage.READY), eq(0L));
-        verify(repository).settleBatch(9L);
+        // 子任务开始执行时批次置为进行中，结束时再结算
+        InOrder batchState = inOrder(repository);
+        batchState.verify(repository).markBatchRunning(9L);
+        batchState.verify(repository).settleBatch(9L);
     }
 
     @Test

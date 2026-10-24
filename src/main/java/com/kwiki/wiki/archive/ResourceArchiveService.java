@@ -86,6 +86,8 @@ public class ResourceArchiveService {
     private final TransactionRunner transactions;
     private final JdbcOperations jdbc;
     private final Clock clock;
+    /** 图谱来源变化通知；图功能关闭时为空实现。 */
+    private final com.kwiki.wiki.graph.KnowledgeSourceChangePort sourceChanges;
 
     @Autowired
     public ResourceArchiveService(WikiPageRepository pages,
@@ -100,10 +102,32 @@ public class ResourceArchiveService {
                                   IndexingJobEnqueuer indexingJobs,
                                   ArchiveIndexSyncService indexSync,
                                   TransactionRunner transactions,
-                                  ObjectProvider<JdbcOperations> jdbc) {
+                                  ObjectProvider<JdbcOperations> jdbc,
+                                  org.springframework.beans.factory.ObjectProvider<
+                                          com.kwiki.wiki.graph.KnowledgeSourceChangePort> sourceChanges) {
         this(pages, knowledgeBases, attachments, sourceDocuments, batches, batchItems,
                 authorization, resources, scopeVersions, indexingJobs, indexSync,
-                transactions, jdbc, Clock.systemUTC());
+                transactions, jdbc, sourceChanges, Clock.systemUTC());
+    }
+
+    /** 兼容旧调用（测试装配）：图谱端口为空实现。 */
+    public ResourceArchiveService(WikiPageRepository pages,
+                                  KnowledgeBaseRepository knowledgeBases,
+                                  AttachmentRepository attachments,
+                                  SourceDocumentRepository sourceDocuments,
+                                  ArchiveBatchRepository batches,
+                                  ArchiveBatchItemRepository batchItems,
+                                  KnowledgeBaseAuthorizationService authorization,
+                                  ResourceAuthorizationService resources,
+                                  ScopeVersionService scopeVersions,
+                                  IndexingJobEnqueuer indexingJobs,
+                                  ArchiveIndexSyncService indexSync,
+                                  TransactionRunner transactions,
+                                  ObjectProvider<JdbcOperations> jdbc,
+                                  Clock clock) {
+        this(pages, knowledgeBases, attachments, sourceDocuments, batches, batchItems,
+                authorization, resources, scopeVersions, indexingJobs, indexSync,
+                transactions, jdbc, (com.kwiki.wiki.graph.KnowledgeSourceChangePort) null, clock);
     }
 
     public ResourceArchiveService(WikiPageRepository pages,
@@ -119,7 +143,32 @@ public class ResourceArchiveService {
                                   ArchiveIndexSyncService indexSync,
                                   TransactionRunner transactions,
                                   ObjectProvider<JdbcOperations> jdbc,
+                                  org.springframework.beans.factory.ObjectProvider<
+                                          com.kwiki.wiki.graph.KnowledgeSourceChangePort> sourceChanges,
                                   Clock clock) {
+        this(pages, knowledgeBases, attachments, sourceDocuments, batches, batchItems,
+                authorization, resources, scopeVersions, indexingJobs, indexSync,
+                transactions, jdbc,
+                sourceChanges == null ? null
+                        : sourceChanges.getIfAvailable(com.kwiki.wiki.graph.KnowledgeSourceChangePort::noop),
+                clock);
+    }
+
+    private ResourceArchiveService(WikiPageRepository pages,
+                                   KnowledgeBaseRepository knowledgeBases,
+                                   AttachmentRepository attachments,
+                                   SourceDocumentRepository sourceDocuments,
+                                   ArchiveBatchRepository batches,
+                                   ArchiveBatchItemRepository batchItems,
+                                   KnowledgeBaseAuthorizationService authorization,
+                                   ResourceAuthorizationService resources,
+                                   ScopeVersionService scopeVersions,
+                                   IndexingJobEnqueuer indexingJobs,
+                                   ArchiveIndexSyncService indexSync,
+                                   TransactionRunner transactions,
+                                   ObjectProvider<JdbcOperations> jdbc,
+                                   com.kwiki.wiki.graph.KnowledgeSourceChangePort sourceChanges,
+                                   Clock clock) {
         this.pages = pages;
         this.knowledgeBases = knowledgeBases;
         this.attachments = attachments;
@@ -133,6 +182,8 @@ public class ResourceArchiveService {
         this.indexSync = indexSync;
         this.transactions = transactions;
         this.jdbc = jdbc == null ? null : jdbc.getIfAvailable();
+        this.sourceChanges = sourceChanges == null
+                ? com.kwiki.wiki.graph.KnowledgeSourceChangePort.noop() : sourceChanges;
         this.clock = clock;
     }
 
@@ -190,6 +241,7 @@ public class ResourceArchiveService {
                 indexingJobs.enqueueAttachmentDelete(attachment.getId(), kb.getLifecycleVersion());
             }
             scopeVersions.bump(kbId);
+            sourceChanges.contentChanged(kbId);
             return created;
         });
         return finishArchive(batch);
@@ -249,6 +301,7 @@ public class ResourceArchiveService {
                         managed.getLifecycleVersion());
             }
             scopeVersions.bump(kbId);
+            sourceChanges.contentChanged(kbId);
             return created;
         });
         return finishArchive(batch);
@@ -441,6 +494,7 @@ public class ResourceArchiveService {
             locked.markRestored();
             batches.save(locked);
             scopeVersions.bump(locked.getKbId());
+            sourceChanges.contentChanged(locked.getKbId());
             String message = relocated > 0
                     ? "已恢复；其中 " + relocated + " 个页面因原父级不可用，已恢复到知识库根目录"
                     : "已恢复，正在重建索引";

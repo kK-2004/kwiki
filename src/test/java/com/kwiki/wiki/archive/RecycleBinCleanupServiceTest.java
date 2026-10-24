@@ -71,6 +71,39 @@ class RecycleBinCleanupServiceTest {
     }
 
     @Test
+    void purgeNowMarksTheKnowledgeBaseAsHardDeletedForGraphRebuild() {
+        ArchiveBatchRepository batches = mock(ArchiveBatchRepository.class);
+        ArchiveBatchItemRepository batchItems = mock(ArchiveBatchItemRepository.class);
+        JdbcOperations jdbc = mock(JdbcOperations.class);
+        IndexWriteTargets writeTargets = mock(IndexWriteTargets.class);
+        when(writeTargets.current()).thenReturn(List.of());
+        var sourceChanges = mock(com.kwiki.wiki.graph.KnowledgeSourceChangePort.class);
+
+        ArchiveBatch batch = new ArchiveBatch("batch-42", ArchiveBatch.SCOPE_PAGE, 7L, 5L,
+                9L, Instant.parse("2026-09-14T00:00:00Z"),
+                Instant.parse("2026-09-21T00:00:00Z"), 1, ArchiveBatch.ORIGIN_NORMAL);
+        ReflectionTestUtils.setField(batch, "id", 42L);
+        ArchiveBatchItem item = new ArchiveBatchItem(42L, ArchiveBatchItem.RESOURCE_PAGE, 7L,
+                5L, ArchiveBatchItem.PRIOR_ACTIVE, null, 1L);
+        ReflectionTestUtils.setField(item, "id", 99L);
+        when(batches.findById(42L)).thenReturn(Optional.of(batch));
+        when(batchItems.findByBatchIdOrderByIdAsc(42L)).thenReturn(List.of(item));
+        when(jdbc.queryForObject(any(String.class), eq(Long.class), eq(42L))).thenReturn(42L);
+
+        RecycleBinCleanupService service = new RecycleBinCleanupService(
+                batches, batchItems, StandardTestProperties.nullProvider(),
+                writeTargets, new TransactionRunner(null), StandardTestProperties.providerOf(jdbc),
+                StandardTestProperties.nullProvider(), 20,
+                Clock.fixed(Instant.parse("2026-09-15T00:00:00Z"), ZoneOffset.UTC),
+                StandardTestProperties.providerOf(sourceChanges));
+
+        service.purgeNow(42L);
+
+        // 物理删除行所在的同一事务内标记硬删除：调度器下一轮即跳过静默期提交重建
+        verify(sourceChanges).hardDeleted(5L);
+    }
+
+    @Test
     void purgeNowRefusesABatchThatWasAlreadyRestored() {
         ArchiveBatchRepository batches = mock(ArchiveBatchRepository.class);
         ArchiveBatchItemRepository batchItems = mock(ArchiveBatchItemRepository.class);

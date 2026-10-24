@@ -71,6 +71,24 @@ public class GraphBuildMetrics {
                 "outcome", safe(outcome)).increment();
     }
 
+    /** 门禁档位计数（FULL / FACTS_ONLY / OFF），按每次图增强的每库判定累计。 */
+    public void recordGateMode(String mode) {
+        registry.counter("graph.gate.mode", "mode", safe(mode)).increment();
+    }
+
+    /** 去抖自动重建：提交 / STALE / 失败计数。 */
+    public void recordRebuildSubmitted() {
+        registry.counter("graph.rebuild.submitted").increment();
+    }
+
+    public void recordRebuildStale() {
+        registry.counter("graph.rebuild.stale").increment();
+    }
+
+    public void recordRebuildFailed() {
+        registry.counter("graph.rebuild.failed").increment();
+    }
+
     private static String safe(String value) {
         return value == null || value.isBlank() ? "unknown" : value;
     }

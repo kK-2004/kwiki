@@ -149,7 +149,7 @@ class ValidationStageTest {
         // 封存发生在校验报告持久化处
         verify(repository).sealSnapshotReady(eq(91L), contains("SOURCE_COVERAGE"));
         verify(autoPublish).publishIfAutoPublishEnabled(eq(12L), eq(snapshot),
-                eq(GraphSnapshotState.READY), any(), eq(null));
+                eq(GraphSnapshotState.READY), any());
     }
 
     @Test
@@ -173,6 +173,6 @@ class ValidationStageTest {
                     assertThat(failure.getMessage()).contains("SUMMARIES_COMPLETE");
                 });
         verify(repository).persistValidationReport(eq(91L), any());
-        verify(autoPublish, never()).publishIfAutoPublishEnabled(anyLong(), any(), any(), any(), any());
+        verify(autoPublish, never()).publishIfAutoPublishEnabled(anyLong(), any(), any(), any());
     }
 }

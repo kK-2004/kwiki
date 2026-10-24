@@ -6,9 +6,11 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 全来源覆盖证明：以知识库当前全部有效可索引资源与快照来源清单的并集为
- * 期望集合，逐资源核验用户可读与本次选择范围，并比较快照 epoch 与当前值。
+ * 全来源覆盖证明：以「当前有效来源 ∪ 快照清单中仍有效的来源」为期望集合，
+ * 逐资源核验用户可读与本次选择范围，并比较快照 epoch 与当前值。
  * 期望集合取并集意味着快照之外新增的私有文档同样使门禁关闭。
+ * 快照清单中已退役的来源（不再 ACTIVE/STORED 或行已不存在）只计数、
+ * 不参与可读与选择范围校验——它们把门禁降为 FACTS_ONLY 而非关闭。
  */
 public class GraphSourceCoverageService {
 
@@ -30,7 +32,17 @@ public class GraphSourceCoverageService {
         }
         Set<GraphResourceId> expected = new LinkedHashSet<>();
         expected.addAll(inventory.listCurrentSources(kbId));
-        expected.addAll(manifestSources == null ? List.of() : manifestSources);
+        long retired = 0;
+        if (manifestSources != null && !manifestSources.isEmpty()) {
+            var states = inventory.lifecycleStates(manifestSources);
+            for (GraphResourceId resource : manifestSources) {
+                if (states.get(resource) == GraphSourceInventoryPort.LifecycleState.LIVE) {
+                    expected.add(resource);
+                } else {
+                    retired++;
+                }
+            }
+        }
         long visible = 0;
         long selected = 0;
         for (GraphResourceId resource : expected) {
@@ -42,7 +54,7 @@ public class GraphSourceCoverageService {
             }
         }
         long[] current = inventory.currentEpochs(kbId);
-        return new GraphSourceCoverage(expected.size(), visible, selected,
+        return new GraphSourceCoverage(expected.size(), visible, selected, retired,
                 snapshot.contentEpoch(), snapshot.securityEpoch(),
                 current[0], current[1]);
     }

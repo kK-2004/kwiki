@@ -81,4 +81,27 @@ class ScopeVersionServiceTest {
             pool.shutdownNow();
         }
     }
+
+    @Test
+    void bumpNotifiesGraphSecurityChange() {
+        // 权限变化统一经过 bump：图谱 security epoch 在 scope_version 推进的
+        // 同一业务事务内前进（端口实现为 REQUIRED 传播，加入调用方事务）
+        var sourceChanges = org.mockito.Mockito.mock(com.kwiki.wiki.graph.KnowledgeSourceChangePort.class);
+        ScopeVersionService service = new ScopeVersionService(
+                new ObjectProvider<>() {
+                    @Override
+                    public org.springframework.jdbc.core.JdbcOperations getIfAvailable() {
+                        return null;
+                    }
+                },
+                new ObjectProvider<>() {
+                    @Override
+                    public com.kwiki.wiki.graph.KnowledgeSourceChangePort getIfAvailable() {
+                        return sourceChanges;
+                    }
+                });
+
+        assertThat(service.bump(1L)).isEqualTo(2L);
+        org.mockito.Mockito.verify(sourceChanges).securityChanged(1L);
+    }
 }
