@@ -136,6 +136,26 @@ class LlmGraphExtractorV1Test {
     }
 
     @Test
+    void 模型调用超时归为MODEL_TIMEOUT且可重试() {
+        // 传输层超时以 RunFailure("timeout") 抛出，langchain4j 可能再包一层；JDK 请求超时同样识别
+        List<RuntimeException> timeouts = List.of(
+                new com.kwiki.rag.orchestration.RunFailure("timeout"),
+                new RuntimeException(new com.kwiki.rag.orchestration.RunFailure("timeout",
+                        new java.util.concurrent.TimeoutException())),
+                new dev.langchain4j.exception.TimeoutException("timed out"),
+                new RuntimeException(new java.net.http.HttpTimeoutException("request timed out")));
+        for (RuntimeException timeout : timeouts) {
+            LlmGraphExtractorV1 extractor = new LlmGraphExtractorV1(null, endpoint(modelFailing(timeout)));
+            assertThatThrownBy(() -> extractor.extract(input()))
+                    .as(timeout.toString())
+                    .isInstanceOfSatisfying(GraphBuildFailure.class, failure -> {
+                        assertThat(failure.code()).isEqualTo(GraphBuildFailure.MODEL_TIMEOUT);
+                        assertThat(failure.retryable()).isTrue();
+                    });
+        }
+    }
+
+    @Test
     void 模型超时与5xx可重试() {
         LlmGraphExtractorV1 serverError = new LlmGraphExtractorV1(null,
                 endpoint(modelFailing(new HttpException(500, "boom"))));

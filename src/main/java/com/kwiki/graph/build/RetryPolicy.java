@@ -18,7 +18,17 @@ public record RetryPolicy(int maxAttempts, Duration baseDelay) {
         return new RetryPolicy(maxAttempts, baseDelay);
     }
 
+    /** 单次尝试失败的观察者：willRetry 为 true 表示还会再试（取消不回调）。 */
+    @FunctionalInterface
+    public interface AttemptObserver {
+        void attemptFailed(RuntimeException failure, boolean willRetry);
+    }
+
     public <T> T run(Supplier<T> body) {
+        return run(body, null);
+    }
+
+    public <T> T run(Supplier<T> body, AttemptObserver observer) {
         if (body == null) {
             throw new IllegalArgumentException("重试执行体不能为空");
         }
@@ -31,12 +41,15 @@ public record RetryPolicy(int maxAttempts, Duration baseDelay) {
                 throw cancelled;
             } catch (GraphBuildFailure failure) {
                 if (!failure.retryable()) {
+                    notify(observer, failure, false);
                     throw failure;
                 }
                 last = failure;
+                notify(observer, failure, attempt < maxAttempts);
             } catch (RuntimeException unexpected) {
                 // 未知运行时异常按可重试处理（多为瞬时基础设施故障）
                 last = unexpected;
+                notify(observer, unexpected, attempt < maxAttempts);
             }
             if (attempt < maxAttempts) {
                 sleep(delayNanos);
@@ -44,6 +57,12 @@ public record RetryPolicy(int maxAttempts, Duration baseDelay) {
             }
         }
         throw last instanceof RuntimeException runtime ? runtime : new IllegalStateException(last);
+    }
+
+    private static void notify(AttemptObserver observer, RuntimeException failure, boolean willRetry) {
+        if (observer != null) {
+            observer.attemptFailed(failure, willRetry);
+        }
     }
 
     private static void sleep(long nanos) {

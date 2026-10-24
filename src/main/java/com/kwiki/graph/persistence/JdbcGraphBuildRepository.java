@@ -471,8 +471,10 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
     @Override
     public boolean requeueRun(long runId) {
         // 已删除批次的子任务是墓碑，不能再被重试拉起
+        // 模型调用统计只反映本次执行：重新排队时清零
         boolean requeued = jdbc.update("UPDATE graph_build_run SET state = 'QUEUED', "
-                        + "stage = 'QUEUED', error_code = NULL, error_summary = NULL "
+                        + "stage = 'QUEUED', error_code = NULL, error_summary = NULL, "
+                        + "model_retries = 0, model_timeouts = 0 "
                         + "WHERE id = ? AND state IN ('FAILED','CANCELLED','STALE') "
                         + "AND batch_id NOT IN (SELECT id FROM graph_build_batch WHERE deleted_at IS NOT NULL)",
                 runId) == 1;
@@ -553,6 +555,15 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
                         + "AND lease_expires_at >= ?",
                 Long.class, Timestamp.from(now));
         return count == null ? 0 : count.intValue();
+    }
+
+    @Override
+    public boolean recordModelAttemptFailure(long runId, String owner, long fencingToken,
+                                             int retried, int timedOut) {
+        return jdbc.update("UPDATE graph_build_run SET model_retries = model_retries + ?, "
+                        + "model_timeouts = model_timeouts + ? "
+                        + "WHERE id = ? AND lease_owner = ? AND fencing_token = ?",
+                retried, timedOut, runId, owner, fencingToken) == 1;
     }
 
     @Override

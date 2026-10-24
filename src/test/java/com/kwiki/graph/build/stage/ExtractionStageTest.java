@@ -107,13 +107,22 @@ class ExtractionStageTest {
                                          GraphExtractionCache cache,
                                          GraphExtractionJobPlanner planner,
                                          com.kwiki.graph.GraphEntityResolutionPort resolver) {
+        return stage(listing, registry, cache, planner, resolver, buildProperties());
+    }
+
+    private static ExtractionStage stage(GraphSourceChunkListingPort listing,
+                                         GraphExtractorRegistry registry,
+                                         GraphExtractionCache cache,
+                                         GraphExtractionJobPlanner planner,
+                                         com.kwiki.graph.GraphEntityResolutionPort resolver,
+                                         GraphBuildProperties properties) {
         SearchIndexVersionRepository versions = mock(SearchIndexVersionRepository.class);
         SearchIndexVersion version = mock(SearchIndexVersion.class);
         when(version.editableConfig()).thenReturn(new EditableIndexConfig("parser-1",
                 "chunker-1", "provider", "embed-model", 1024, "kwiki-schema-1"));
         when(versions.findByVersionNumber(5)).thenReturn(Optional.of(version));
         return new ExtractionStage(listing, registry, cache, planner, resolver, versions,
-                buildProperties(), modelClients());
+                properties, modelClients());
     }
 
     private static GraphModelClients modelClients() {
@@ -297,5 +306,95 @@ class ExtractionStageTest {
         } catch (Exception failure) {
             throw new IllegalStateException(failure);
         }
+    }
+
+    /** 先按给定次数抛出失败，之后返回空抽取结果的插件。 */
+    private static GraphExtractorPlugin pluginFailingThen(java.util.function.Supplier<RuntimeException> failure,
+                                                          int failures) {
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        return new GraphExtractorPlugin() {
+            @Override
+            public String id() {
+                return "kwiki-extractor-1";
+            }
+
+            @Override
+            public String label() {
+                return "x";
+            }
+
+            @Override
+            public String promptVersion() {
+                return GraphExtractionPrompt.VERSION;
+            }
+
+            @Override
+            public GraphExtractionResult extract(com.kwiki.graph.GraphExtractionInput input) {
+                if (calls.incrementAndGet() <= failures) {
+                    throw failure.get();
+                }
+                return new GraphExtractionResult(input.sourceChunk(), List.of(), List.of(),
+                        "kwiki-extractor-1", GraphExtractionPrompt.VERSION, "entity-linking-v1");
+            }
+        };
+    }
+
+    private static GraphExtractionCache missingCache() {
+        GraphExtractionCache cache = mock(GraphExtractionCache.class);
+        when(cache.findReady(any(), anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        return cache;
+    }
+
+    private static GraphExtractionJobPlanner planner() {
+        GraphExtractionJobPlanner planner = mock(GraphExtractionJobPlanner.class);
+        when(planner.plan(any(GraphExtractionJobSpec.class), eq(true), eq(true))).thenReturn(Optional.of(77L));
+        return planner;
+    }
+
+    @Test
+    void 完成的块立即上报进度而不是攒满一批() {
+        ExtractionStage stage = stage(kbIdListing(), registryOf(pluginFailingThen(() -> null, 0)),
+                missingCache(), planner(), (kbId, candidates, context, version) -> candidates);
+        List<RunProgress> progressValues = new CopyOnWriteArrayList<>();
+        RunContext ctx = new RunContext(run(), "owner-a", 3L, () -> false, progressValues::add);
+
+        stage.execute(ctx, new RunArtifacts());
+
+        // 开始时 0/1；块完成时立刻上报 1/1（节流放行首个），阶段结束再上报一次
+        assertThat(progressValues).extracting(RunProgress::sourcesExtracted).containsExactly(0L, 1L, 1L);
+    }
+
+    @Test
+    void 模型调用超时重试会逐次上报给子任务统计() {
+        GraphBuildProperties retrying = new GraphBuildProperties(Duration.ofSeconds(10), 2,
+                Duration.ofMinutes(2), 3, Duration.ZERO, 100, 50);
+        ExtractionStage stage = stage(kbIdListing(), registryOf(pluginFailingThen(
+                        () -> GraphBuildFailure.retryable(GraphBuildFailure.MODEL_TIMEOUT, "超时"), 2)),
+                missingCache(), planner(), (kbId, candidates, context, version) -> candidates, retrying);
+        List<String> attempts = new CopyOnWriteArrayList<>();
+        RunContext ctx = new RunContext(run(), "owner-a", 3L, () -> false, progress -> {
+        }, (timeout, willRetry) -> attempts.add(timeout + "/" + willRetry));
+
+        stage.execute(ctx, new RunArtifacts());
+
+        // 两次超时都会重试，第三次成功
+        assertThat(attempts).containsExactly("true/true", "true/true");
+    }
+
+    @Test
+    void 重试耗尽时最后一次失败不计为重试但计入超时() {
+        GraphBuildProperties retrying = new GraphBuildProperties(Duration.ofSeconds(10), 2,
+                Duration.ofMinutes(2), 2, Duration.ZERO, 100, 50);
+        ExtractionStage stage = stage(kbIdListing(), registryOf(pluginFailingThen(
+                        () -> GraphBuildFailure.retryable(GraphBuildFailure.MODEL_TIMEOUT, "超时"), 5)),
+                missingCache(), planner(), (kbId, candidates, context, version) -> candidates, retrying);
+        List<String> attempts = new CopyOnWriteArrayList<>();
+        RunContext ctx = new RunContext(run(), "owner-a", 3L, () -> false, progress -> {
+        }, (timeout, willRetry) -> attempts.add(timeout + "/" + willRetry));
+
+        assertThatThrownBy(() -> stage.execute(ctx, new RunArtifacts()))
+                .isInstanceOfSatisfying(GraphBuildFailure.class,
+                        failure -> assertThat(failure.code()).isEqualTo(GraphBuildFailure.MODEL_TIMEOUT));
+        assertThat(attempts).containsExactly("true/true", "true/false");
     }
 }

@@ -12,6 +12,7 @@ import com.kwiki.graph.build.GraphBuildFailure;
 import com.kwiki.graph.build.RunArtifacts;
 import com.kwiki.graph.build.RunContext;
 import com.kwiki.graph.build.RunProgress;
+import com.kwiki.graph.build.ProgressThrottle;
 import com.kwiki.graph.build.RetryPolicy;
 import com.kwiki.graph.config.GraphBuildProperties;
 import com.kwiki.graph.persistence.GraphBuildRunRecord;
@@ -62,9 +63,11 @@ public class SummarizationStage implements GraphBuildStage {
 
         long communitiesTotal = byCommunity.size();
         long summarized = 0;
-        ctx.progress(new RunProgress(artifacts.sources.size(),
-                artifacts.extractedEntityIds.values().stream().mapToLong(List::size).sum(),
-                0, communitiesTotal, 0));
+        // 抽取阶段已完成：沿用其「已抽取 / 缓存命中」，不再用实体数覆盖、也不把命中数清零
+        long sourcesTotal = artifacts.sources.size();
+        long cacheHits = artifacts.extractionCacheHits;
+        ProgressThrottle throttle = new ProgressThrottle();
+        ctx.progress(new RunProgress(sourcesTotal, sourcesTotal, cacheHits, communitiesTotal, 0));
 
         for (Map.Entry<String, List<CommunityMembership>> entry : byCommunity.entrySet()) {
             ctx.throwIfCancelled();
@@ -85,7 +88,7 @@ public class SummarizationStage implements GraphBuildStage {
                     summarizer.promptVersion());
             CommunitySummary summary;
             try {
-                summary = retry.run(() -> summarizer.summarize(input));
+                summary = retry.run(() -> summarizer.summarize(input), ctx.modelAttempts());
                 CommunitySummaryValidator.requireValid(input, summary);
             } catch (IllegalArgumentException invalid) {
                 throw GraphBuildFailure.permanent("SUMMARY_INVALID",
@@ -93,9 +96,10 @@ public class SummarizationStage implements GraphBuildStage {
             }
             artifacts.summaries.put(communityId, summary);
             summarized++;
-            ctx.progress(new RunProgress(artifacts.sources.size(),
-                    artifacts.extractedEntityIds.values().stream().mapToLong(List::size).sum(),
-                    0, communitiesTotal, summarized));
+            if (throttle.due() || summarized == communitiesTotal) {
+                ctx.progress(new RunProgress(sourcesTotal, sourcesTotal, cacheHits,
+                        communitiesTotal, summarized));
+            }
         }
     }
 

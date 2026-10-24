@@ -14,6 +14,7 @@ import com.kwiki.graph.build.GraphBuildFailure;
 import com.kwiki.graph.build.RunArtifacts;
 import com.kwiki.graph.build.RunContext;
 import com.kwiki.graph.build.RunProgress;
+import com.kwiki.graph.build.ProgressThrottle;
 import com.kwiki.graph.build.RetryPolicy;
 import com.kwiki.graph.config.GraphBuildProperties;
 import com.kwiki.graph.model.GraphModelClients;
@@ -48,7 +49,6 @@ import java.util.concurrent.atomic.AtomicLong;
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
 public class ExtractionStage implements GraphBuildStage {
 
-    private static final int PROGRESS_EVERY = 50;
 
     private final GraphSourceChunkListingPort listing;
     private final GraphExtractorRegistry extractors;
@@ -109,6 +109,7 @@ public class ExtractionStage implements GraphBuildStage {
         Map<String, List<GraphRelation>> relationsByChunk = new LinkedHashMap<>();
         AtomicLong cacheHits = new AtomicLong();
         AtomicLong extracted = new AtomicLong();
+        ProgressThrottle throttle = new ProgressThrottle();
         // 块级并发与抽取端点 maxConcurrency 一致；模型调用另经全局限流器
         Semaphore permits = new Semaphore(modelClients.extraction()
                 .map(endpoint -> endpoint.limiter().permits()).orElse(4));
@@ -120,7 +121,7 @@ public class ExtractionStage implements GraphBuildStage {
                     processChunk(ctx, extractor, retry, source,
                             childrenBySourceChunkId.get(source.sourceChunkId()),
                             entitiesByChunk, relationsByChunk, cacheHits, extracted,
-                            sources.size());
+                            sources.size(), throttle);
                 } finally {
                     permits.release();
                 }
@@ -141,6 +142,7 @@ public class ExtractionStage implements GraphBuildStage {
         }
 
         mergeChunkResults(artifacts, entitiesByChunk, relationsByChunk);
+        artifacts.extractionCacheHits = cacheHits.get();
         ctx.progress(new RunProgress(sources.size(), extracted.get(), cacheHits.get(), 0, 0));
     }
 
@@ -153,7 +155,8 @@ public class ExtractionStage implements GraphBuildStage {
                               Map<String, List<GraphRelation>> relationsByChunk,
                               AtomicLong cacheHits,
                               AtomicLong extracted,
-                              long sourcesTotal) {
+                              long sourcesTotal,
+                              ProgressThrottle throttle) {
         ctx.throwIfCancelled();
         String sourceChunkId = source.sourceChunkId();
         Optional<GraphExtractionResult> cached = cache.findReady(source,
@@ -170,7 +173,7 @@ public class ExtractionStage implements GraphBuildStage {
             GraphExtractionInput input = new GraphExtractionInput(source, hit.content(), "",
                     extractor.id(), extractor.promptVersion(), ctx.run().entityLinkingVersion());
             try {
-                result = retry.run(() -> extractor.extract(input));
+                result = retry.run(() -> extractor.extract(input), ctx.modelAttempts());
             } catch (GraphBuildFailure failure) {
                 cache.markFailed(extractionId, failure.code(), String.valueOf(failure.getMessage()));
                 throw failure;
@@ -208,9 +211,9 @@ public class ExtractionStage implements GraphBuildStage {
         }
         entitiesByChunk.put(sourceChunkId, resolved);
         relationsByChunk.put(sourceChunkId, rewritten);
-        extracted.incrementAndGet();
-        long done = extracted.get();
-        if (done % PROGRESS_EVERY == 0) {
+        long done = extracted.incrementAndGet();
+        // 按时间节流而不是按块数：慢速调用时每完成一块都能及时看到，缓存命中飞快时也不会逐块写库
+        if (throttle.due()) {
             ctx.progress(new RunProgress(sourcesTotal, done, cacheHits.get(), 0, 0));
         }
     }

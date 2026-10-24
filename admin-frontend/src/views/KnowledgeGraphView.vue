@@ -60,7 +60,6 @@ function pluginBadge(row: { extractor?: string; communityDetector?: string; summ
   return [row.extractor, row.communityDetector, row.summarizer].filter(Boolean).join(" / ");
 }
 function progressText(run: GraphRun) {
-  if (!run.sourcesTotal && !run.communitiesTotal) return "—";
   const parts: string[] = [];
   if (run.sourcesTotal) {
     parts.push(`已抽取 ${run.sourcesExtracted} / ${run.sourcesTotal}（缓存命中 ${run.extractionCacheHits}）`);
@@ -68,7 +67,17 @@ function progressText(run: GraphRun) {
   if (run.communitiesTotal) {
     parts.push(`已摘要 ${run.communitiesSummarized} / ${run.communitiesTotal}`);
   }
+  const note = modelCallNote(run);
+  if (note) parts.push(note);
   return parts.join(" · ") || "—";
+}
+
+/** 模型调用失败统计：进度长时间不动时，用来判断是否在反复超时重试。 */
+function modelCallNote(run: GraphRun) {
+  const retries = run.modelRetries ?? 0;
+  const timeouts = run.modelTimeouts ?? 0;
+  if (!retries && !timeouts) return "";
+  return `模型调用重试 ${retries} 次 · 超时 ${timeouts} 次`;
 }
 
 function dualBadge(batch: GraphBatch) {

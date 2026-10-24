@@ -110,4 +110,24 @@ class GraphBatchStateContractTest {
                 .contains("b.deleted_at IS NULL")
                 .contains("g.cleanup_state <> 'DELETED'");
     }
+
+    @Test
+    void modelAttemptFailuresAccumulateUnderTheFencingToken() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        new JdbcGraphBuildRepository(jdbc).recordModelAttemptFailure(12L, "owner-a", 3L, 1, 1);
+
+        verify(jdbc).update(contains("model_retries = model_retries + ?, model_timeouts = model_timeouts + ?"),
+                eq(1), eq(1), eq(12L), eq("owner-a"), eq(3L));
+        org.mockito.ArgumentCaptor<String> sql = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(jdbc).update(sql.capture(), eq(1), eq(1), eq(12L), eq("owner-a"), eq(3L));
+        assertThat(sql.getValue()).contains("lease_owner = ? AND fencing_token = ?");
+    }
+
+    @Test
+    void retryingARunResetsItsModelCallStats() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        new JdbcGraphBuildRepository(jdbc).requeueRun(6L);
+
+        verify(jdbc).update(contains("model_retries = 0, model_timeouts = 0"), eq(6L));
+    }
 }

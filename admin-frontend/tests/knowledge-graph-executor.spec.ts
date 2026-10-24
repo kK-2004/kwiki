@@ -33,6 +33,12 @@ describe("图构建执行器前端",()=>{
     expect(screen.getByText("就绪")).toBeTruthy();
   });
 
+  it("子任务进度带出模型调用重试与超时次数",async ()=>{
+    mocks.graphRuns.mockResolvedValueOnce([{id:12,kbId:7,chunkIndexVersion:5,communityIndexVersion:6,communityPhysicalIndex:"kwiki-communities-v6-kb7",graphVersion:42,state:"EXTRACTING",stage:"EXTRACTING",entityCount:0,relationCount:0,sourceCount:0,communityCount:0,extractor:"kwiki-extractor-1",communityDetector:"arcadedb-leiden-1",summarizer:"kwiki-summarizer-1",sourcesTotal:577,sourcesExtracted:0,extractionCacheHits:0,communitiesTotal:0,communitiesSummarized:0,modelRetries:4,modelTimeouts:5}]);
+    await setup();
+    expect(await screen.findByText("已抽取 0 / 577（缓存命中 0） · 模型调用重试 4 次 · 超时 5 次")).toBeTruthy();
+  });
+
   it("提交表单三项插件下拉默认选中默认插件",async ()=>{
     await setup();
     // 切到「全部知识库」以跳过单库选择

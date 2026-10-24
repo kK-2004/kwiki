@@ -43,7 +43,7 @@ public class GraphAdminQueryService {
                 + "community_count, error_code, error_summary, started_at, completed_at, "
                 + "extractor, community_detector, summarizer, "
                 + "sources_total, sources_extracted, extraction_cache_hits, "
-                + "communities_total, communities_summarized "
+                + "communities_total, communities_summarized, model_retries, model_timeouts "
                 + "FROM graph_build_run WHERE batch_id = ? ORDER BY id", batchId));
     }
 

@@ -197,6 +197,8 @@ KWIKI_GRAPH_CONTRACT_ES=http://localhost:9200 \
 - 抽取结果按（来源块、抽取器 id、提示词版本、实体链接版本）唯一身份持久化在 `graph_extraction_result`：命中 READY 缓存直接复用，重做抽取阶段、崩溃接管、后台重试均不重复调用模型。
 - 崩溃恢复：租约过期后其他实例接管（`fencing_token` +1，旧持有者全部失效）；恢复点在 SUMMARIZING 及之前一律从 EXTRACTING 重做（全部命中缓存），INDEXING / VALIDATING 复用已创建的 BUILDING 快照与来源清单，不重复创建。
 - 全部子任务进入终态后批次自动收尾：全 READY/PUBLISHED → READY；部分失败 → PARTIAL_FAILED；全失败 → FAILED。
+- 进度按时间节流上报（约每秒一次，块完成后立即可见），不再每 50 块才更新一次；摘要阶段沿用抽取阶段的「已抽取 / 缓存命中」。
+- 子任务记录模型调用统计 `model_retries`（失败后又重试的次数）与 `model_timeouts`（超时的尝试次数，含最后一次），管理端进度列显示「模型调用重试 N 次 · 超时 M 次」；重试子任务时清零。模型超时的失败码为 `MODEL_TIMEOUT`，其他可重试的模型错误仍为 `MODEL_UNAVAILABLE`。进度长时间不动而超时次数持续增长，说明模型端点在反复超时，应检查模型配置的超时、提供方并发或换渠道。
 
 ## 11. 内容变化、门禁三档与去抖自动重建
 

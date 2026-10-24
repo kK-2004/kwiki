@@ -129,6 +129,13 @@ public interface GraphBuildRepository {
     int countLiveRuns(java.time.Instant now);
 
     /** 子任务进度更新；只允许当前租约持有者携带隔离令牌执行。 */
+    /**
+     * 累加一次模型调用失败：retried 为 1 表示随后会重试，timedOut 为 1 表示这次是超时。
+     * 带隔离令牌，失去租约的旧执行者写不进来。
+     */
+    boolean recordModelAttemptFailure(long runId, String owner, long fencingToken,
+                                      int retried, int timedOut);
+
     boolean updateProgress(long runId, String owner, long fencingToken,
                            com.kwiki.graph.build.RunProgress progress);
 

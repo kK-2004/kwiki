@@ -202,7 +202,9 @@ public class GraphBuildRunner {
                            BooleanSupplier leaseLost) {
         return new RunContext(run, owner, fencingToken,
                 () -> leaseLost.getAsBoolean() || repository.isCancelled(run.id()),
-                progress -> repository.updateProgress(run.id(), owner, fencingToken, progress));
+                progress -> repository.updateProgress(run.id(), owner, fencingToken, progress),
+                (timeout, willRetry) -> repository.recordModelAttemptFailure(run.id(), owner,
+                        fencingToken, willRetry ? 1 : 0, timeout ? 1 : 0));
     }
 
     private static GraphBuildRunRecord withState(GraphBuildRunRecord run,

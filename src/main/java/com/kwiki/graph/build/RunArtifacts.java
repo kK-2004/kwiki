@@ -24,6 +24,8 @@ public final class RunArtifacts {
     public List<GraphRelation> relations = new ArrayList<>();
     /** sourceChunkId → 该块消解后的正式 entityId。 */
     public Map<String, List<String>> extractedEntityIds = new LinkedHashMap<>();
+    /** 抽取阶段结束时的缓存命中数；后续阶段上报进度时沿用，不归零。 */
+    public long extractionCacheHits;
     public UnweightedGraphProjection projection;
     public CommunityDetectionResult detection;
     public Map<String, CommunitySummary> summaries = new LinkedHashMap<>();

@@ -72,6 +72,23 @@ class GraphBuildRunnerTest {
     }
 
     @Test
+    void 阶段内模型调用失败按租约身份累计到子任务() {
+        org.mockito.Mockito.doAnswer(invocation -> {
+            RunContext ctx = invocation.getArgument(0);
+            ctx.modelAttempts().attemptFailed(
+                    GraphBuildFailure.retryable(GraphBuildFailure.MODEL_TIMEOUT, "超时"), true);
+            ctx.modelAttempts().attemptFailed(
+                    GraphBuildFailure.retryable("MODEL_UNAVAILABLE", "5xx"), false);
+            return null;
+        }).when(extraction).execute(any(), any());
+
+        runner.run(run(GraphBuildState.QUEUED), "owner-a", 3L, () -> false);
+
+        verify(repository).recordModelAttemptFailure(12L, "owner-a", 3L, 1, 1);
+        verify(repository).recordModelAttemptFailure(12L, "owner-a", 3L, 0, 0);
+    }
+
+    @Test
     void 从QUEUED按顺序推进全部阶段并写断点() {
         runner.run(run(GraphBuildState.QUEUED), "owner-a", 3L, () -> false);
 

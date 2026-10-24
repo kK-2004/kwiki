@@ -119,6 +119,54 @@ class SummarizationStageTest {
     }
 
     @Test
+    void 摘要阶段沿用抽取阶段的已抽取与缓存命中() {
+        CommunitySummarizerPlugin summarizer = new CommunitySummarizerPlugin() {
+            @Override
+            public String id() {
+                return "kwiki-summarizer-1";
+            }
+
+            @Override
+            public String label() {
+                return "x";
+            }
+
+            @Override
+            public String promptVersion() {
+                return "community-summary-v1";
+            }
+
+            @Override
+            public String modelName() {
+                return "summary-model";
+            }
+
+            @Override
+            public CommunitySummary summarize(com.kwiki.graph.CommunitySummaryInput input) {
+                return summaryOf("社区 " + input.communityId());
+            }
+        };
+        SummarizationStage stage = new SummarizationStage(
+                new CommunitySummarizerRegistry(List.of(summarizer)), buildProperties());
+        CommunityDetectionResult detection = new CommunityDetectionResult(
+                GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED, "25.1", List.of(
+                new CommunityMembership(7L, 42L, "a", "c0")));
+        RunArtifacts artifacts = artifacts(detection, List.of(
+                new GraphEntity("a", "A", GraphEntityType.CONCEPT, List.of())), List.of());
+        artifacts.extractionCacheHits = 3;
+        List<RunProgress> progressValues = new CopyOnWriteArrayList<>();
+        RunContext ctx = new RunContext(run(), "owner-a", 3L, () -> false, progressValues::add);
+
+        stage.execute(ctx, artifacts);
+
+        // 不再用实体数覆盖「已抽取」，也不把缓存命中清零
+        assertThat(progressValues).allSatisfy(progress -> {
+            assertThat(progress.sourcesExtracted()).isEqualTo(artifacts.sources.size());
+            assertThat(progress.extractionCacheHits()).isEqualTo(3);
+        });
+    }
+
+    @Test
     void 摘要校验失败为永久失败() {
         CommunitySummarizerPlugin summarizer = new CommunitySummarizerPlugin() {
             @Override

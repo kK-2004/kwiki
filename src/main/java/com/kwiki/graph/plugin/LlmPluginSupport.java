@@ -33,10 +33,35 @@ final class LlmPluginSupport {
         if (failure instanceof GraphBuildFailure already) {
             return already;
         }
+        if (timedOut(failure)) {
+            return GraphBuildFailure.retryable(GraphBuildFailure.MODEL_TIMEOUT,
+                    unavailableSummary + "：模型调用超时");
+        }
         if (transientModelError(failure)) {
             return GraphBuildFailure.retryable(unavailableCode, unavailableSummary);
         }
         return GraphBuildFailure.permanent("MODEL_REQUEST_REJECTED", "模型请求被拒绝，不重试");
+    }
+
+    /**
+     * 超时：langchain4j 的 TimeoutException，或传输层抛出的 RunFailure("timeout")、
+     * JDK 的 java.util.concurrent.TimeoutException / HttpTimeoutException（可能被包装在 cause 链里）。
+     */
+    static boolean timedOut(Throwable failure) {
+        for (Throwable current = failure; current != null;
+             current = current.getCause() == current ? null : current.getCause()) {
+            if (current instanceof TimeoutException
+                    || current instanceof java.util.concurrent.TimeoutException
+                    || current instanceof java.net.http.HttpTimeoutException
+                    || current instanceof java.net.SocketTimeoutException) {
+                return true;
+            }
+            if (current instanceof com.kwiki.rag.orchestration.RunFailure runFailure
+                    && "timeout".equals(runFailure.getMessage())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean transientModelError(Throwable failure) {
