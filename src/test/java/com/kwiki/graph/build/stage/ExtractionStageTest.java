@@ -33,6 +33,7 @@ import com.kwiki.rag.retrieval.EntityLinkingStatus;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -396,5 +397,111 @@ class ExtractionStageTest {
                 .isInstanceOfSatisfying(GraphBuildFailure.class,
                         failure -> assertThat(failure.code()).isEqualTo(GraphBuildFailure.MODEL_TIMEOUT));
         assertThat(attempts).containsExactly("true/true", "true/false");
+    }
+
+    /** 捕获指定类的日志（含 DEBUG），用完恢复级别。 */
+    private static final class CapturedLogs implements AutoCloseable {
+        private final ch.qos.logback.classic.Logger logger;
+        private final ch.qos.logback.classic.Level previous;
+        final ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+
+        CapturedLogs(Class<?> type) {
+            logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(type);
+            previous = logger.getLevel();
+            logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
+            appender.start();
+            logger.addAppender(appender);
+        }
+
+        List<String> at(ch.qos.logback.classic.Level level) {
+            return appender.list.stream().filter(event -> event.getLevel() == level)
+                    .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+        }
+
+        @Override
+        public void close() {
+            logger.detachAppender(appender);
+            logger.setLevel(previous);
+        }
+    }
+
+    @Test
+    void 每个块的抽取结果写入DEBUG日志且不含正文() {
+        GraphSourceChunk source = child().toSourceChunk(5);
+        GraphEntity e1 = new GraphEntity("e1", "Kwiki", GraphEntityType.PRODUCT, List.of());
+        GraphEntity e2 = new GraphEntity("e2", "ArcadeDB", GraphEntityType.TECHNOLOGY, List.of());
+        GraphRelation relation = new GraphRelation("r1", "e1", GraphPredicate.USES, "e2", 0.9,
+                List.of(new GraphSourceRef(source.sourceChunkId(), 0, 5)));
+        GraphExtractorPlugin plugin = new GraphExtractorPlugin() {
+            @Override
+            public String id() {
+                return "kwiki-extractor-1";
+            }
+
+            @Override
+            public String label() {
+                return "x";
+            }
+
+            @Override
+            public String promptVersion() {
+                return GraphExtractionPrompt.VERSION;
+            }
+
+            @Override
+            public GraphExtractionResult extract(com.kwiki.graph.GraphExtractionInput input) {
+                return new GraphExtractionResult(input.sourceChunk(), List.of(e1, e2), List.of(relation),
+                        "kwiki-extractor-1", GraphExtractionPrompt.VERSION, "entity-linking-v1");
+            }
+        };
+        ExtractionStage stage = stage(kbIdListing(), registryOf(plugin), missingCache(), planner(),
+                (kbId, candidates, context, version) -> candidates);
+
+        try (CapturedLogs logs = new CapturedLogs(ExtractionStage.class)) {
+            stage.execute(new RunContext(run(), "owner-a", 3L, () -> false, progress -> {
+            }), new RunArtifacts());
+
+            assertThat(logs.at(ch.qos.logback.classic.Level.DEBUG)).singleElement().asString()
+                    .contains("run=12", "PAGE:1", "chunk=" + source.chunkKey(), "cacheHit=false",
+                            "entities=2 [Kwiki(PRODUCT), ArcadeDB(TECHNOLOGY)]",
+                            "relations=1 [Kwiki -USES-> ArcadeDB]")
+                    .doesNotContain("graph storage");
+            assertThat(logs.at(ch.qos.logback.classic.Level.INFO))
+                    .anySatisfy(line -> assertThat(line).startsWith("graph extraction started run=12").contains("sources=1"))
+                    .anySatisfy(line -> assertThat(line).startsWith("graph extraction finished run=12")
+                            .contains("cacheHits=0", "modelExtracted=1", "entities=2", "relations=1"));
+        }
+    }
+
+    @Test
+    void 块抽取失败时WARN记录位置与失败码() {
+        GraphBuildProperties retrying = new GraphBuildProperties(Duration.ofSeconds(10), 2,
+                Duration.ofMinutes(2), 1, Duration.ZERO, 100, 50);
+        ExtractionStage stage = stage(kbIdListing(), registryOf(pluginFailingThen(
+                        () -> GraphBuildFailure.retryable(GraphBuildFailure.MODEL_TIMEOUT, "抽取模型暂不可用：模型调用超时"), 5)),
+                missingCache(), planner(), (kbId, candidates, context, version) -> candidates, retrying);
+
+        try (CapturedLogs logs = new CapturedLogs(ExtractionStage.class)) {
+            assertThatThrownBy(() -> stage.execute(new RunContext(run(), "owner-a", 3L, () -> false, progress -> {
+            }), new RunArtifacts())).isInstanceOf(GraphBuildFailure.class);
+
+            assertThat(logs.at(ch.qos.logback.classic.Level.WARN)).singleElement().asString()
+                    .startsWith("graph extraction chunk failed run=12")
+                    .contains("PAGE:1", "code=MODEL_TIMEOUT", "retryable=true", "模型调用超时");
+        }
+    }
+
+    @Test
+    void 实体与关系列表超出上限时注明省略条数() {
+        List<GraphEntity> entities = new ArrayList<>();
+        for (int i = 0; i < ExtractionStage.LOG_ITEMS_LIMIT + 3; i++) {
+            entities.add(new GraphEntity("e" + i, "N" + i, GraphEntityType.CONCEPT, List.of()));
+        }
+
+        String described = ExtractionStage.describeEntities(entities);
+
+        assertThat(described).contains("N0(CONCEPT)", "N19(CONCEPT)").doesNotContain("N20(").endsWith("…(+3)");
+        assertThat(ExtractionStage.describeEntities(List.of())).isEqualTo("[]");
     }
 }

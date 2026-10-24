@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -69,6 +70,51 @@ class GraphBuildRunnerTest {
         runner = new GraphBuildRunner(coordinator, repository, inventory,
                 mock(GraphBuildMetrics.class), extraction, projection, clustering,
                 summarization, indexing, validation);
+    }
+
+    private static java.util.List<String> captureInfo(Runnable body) {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(GraphBuildRunner.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            body.run();
+        } finally {
+            logger.detachAppender(appender);
+        }
+        return appender.list.stream()
+                .map(event -> event.getLevel() + " " + event.getFormattedMessage()).toList();
+    }
+
+    @Test
+    void 子任务开始结束与每个阶段的耗时和产物计数写入INFO日志() {
+        java.util.List<String> lines = captureInfo(() ->
+                runner.run(run(GraphBuildState.QUEUED), "owner-a", 3L, () -> false));
+
+        assertThat(lines).first().asString()
+                .startsWith("INFO graph build run started run=12 batch=9 kb=7 graphVersion=42");
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("INFO graph build run 12 stage EXTRACTING finished in")
+                .contains("sources=0 cacheHits=0 entities=0 relations=0"));
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("INFO graph build run 12 stage SUMMARIZING finished in").contains("summaries=0"));
+        assertThat(lines).last().asString().startsWith("INFO graph build run 12 ready in");
+    }
+
+    @Test
+    void 阶段失败写WARN日志带失败码() {
+        org.mockito.Mockito.doThrow(GraphBuildFailure.retryable(GraphBuildFailure.MODEL_TIMEOUT, "模型调用超时"))
+                .when(extraction).execute(any(), any());
+
+        java.util.List<String> lines = captureInfo(() ->
+                runner.run(run(GraphBuildState.QUEUED), "owner-a", 3L, () -> false));
+
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("WARN graph build run 12 failed in EXTRACTING")
+                .contains("code=MODEL_TIMEOUT", "retryable=true", "模型调用超时"));
+        assertThat(lines).noneMatch(line -> line.contains("ready in"));
     }
 
     @Test

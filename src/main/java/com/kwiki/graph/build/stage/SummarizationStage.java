@@ -39,6 +39,8 @@ import java.util.stream.Collectors;
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
 public class SummarizationStage implements GraphBuildStage {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(SummarizationStage.class);
+
     private final CommunitySummarizerRegistry summarizers;
     private final GraphBuildProperties buildProperties;
 
@@ -67,6 +69,9 @@ public class SummarizationStage implements GraphBuildStage {
         long sourcesTotal = artifacts.sources.size();
         long cacheHits = artifacts.extractionCacheHits;
         ProgressThrottle throttle = new ProgressThrottle();
+        long stageStarted = System.nanoTime();
+        log.info("graph summarization started run={} communities={} summarizer={}",
+                run.id(), communitiesTotal, summarizer.id());
         ctx.progress(new RunProgress(sourcesTotal, sourcesTotal, cacheHits, communitiesTotal, 0));
 
         for (Map.Entry<String, List<CommunityMembership>> entry : byCommunity.entrySet()) {
@@ -87,20 +92,33 @@ public class SummarizationStage implements GraphBuildStage {
                     artifacts.sources, joinedContent(communityRelations, artifacts),
                     summarizer.promptVersion());
             CommunitySummary summary;
+            long communityStarted = System.nanoTime();
             try {
                 summary = retry.run(() -> summarizer.summarize(input), ctx.modelAttempts());
                 CommunitySummaryValidator.requireValid(input, summary);
             } catch (IllegalArgumentException invalid) {
+                log.warn("graph summarization community invalid run={} community={} reason={}",
+                        run.id(), communityId, invalid.getMessage());
                 throw GraphBuildFailure.permanent("SUMMARY_INVALID",
                         "社区摘要未通过校验：" + invalid.getMessage());
+            } catch (GraphBuildFailure failure) {
+                log.warn("graph summarization community failed run={} community={} entities={} code={} summary={}",
+                        run.id(), communityId, communityEntities.size(), failure.code(), failure.getMessage());
+                throw failure;
             }
             artifacts.summaries.put(communityId, summary);
             summarized++;
+            log.debug("graph summarization community done run={} community={} entities={} relations={} elapsedMs={} title={} keywords={}",
+                    run.id(), communityId, communityEntities.size(), communityRelations.size(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - communityStarted),
+                    summary.title(), summary.keywords());
             if (throttle.due() || summarized == communitiesTotal) {
                 ctx.progress(new RunProgress(sourcesTotal, sourcesTotal, cacheHits,
                         communitiesTotal, summarized));
             }
         }
+        log.info("graph summarization finished run={} communities={} elapsedMs={}", run.id(), summarized,
+                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stageStarted));
     }
 
     /** 拼接社区关系引文涉及的来源块正文（按 chunkKey 确定顺序）。 */

@@ -49,6 +49,10 @@ import java.util.concurrent.atomic.AtomicLong;
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
 public class ExtractionStage implements GraphBuildStage {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ExtractionStage.class);
+    /** DEBUG 分块日志里实体与关系各最多列出的条数，避免单行过长。 */
+    static final int LOG_ITEMS_LIMIT = 20;
+
 
     private final GraphSourceChunkListingPort listing;
     private final GraphExtractorRegistry extractors;
@@ -113,6 +117,10 @@ public class ExtractionStage implements GraphBuildStage {
         // 块级并发与抽取端点 maxConcurrency 一致；模型调用另经全局限流器
         Semaphore permits = new Semaphore(modelClients.extraction()
                 .map(endpoint -> endpoint.limiter().permits()).orElse(4));
+        long stageStarted = System.nanoTime();
+        log.info("graph extraction started run={} kb={} sources={} concurrency={} extractor={} promptVersion={}",
+                run.id(), run.kbId(), sources.size(), permits.availablePermits(), extractor.id(),
+                extractor.promptVersion());
         ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor();
         try {
             List<Runnable> tasks = sources.stream().map(source -> (Runnable) () -> {
@@ -143,6 +151,10 @@ public class ExtractionStage implements GraphBuildStage {
 
         mergeChunkResults(artifacts, entitiesByChunk, relationsByChunk);
         artifacts.extractionCacheHits = cacheHits.get();
+        log.info("graph extraction finished run={} sources={} cacheHits={} modelExtracted={} entities={} relations={} elapsedMs={}",
+                run.id(), sources.size(), cacheHits.get(), extracted.get() - cacheHits.get(),
+                artifacts.entities.size(), artifacts.relations.size(),
+                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stageStarted));
         ctx.progress(new RunProgress(sources.size(), extracted.get(), cacheHits.get(), 0, 0));
     }
 
@@ -158,6 +170,7 @@ public class ExtractionStage implements GraphBuildStage {
                               long sourcesTotal,
                               ProgressThrottle throttle) {
         ctx.throwIfCancelled();
+        long chunkStarted = System.nanoTime();
         String sourceChunkId = source.sourceChunkId();
         Optional<GraphExtractionResult> cached = cache.findReady(source,
                 extractor.id(), extractor.promptVersion(), ctx.run().entityLinkingVersion());
@@ -175,12 +188,19 @@ public class ExtractionStage implements GraphBuildStage {
             try {
                 result = retry.run(() -> extractor.extract(input), ctx.modelAttempts());
             } catch (GraphBuildFailure failure) {
+                log.warn("graph extraction chunk failed run={} {}:{} chunk={} sourceChunk={} code={} retryable={} elapsedMs={} summary={}",
+                        ctx.run().id(), source.resourceType(), source.resourceId(), source.chunkKey(),
+                        sourceChunkId, failure.code(), failure.retryable(), elapsedMillis(chunkStarted),
+                        failure.getMessage());
                 cache.markFailed(extractionId, failure.code(), String.valueOf(failure.getMessage()));
                 throw failure;
             }
             try {
                 GraphExtractionValidator.validate(input, result);
             } catch (GraphExtractionValidationException invalid) {
+                log.warn("graph extraction chunk invalid run={} {}:{} chunk={} sourceChunk={} reason={}",
+                        ctx.run().id(), source.resourceType(), source.resourceId(), source.chunkKey(),
+                        sourceChunkId, invalid.getMessage());
                 cache.markFailed(extractionId, "EXTRACTION_INVALID",
                         String.valueOf(invalid.getMessage()));
                 throw GraphBuildFailure.permanent("EXTRACTION_INVALID",
@@ -211,11 +231,56 @@ public class ExtractionStage implements GraphBuildStage {
         }
         entitiesByChunk.put(sourceChunkId, resolved);
         relationsByChunk.put(sourceChunkId, rewritten);
+        if (log.isDebugEnabled()) {
+            log.debug("graph extraction chunk done run={} {}:{} chunk={} sourceChunk={} cacheHit={} elapsedMs={} entities={} {} relations={} {}",
+                    ctx.run().id(), source.resourceType(), source.resourceId(), source.chunkKey(),
+                    sourceChunkId, cached.isPresent(), elapsedMillis(chunkStarted),
+                    resolved.size(), describeEntities(resolved),
+                    rewritten.size(), describeRelations(rewritten, resolved));
+        }
         long done = extracted.incrementAndGet();
         // 按时间节流而不是按块数：慢速调用时每完成一块都能及时看到，缓存命中飞快时也不会逐块写库
         if (throttle.due()) {
             ctx.progress(new RunProgress(sourcesTotal, done, cacheHits.get(), 0, 0));
         }
+    }
+
+    private static long elapsedMillis(long startedNanos) {
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
+    }
+
+    /** 「名称(类型)」列表，超出上限时注明省略条数；不含正文。 */
+    static String describeEntities(List<GraphEntity> entities) {
+        List<String> items = new ArrayList<>();
+        for (GraphEntity entity : entities) {
+            if (items.size() == LOG_ITEMS_LIMIT) {
+                break;
+            }
+            items.add(entity.canonicalName() + "(" + entity.entityType() + ")");
+        }
+        return items + omitted(entities.size());
+    }
+
+    /** 「源 -谓词-> 目标」列表，端点用实体名展示，超出上限时注明省略条数。 */
+    static String describeRelations(List<GraphRelation> relations, List<GraphEntity> entities) {
+        Map<String, String> names = new HashMap<>();
+        for (GraphEntity entity : entities) {
+            names.put(entity.entityId(), entity.canonicalName());
+        }
+        List<String> items = new ArrayList<>();
+        for (GraphRelation relation : relations) {
+            if (items.size() == LOG_ITEMS_LIMIT) {
+                break;
+            }
+            items.add(names.getOrDefault(relation.sourceEntityId(), relation.sourceEntityId())
+                    + " -" + relation.predicate() + "-> "
+                    + names.getOrDefault(relation.targetEntityId(), relation.targetEntityId()));
+        }
+        return items + omitted(relations.size());
+    }
+
+    private static String omitted(int total) {
+        return total > LOG_ITEMS_LIMIT ? "…(+" + (total - LOG_ITEMS_LIMIT) + ")" : "";
     }
 
     /** 用正式端点 id 重算关系身份；引文区间保持不变。 */

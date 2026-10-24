@@ -200,6 +200,14 @@ KWIKI_GRAPH_CONTRACT_ES=http://localhost:9200 \
 - 进度按时间节流上报（约每秒一次，块完成后立即可见），不再每 50 块才更新一次；摘要阶段沿用抽取阶段的「已抽取 / 缓存命中」。
 - 子任务记录模型调用统计 `model_retries`（失败后又重试的次数）与 `model_timeouts`（超时的尝试次数，含最后一次），管理端进度列显示「模型调用重试 N 次 · 超时 M 次」；重试子任务时清零。模型超时的失败码为 `MODEL_TIMEOUT`，其他可重试的模型错误仍为 `MODEL_UNAVAILABLE`。进度长时间不动而超时次数持续增长，说明模型端点在反复超时，应检查模型配置的超时、提供方并发或换渠道。
 
+### 10.5 构建日志
+
+- **INFO**（默认可见，`GraphBuildRunner` / `ExtractionStage` / `SummarizationStage`）：子任务开始（run、批次、知识库、graphVersion、起始状态与待执行阶段）、每个阶段开始与结束（耗时与产物计数：来源块、缓存命中、实体、关系、社区、摘要、快照）、抽取与摘要阶段汇总（缓存命中数、本次调用模型抽取的块数、耗时）、子任务就绪；过期、取消也各记一行。
+- **WARN**：阶段失败（失败码、是否可重试、摘要）；单个块抽取失败或结构校验不通过（资源、chunkKey、sourceChunkId、失败码、耗时）；单个社区摘要失败或校验不通过。
+- **DEBUG**：每个块的抽取结果——资源、chunkKey、是否命中缓存、耗时、实体「名称(类型)」与关系「源 -谓词-> 目标」（各最多 20 条，超出注明省略数）；每个社区的摘要标题与关键词。日志不写块正文与摘要正文。
+- 打开 DEBUG：配置 `logging.level.com.kwiki.graph.build.stage=DEBUG`（可放在 Nacos，Spring Cloud 会随配置刷新日志级别）。块数多时 DEBUG 日志量与块数成正比，排查完建议调回。
+- 完整的抽取结果始终持久化在 `graph_extraction_result`（`entities_json` / `relations_json` / `state` / `last_error_summary`），可按 `kb_id`、`resource_id`、`chunk_key` 查询。
+
 ## 11. 内容变化、门禁三档与去抖自动重建
 
 ### 11.1 epoch 推进点（内容/权限变化如何被图谱感知）

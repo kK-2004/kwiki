@@ -29,6 +29,8 @@ import java.util.function.BooleanSupplier;
 @ConditionalOnProperty(name = "kwiki.graph.enabled", havingValue = "true")
 public class GraphBuildRunner {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(GraphBuildRunner.class);
+
     /** 从 QUEUED 开始的完整构建序列；VALIDATING 通过后进入 READY。 */
     private static final List<GraphBuildState> FULL_SEQUENCE = List.of(
             GraphBuildState.EXTRACTING, GraphBuildState.PROJECTING, GraphBuildState.CLUSTERING,
@@ -87,6 +89,10 @@ public class GraphBuildRunner {
             repository.settleBatch(run.batchId());
             return;
         }
+        log.info("graph build run started run={} batch={} kb={} graphVersion={} chunkVersion={} from={} stages={}",
+                run.id(), run.batchId(), run.kbId(), run.graphVersion(), run.chunkIndexVersion(),
+                run.state(), sequence);
+        Instant runStartedAt = Instant.now();
         repository.markBatchRunning(run.batchId());
         RunArtifacts artifacts = new RunArtifacts();
         if (run.state() == GraphBuildState.INDEXING
@@ -116,16 +122,24 @@ public class GraphBuildRunner {
             }
             if (sourceEpochsChanged(run)) {
                 metrics.recordFailure(stageOf(next).name());
+                log.info("graph build run {} stale before {}: source epochs changed, will be rebuilt",
+                        run.id(), next);
                 repository.markStale(run.id(), owner, fencingToken);
                 repository.settleBatch(run.batchId());
                 return;
             }
+            log.info("graph build run {} stage {} started", run.id(), next);
             try {
                 stage(next).execute(ctx(run, owner, fencingToken, leaseLost), artifacts);
             } catch (CancellationException cancelled) {
                 // 管理端取消：退出且不写任何状态
+                log.info("graph build run {} cancelled during {} after {}ms", run.id(), next,
+                        Duration.between(startedAt, Instant.now()).toMillis());
                 return;
             } catch (GraphBuildFailure failure) {
+                log.warn("graph build run {} failed in {} after {}ms: code={} retryable={} summary={}",
+                        run.id(), next, Duration.between(startedAt, Instant.now()).toMillis(),
+                        failure.code(), failure.retryable(), failure.getMessage());
                 metrics.recordStage(stageOf(next).name(), Duration.between(startedAt,
                         Instant.now()), false);
                 metrics.recordFailure(stageOf(next).name());
@@ -134,6 +148,8 @@ public class GraphBuildRunner {
                 repository.settleBatch(run.batchId());
                 return;
             } catch (RuntimeException unexpected) {
+                log.warn("graph build run {} failed unexpectedly in {} after {}ms", run.id(), next,
+                        Duration.between(startedAt, Instant.now()).toMillis(), unexpected);
                 metrics.recordStage(stageOf(next).name(), Duration.between(startedAt,
                         Instant.now()), false);
                 metrics.recordFailure(stageOf(next).name());
@@ -146,12 +162,37 @@ public class GraphBuildRunner {
             }
             metrics.recordStage(stageOf(next).name(), Duration.between(startedAt,
                     Instant.now()), true);
+            log.info("graph build run {} stage {} finished in {}ms: {}", run.id(), next,
+                    Duration.between(startedAt, Instant.now()).toMillis(), stageSummary(next, artifacts));
             current = withState(current, next);
         }
         // VALIDATING 通过 → READY（终态），批次收尾
         coordinator.checkpoint(current, owner, fencingToken, GraphBuildState.READY,
                 GraphBuildStage.READY, current.eventWatermark());
+        log.info("graph build run {} ready in {}ms: snapshot={} entities={} relations={} communities={}",
+                run.id(), Duration.between(runStartedAt, Instant.now()).toMillis(), artifacts.snapshotId,
+                artifacts.entities.size(), artifacts.relations.size(), artifacts.summaries.size());
         repository.settleBatch(run.batchId());
+    }
+
+    /** 阶段结束时的产物摘要，只含计数与标识，不含正文。 */
+    static String stageSummary(GraphBuildState stage, RunArtifacts artifacts) {
+        return switch (stage) {
+            case EXTRACTING -> "sources=" + artifacts.sources.size()
+                    + " cacheHits=" + artifacts.extractionCacheHits
+                    + " entities=" + artifacts.entities.size()
+                    + " relations=" + artifacts.relations.size();
+            case PROJECTING -> "entities=" + artifacts.entities.size()
+                    + " relations=" + artifacts.relations.size();
+            case CLUSTERING -> "communities=" + (artifacts.detection == null ? 0
+                    : artifacts.detection.memberships().stream()
+                            .map(com.kwiki.graph.CommunityMembership::communityId).distinct().count())
+                    + " members=" + (artifacts.detection == null ? 0 : artifacts.detection.memberships().size());
+            case SUMMARIZING -> "summaries=" + artifacts.summaries.size();
+            case INDEXING -> "snapshot=" + artifacts.snapshotId + " manifest=" + artifacts.manifestId;
+            case VALIDATING -> "snapshot=" + artifacts.snapshotId;
+            default -> "-";
+        };
     }
 
     private List<GraphBuildState> sequenceFrom(GraphBuildState state) {

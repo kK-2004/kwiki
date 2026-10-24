@@ -119,6 +119,63 @@ class SummarizationStageTest {
     }
 
     @Test
+    void 每个社区的摘要结果写入DEBUG日志() {
+        CommunitySummarizerPlugin summarizer = new CommunitySummarizerPlugin() {
+            @Override
+            public String id() {
+                return "kwiki-summarizer-1";
+            }
+
+            @Override
+            public String label() {
+                return "x";
+            }
+
+            @Override
+            public String promptVersion() {
+                return "community-summary-v1";
+            }
+
+            @Override
+            public String modelName() {
+                return "summary-model";
+            }
+
+            @Override
+            public CommunitySummary summarize(com.kwiki.graph.CommunitySummaryInput input) {
+                return summaryOf("社区 " + input.communityId());
+            }
+        };
+        SummarizationStage stage = new SummarizationStage(
+                new CommunitySummarizerRegistry(List.of(summarizer)), buildProperties());
+        CommunityDetectionResult detection = new CommunityDetectionResult(
+                GraphAlgorithmMode.ARCADEDB_NATIVE_UNWEIGHTED, "25.1", List.of(
+                new CommunityMembership(7L, 42L, "a", "c0")));
+        RunArtifacts artifacts = artifacts(detection, List.of(
+                new GraphEntity("a", "A", GraphEntityType.CONCEPT, List.of())), List.of());
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(SummarizationStage.class);
+        ch.qos.logback.classic.Level previous = logger.getLevel();
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
+        logger.addAppender(appender);
+        try {
+            stage.execute(new RunContext(run(), "owner-a", 3L, () -> false, progress -> {
+            }), artifacts);
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previous);
+        }
+
+        assertThat(appender.list).extracting(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .anySatisfy(line -> assertThat(line).startsWith("graph summarization community done")
+                        .contains("community=c0", "entities=1", "title=社区 c0"))
+                .anySatisfy(line -> assertThat(line).startsWith("graph summarization finished").contains("communities=1"));
+    }
+
+    @Test
     void 摘要阶段沿用抽取阶段的已抽取与缓存命中() {
         CommunitySummarizerPlugin summarizer = new CommunitySummarizerPlugin() {
             @Override
