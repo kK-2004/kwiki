@@ -463,7 +463,7 @@ class ExtractionStageTest {
             }), new RunArtifacts());
 
             assertThat(logs.at(ch.qos.logback.classic.Level.DEBUG)).singleElement().asString()
-                    .contains("run=12", "PAGE:1", "chunk=" + source.chunkKey(), "cacheHit=false",
+                    .contains("run=12", "PAGE:1", "chunk=" + source.chunkKey(),
                             "entities=2 [Kwiki(PRODUCT), ArcadeDB(TECHNOLOGY)]",
                             "relations=1 [Kwiki -USES-> ArcadeDB]")
                     .doesNotContain("graph storage");
@@ -489,6 +489,29 @@ class ExtractionStageTest {
             assertThat(logs.at(ch.qos.logback.classic.Level.WARN)).singleElement().asString()
                     .startsWith("graph extraction chunk failed run=12")
                     .contains("PAGE:1", "code=MODEL_TIMEOUT", "retryable=true", "模型调用超时");
+            // 阶段失败也给出汇总
+            assertThat(logs.at(ch.qos.logback.classic.Level.INFO)).anySatisfy(line -> assertThat(line)
+                    .startsWith("graph extraction failed run=12").contains("sources=1", "cacheHits=0", "modelExtracted=0"));
+        }
+    }
+
+    @Test
+    void 命中缓存的块不逐条输出只计入汇总() {
+        GraphExtractionCache cache = mock(GraphExtractionCache.class);
+        GraphSourceChunk source = child().toSourceChunk(5);
+        when(cache.findReady(any(), anyString(), anyString(), anyString())).thenReturn(Optional.of(
+                new GraphExtractionResult(source, List.of(new GraphEntity("e1", "Kwiki", GraphEntityType.PRODUCT, List.of())),
+                        List.of(), "kwiki-extractor-1", GraphExtractionPrompt.VERSION, "entity-linking-v1")));
+        ExtractionStage stage = stage(kbIdListing(), registryOf(pluginThrowing()), cache, planner(),
+                (kbId, candidates, context, version) -> candidates);
+
+        try (CapturedLogs logs = new CapturedLogs(ExtractionStage.class)) {
+            stage.execute(new RunContext(run(), "owner-a", 3L, () -> false, progress -> {
+            }), new RunArtifacts());
+
+            assertThat(logs.at(ch.qos.logback.classic.Level.DEBUG)).isEmpty();
+            assertThat(logs.at(ch.qos.logback.classic.Level.INFO)).anySatisfy(line -> assertThat(line)
+                    .startsWith("graph extraction finished run=12").contains("cacheHits=1", "modelExtracted=0"));
         }
     }
 

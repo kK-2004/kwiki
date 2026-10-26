@@ -142,8 +142,10 @@ public class ExtractionStage implements GraphBuildStage {
                 future.join();
             }
         } catch (java.util.concurrent.CancellationException cancelled) {
+            logAborted(run, "cancelled", sources.size(), cacheHits.get(), extracted.get(), stageStarted);
             throw cancelled;
         } catch (java.util.concurrent.CompletionException wrapped) {
+            logAborted(run, "failed", sources.size(), cacheHits.get(), extracted.get(), stageStarted);
             throw unwrapped(wrapped);
         } finally {
             pool.shutdownNow();
@@ -231,10 +233,11 @@ public class ExtractionStage implements GraphBuildStage {
         }
         entitiesByChunk.put(sourceChunkId, resolved);
         relationsByChunk.put(sourceChunkId, rewritten);
-        if (log.isDebugEnabled()) {
-            log.debug("graph extraction chunk done run={} {}:{} chunk={} sourceChunk={} cacheHit={} elapsedMs={} entities={} {} relations={} {}",
+        // 命中缓存的块不逐条输出，只在阶段汇总里计入 cacheHits；只有本次调用模型抽取的块才记明细
+        if (cached.isEmpty() && log.isDebugEnabled()) {
+            log.debug("graph extraction chunk done run={} {}:{} chunk={} sourceChunk={} elapsedMs={} entities={} {} relations={} {}",
                     ctx.run().id(), source.resourceType(), source.resourceId(), source.chunkKey(),
-                    sourceChunkId, cached.isPresent(), elapsedMillis(chunkStarted),
+                    sourceChunkId, elapsedMillis(chunkStarted),
                     resolved.size(), describeEntities(resolved),
                     rewritten.size(), describeRelations(rewritten, resolved));
         }
@@ -243,6 +246,13 @@ public class ExtractionStage implements GraphBuildStage {
         if (throttle.due()) {
             ctx.progress(new RunProgress(sourcesTotal, done, cacheHits.get(), 0, 0));
         }
+    }
+
+    /** 阶段中途失败或取消时同样给出汇总，缓存命中与已完成块数不会因失败而看不到。 */
+    private static void logAborted(com.kwiki.graph.persistence.GraphBuildRunRecord run, String outcome,
+                                   long sources, long cacheHits, long done, long stageStarted) {
+        log.info("graph extraction {} run={} sources={} cacheHits={} modelExtracted={} elapsedMs={}",
+                outcome, run.id(), sources, cacheHits, done - cacheHits, elapsedMillis(stageStarted));
     }
 
     private static long elapsedMillis(long startedNanos) {
