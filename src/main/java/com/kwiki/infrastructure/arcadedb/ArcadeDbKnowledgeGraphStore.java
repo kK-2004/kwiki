@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * ArcadeDB 图投影写入适配器。业务键、kbId、graphVersion、runId 和 fencing
@@ -135,30 +136,25 @@ public final class ArcadeDbKnowledgeGraphStore implements KnowledgeGraphStore {
                 evidence.add(new RelationEvidenceWrite(relation, sourceRef));
             }
         }
-        int evidences = 0;
-        for (List<RelationEvidenceWrite> batch : GraphWriteBatcher.split(evidence, objectMapper)) {
-            for (RelationEvidenceWrite item : batch) {
-                GraphRelation relation = item.relation();
-                var sourceRef = item.sourceRef();
-                Map<String, Object> params = new HashMap<>();
-                params.put("kbId", request.kbId());
-                params.put("graphVersion", request.graphVersion());
-                params.put("evidenceId", evidenceId(relation, sourceRef));
-                params.put("relationId", relation.relationId());
-                params.put("sourceEntityId", relation.sourceEntityId());
-                params.put("predicate", relation.predicate().name());
-                params.put("targetEntityId", relation.targetEntityId());
-                params.put("confidence", relation.confidence());
-                params.put("sourceChunkId", sourceRef.sourceChunkId());
-                params.put("startOffset", sourceRef.startOffset());
-                params.put("endOffset", sourceRef.endOffset());
-                params.put("runId", request.runId());
-                params.put("fencingToken", request.fencingToken());
-                client.command(properties.database(), UPSERT_RELATION, params,
-                        ArcadeDbTimeoutKind.BATCH_WRITE);
-                evidences++;
-            }
-        }
+        int evidences = writeBatches(evidence, UPSERT_RELATION, item -> {
+            GraphRelation relation = item.relation();
+            var sourceRef = item.sourceRef();
+            Map<String, Object> params = new HashMap<>();
+            params.put("kbId", request.kbId());
+            params.put("graphVersion", request.graphVersion());
+            params.put("evidenceId", evidenceId(relation, sourceRef));
+            params.put("relationId", relation.relationId());
+            params.put("sourceEntityId", relation.sourceEntityId());
+            params.put("predicate", relation.predicate().name());
+            params.put("targetEntityId", relation.targetEntityId());
+            params.put("confidence", relation.confidence());
+            params.put("sourceChunkId", sourceRef.sourceChunkId());
+            params.put("startOffset", sourceRef.startOffset());
+            params.put("endOffset", sourceRef.endOffset());
+            params.put("runId", request.runId());
+            params.put("fencingToken", request.fencingToken());
+            return params;
+        });
         return new RelationWriteCounts(request.relations().size(), evidences);
     }
 
@@ -173,16 +169,39 @@ public final class ArcadeDbKnowledgeGraphStore implements KnowledgeGraphStore {
     private record RelationWriteCounts(int relations, int evidences) {
     }
 
+    /**
+     * 每批（≤ 500 条 / 5 MiB）拼成一个 sqlscript 在一次请求、一个事务内执行：语句仍是逐条
+     * UPSERT，重放整批不会产生重复；第 i 条的命名参数加前缀 {@code p<i>_} 互不覆盖。
+     */
     private <T> int writeBatches(List<T> values, String statement,
                                  java.util.function.Function<T, Map<String, Object>> parameters) {
         int written = 0;
         for (List<T> batch : GraphWriteBatcher.split(values, objectMapper)) {
-            for (T value : batch) {
-                client.command(properties.database(), statement, parameters.apply(value),
-                        ArcadeDbTimeoutKind.BATCH_WRITE);
-                written++;
-            }
+            BatchScript script = batchScript(statement, batch.stream().map(parameters).toList());
+            client.command(properties.database(), "sqlscript", script.script(), script.parameters(),
+                    ArcadeDbTimeoutKind.BATCH_WRITE);
+            written += batch.size();
         }
         return written;
+    }
+
+    private static final Pattern NAMED_PARAMETER = Pattern.compile(":([A-Za-z_][A-Za-z0-9_]*)");
+
+    record BatchScript(String script, Map<String, Object> parameters) {
+    }
+
+    /** 把同一模板的多组参数合成 BEGIN … COMMIT 脚本；模板里的冒号只用于命名参数。 */
+    static BatchScript batchScript(String statement, List<Map<String, Object>> rows) {
+        StringBuilder script = new StringBuilder("BEGIN;\n");
+        Map<String, Object> merged = new HashMap<>();
+        for (int i = 0; i < rows.size(); i++) {
+            String prefix = "p" + i + "_";
+            script.append(NAMED_PARAMETER.matcher(statement).replaceAll(":" + prefix + "$1")).append(";\n");
+            for (var entry : rows.get(i).entrySet()) {
+                merged.put(prefix + entry.getKey(), entry.getValue());
+            }
+        }
+        script.append("COMMIT;");
+        return new BatchScript(script.toString(), merged);
     }
 }

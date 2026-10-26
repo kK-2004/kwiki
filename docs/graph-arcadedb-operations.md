@@ -208,6 +208,8 @@ KWIKI_GRAPH_CONTRACT_ES=http://localhost:9200 \
 
 - **实体跨块合并**：抽取后的实体在知识库内按「归一化名称（NFKC 全角转半角、去空白、小写）+ 类型」合并为同一实体，不再按所在块区分；合并后沿用首次登记的规范名称与类型，并把候选的名称与别名记为该实体别名（`graph_entity_alias`）。只是别名命中、或同名但类型不同属于有争议的合并：交给图谱抽取模型判定是否同一事物（`kwiki.graph.entity-merge.llm-judge`，默认开启，每个候选最多判定 3 个争议实体），判为相同才合并，结论缓存在 `graph_entity_merge_decision`，重建与重试不重复判定；关闭、模型不可用或无法判定时不合并。旧规则登记的实体不参与新匹配，重新构建后按新规则生成实体编号（抽取结果有缓存，不重新调用抽取模型）。
 
+- **投影批量写入**：PROJECTING 阶段写 ArcadeDB 时，Chunk、Entity、RelationEvidence 按每批至多 500 条 / 5 MiB 拼成一个 `sqlscript`（`BEGIN; …; COMMIT;`），一次请求、一个事务执行，不再每条记录一次 HTTP 往返；每条仍是 `UPDATE … UPSERT WHERE` 业务键，整批重放不会产生重复，批内任一条失败整批回滚，由阶段重试从头重写。第 i 条语句的命名参数加前缀 `p<i>_`。
+
 ### 10.5 构建日志
 
 - **INFO**（默认可见，`GraphBuildRunner` / `ExtractionStage` / `SummarizationStage`）：子任务开始（run、批次、知识库、graphVersion、起始状态与待执行阶段）、每个阶段开始与结束（耗时与产物计数：来源块、缓存命中、实体、关系、社区、摘要、快照）、抽取与摘要阶段汇总（缓存命中数、本次调用模型抽取的块数、耗时）、子任务就绪；过期、取消也各记一行。
