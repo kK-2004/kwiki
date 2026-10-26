@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 
-/** 受权限约束的用户名候选人与应用内通知状态。 */
+/** 受权限约束的用户名候选人（不含当前用户本人）与应用内通知状态。 */
 @Service
 public class MentionNotificationService {
 
@@ -21,7 +21,7 @@ public class MentionNotificationService {
             + "LEFT JOIN knowledge_base_member source_member ON source_member.kb_id = pa.source_kb_id "
             + "AND source_member.user_id = u.id "
             + "LEFT JOIN knowledge_base_member km ON km.kb_id = p.kb_id AND km.user_id = u.id "
-            + "WHERE u.is_active = TRUE AND (u.is_admin = TRUE OR p.owner_id = u.id "
+            + "WHERE u.is_active = TRUE AND u.id <> ? AND (u.is_admin = TRUE OR p.owner_id = u.id "
             + "OR pm.role IN ('VIEWER','EDITOR','ADMIN') "
             + "OR (p.audience_mode = 'SELECTED_MEMBERS' AND source_member.id IS NOT NULL) "
             + "OR (p.audience_mode = 'KB_MEMBERS' AND km.id IS NOT NULL)) "
@@ -48,6 +48,7 @@ public class MentionNotificationService {
         return jdbc.query(CANDIDATE_SQL, (rs, row) -> new UserCandidate(
                         rs.getLong("id"), rs.getString("username"), rs.getString("display_name")),
                 pageId,
+                user.id(),
                 escaped.isEmpty() ? "%" : escaped + "%",
                 normalized,
                 escaped.isEmpty() ? "%" : escaped + "%",

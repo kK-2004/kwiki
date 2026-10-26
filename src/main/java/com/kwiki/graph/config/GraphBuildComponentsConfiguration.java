@@ -20,8 +20,11 @@ import org.springframework.context.annotation.Configuration;
 public class GraphBuildComponentsConfiguration {
 
     @Bean
-    GraphEntityResolutionPort graphEntityResolver(GraphEntityRegistryPort registry) {
-        return new ConservativeGraphEntityResolver(registry);
+    GraphEntityResolutionPort graphEntityResolver(GraphEntityRegistryPort registry,
+                                                  org.springframework.beans.factory.ObjectProvider<
+                                                          com.kwiki.graph.GraphEntityMergeJudge> judge) {
+        return new ConservativeGraphEntityResolver(registry,
+                judge.getIfAvailable(com.kwiki.graph.GraphEntityMergeJudge::none));
     }
 
     @Bean
