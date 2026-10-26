@@ -474,7 +474,7 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
         // 模型调用统计只反映本次执行：重新排队时清零
         boolean requeued = jdbc.update("UPDATE graph_build_run SET state = 'QUEUED', "
                         + "stage = 'QUEUED', error_code = NULL, error_summary = NULL, "
-                        + "model_retries = 0, model_timeouts = 0 "
+                        + "model_retries = 0, model_timeouts = 0, " + RELEASE_LEASE
                         + "WHERE id = ? AND state IN ('FAILED','CANCELLED','STALE') "
                         + "AND batch_id NOT IN (SELECT id FROM graph_build_batch WHERE deleted_at IS NOT NULL)",
                 runId) == 1;
@@ -496,8 +496,9 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
     @Override
     public boolean cancelRun(long runId) {
         // 阶段保持在取消时所处的位置（执行器取消后直接退出，没有真正的清理阶段）
+        // 同时释放租约：仍在跑的旧执行者续租失败后自行退出，重试后可立即被重新领取
         boolean cancelled = jdbc.update("UPDATE graph_build_run SET state = 'CANCELLED', "
-                        + "completed_at = CURRENT_TIMESTAMP(6) "
+                        + "completed_at = CURRENT_TIMESTAMP(6), " + RELEASE_LEASE
                         + "WHERE id = ? AND state IN (" + activeStateSql() + ")",
                 runId) == 1;
         if (cancelled) {
@@ -532,6 +533,13 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
     // ---- 执行器扩展实现 ----
 
     /** 子任务终态集合：批次收尾只在全部子任务进入终态后进行。 */
+    /**
+     * 结束或重新排队时释放租约：领取条件要求「无持有者或租约已过期」，
+     * 不释放的话重试的子任务要等已取消 / 已失败那次执行的租约自然过期（默认 2 分钟）才能再被领取。
+     * fencing_token 不变：重新领取时会 +1，旧持有者的写入仍被隔离。
+     */
+    static final String RELEASE_LEASE = "lease_owner = NULL, lease_expires_at = NULL ";
+
     private static final String TERMINAL_STATES =
             "'READY','PUBLISHED','FAILED','CANCELLED','STALE'";
 
@@ -584,7 +592,7 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
     public boolean failRun(long runId, String owner, long fencingToken,
                            String errorCode, String errorSummary) {
         return jdbc.update("UPDATE graph_build_run SET state = 'FAILED', error_code = ?, "
-                        + "error_summary = ?, completed_at = CURRENT_TIMESTAMP(6) "
+                        + "error_summary = ?, completed_at = CURRENT_TIMESTAMP(6), " + RELEASE_LEASE
                         + "WHERE id = ? AND lease_owner = ? AND fencing_token = ?",
                 errorCode, errorSummary, runId, owner, fencingToken) == 1;
     }
@@ -592,7 +600,7 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
     @Override
     public boolean markStale(long runId, String owner, long fencingToken) {
         return jdbc.update("UPDATE graph_build_run SET state = 'STALE', "
-                        + "completed_at = CURRENT_TIMESTAMP(6) "
+                        + "completed_at = CURRENT_TIMESTAMP(6), " + RELEASE_LEASE
                         + "WHERE id = ? AND lease_owner = ? AND fencing_token = ?",
                 runId, owner, fencingToken) == 1;
     }

@@ -1,6 +1,8 @@
 package com.kwiki.graph.persistence;
 
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -129,5 +131,43 @@ class GraphBatchStateContractTest {
         new JdbcGraphBuildRepository(jdbc).requeueRun(6L);
 
         verify(jdbc).update(contains("model_retries = 0, model_timeouts = 0"), eq(6L));
+    }
+
+    /** 捕获对 graph_build_run 的唯一一次更新语句。 */
+    private static String runUpdate(JdbcTemplate jdbc) {
+        return org.mockito.Mockito.mockingDetails(jdbc).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("update"))
+                .map(invocation -> String.valueOf(invocation.getArguments()[0]))
+                .filter(statement -> statement.startsWith("UPDATE graph_build_run"))
+                .findFirst().orElseThrow(() -> new AssertionError("没有更新 graph_build_run"));
+    }
+
+    @Test
+    void failingStalingCancellingAndRequeueingReleaseTheLease() {
+        JdbcTemplate failed = mock(JdbcTemplate.class);
+        new JdbcGraphBuildRepository(failed).failRun(12L, "owner-a", 3L, "MODEL_TIMEOUT", "超时");
+        JdbcTemplate stale = mock(JdbcTemplate.class);
+        new JdbcGraphBuildRepository(stale).markStale(12L, "owner-a", 3L);
+        JdbcTemplate cancelled = mock(JdbcTemplate.class);
+        new JdbcGraphBuildRepository(cancelled).cancelRun(12L);
+        JdbcTemplate requeued = mock(JdbcTemplate.class);
+        new JdbcGraphBuildRepository(requeued).requeueRun(12L);
+
+        for (JdbcTemplate jdbc : List.of(failed, stale, cancelled, requeued)) {
+            assertThat(runUpdate(jdbc)).contains("lease_owner = NULL, lease_expires_at = NULL");
+        }
+        // 执行者自己写终态时仍凭租约身份隔离：失去租约的旧执行者写不进来
+        assertThat(runUpdate(failed)).contains("WHERE id = ? AND lease_owner = ? AND fencing_token = ?");
+        assertThat(runUpdate(stale)).contains("WHERE id = ? AND lease_owner = ? AND fencing_token = ?");
+    }
+
+    @Test
+    void releasedLeaseSatisfiesTheClaimCondition() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        new JdbcGraphBuildRepository(jdbc).acquireLease(12L, "owner-b", java.time.Duration.ofMinutes(2), 4L);
+
+        // 领取条件接受「无持有者」：释放后的子任务不必等旧租约过期
+        assertThat(runUpdate(jdbc)).contains("lease_owner IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(6)")
+                .contains("fencing_token = fencing_token + 1");
     }
 }
