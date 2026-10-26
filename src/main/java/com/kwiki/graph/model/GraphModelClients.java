@@ -24,6 +24,9 @@ public class GraphModelClients {
     private static final double SUMMARY_QPS = 2.0;
 
     private final ModelRegistry models;
+    /** 遇到网关超时后改走流式的端点标记，进程内有效。 */
+    private final java.util.Map<String, java.util.concurrent.atomic.AtomicBoolean> streamingPreference =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private final RateLimiter extractionLimiter = new RateLimiter(EXTRACTION_MAX_CONCURRENCY, EXTRACTION_QPS);
     private final RateLimiter summaryLimiter = new RateLimiter(SUMMARY_MAX_CONCURRENCY, SUMMARY_QPS);
 
@@ -58,6 +61,17 @@ public class GraphModelClients {
         }
         ResolvedModel model = resolved.get();
         RateLimiter limiter = model.limiter() == null ? fallbackLimiter : model.limiter();
-        return Optional.of(new ModelEndpoint(models.chat(purpose), limiter, model.maxRetries(), model.modelName()));
+        dev.langchain4j.model.chat.StreamingChatModel streaming;
+        try {
+            streaming = models.streaming(purpose);
+        } catch (RuntimeException unavailable) {
+            streaming = null;
+        }
+        // 按「用途 + 地址 + 模型」共享流式偏好：换了模型或地址即重新从非流式开始
+        java.util.concurrent.atomic.AtomicBoolean preferStreaming = streamingPreference.computeIfAbsent(
+                purpose.name() + "|" + model.baseUrl() + "|" + model.modelName(),
+                key -> new java.util.concurrent.atomic.AtomicBoolean());
+        return Optional.of(new ModelEndpoint(models.chat(purpose), limiter, model.maxRetries(), model.modelName(),
+                streaming, model.timeout(), preferStreaming));
     }
 }
