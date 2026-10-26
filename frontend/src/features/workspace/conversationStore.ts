@@ -2,7 +2,9 @@ import { defineStore } from 'pinia';
 import { api, errorMessage } from '../wiki/api';
 import { initialState, openStream, reduce, replayStoredEvents, type ActivityStep, type ClarificationReply, type ClarificationState, type StreamState } from '../wiki/sse';
 export type Session = { id: string; title: string; createdAt?: string; updatedAt?: string };
-type Message = { id: number; role: string; content: string; createdAt: string; requestId?: string | null };
+/** 划线引用：在 Wiki 页面划线后带入对话的一段文本，作为本次提问的上下文。 */
+export type ChatQuote = { kbId: number; pageId: number; pageTitle?: string | null; text: string };
+type Message = { id: number; role: string; content: string; createdAt: string; requestId?: string | null; quote?: ChatQuote | null };
 type StoredEvent = { seq: number; type: string; payloadJson: string };
 const RUN_CACHE_PREFIX = 'kwiki:conversation-run:v1:';
 const RUN_CACHE_INDEX = `${RUN_CACHE_PREFIX}index`;
@@ -35,6 +37,8 @@ export const useConversationStore = defineStore('conversation', {
     runClarifications: {} as Record<string, ClarificationState>,
     query: '', lastQuery: '', sessionId: '', requestId: '', running: false, minimized: false, floatingOpen: false,
     selectedKnowledgeBaseIds: [] as number[], selectedPageIds: [] as number[],
+    /** 输入框上方待发送的划线引用；随下一条提问发出后清空。 */
+    quote: null as ChatQuote | null, lastQuote: null as ChatQuote | null,
     loaded: false, loading: false, listError: '', historyError: '', }),
   getters: {
     answer: s => s.state.answer, progress: s => s.state.progress, reasoning: s => s.state.reasoning, error: s => s.state.error,
@@ -93,10 +97,18 @@ export const useConversationStore = defineStore('conversation', {
     async newConversation() {
       ++selection;
       await this.cancel();
-      this.sessionId = ''; this.history = []; this.query = ''; this.lastQuery = ''; this.state = initialState();
+      this.sessionId = ''; this.history = []; this.query = ''; this.lastQuery = ''; this.lastQuote = null; this.state = initialState();
       this.minimized = false; this.floatingOpen = false; this.historyError = ''; this.loading = false;
     },
-    send() { this.dispatch(this.query.trim()); },
+    /** 只带引用、未输入问题时按「解释这段内容」提问。 */
+    send() { this.dispatch(this.query.trim() || (this.quote ? '请解释这段内容。' : '')); },
+    /** 划线后「问 AI」：展开浮窗并把引用挂到输入框上方，由用户补充问题后按正常对话流程发出。 */
+    askWithQuote(quote: ChatQuote) {
+      this.quote = { ...quote, text: quote.text.trim() };
+      this.restore();
+      void this.boot();
+    },
+    clearQuote() { this.quote = null; },
     /** 对待答反问的回答：选项或自由输入；展示文本（label）作为用户消息，服务端以存储的选项为准。 */
     answerClarification(reply: Omit<ClarificationReply, 'id'>, label: string) {
       const pending = this.pendingClarification;
@@ -105,23 +117,26 @@ export const useConversationStore = defineStore('conversation', {
     },
     dispatch(current: string, clarification?: ClarificationReply) {
       if (!current || this.running || this.loading || this.historyError) return;
+      // 回答反问时不带引用：反问续跑沿用上一轮已合成的问题。
+      const quote = clarification ? null : this.quote;
       const run = ++generation; this.running = true; this.state = initialState(); this.requestId = ''; this.lastQuery = current;
-      if (!clarification) this.query = '';
-      this.history.push({ id: -Date.now(), role: 'USER', content: current, createdAt: new Date().toISOString() });
+      if (!clarification) { this.query = ''; this.quote = null; this.lastQuote = quote; }
+      this.history.push({ id: -Date.now(), role: 'USER', content: current, createdAt: new Date().toISOString(), quote });
       disposeStream?.();
       disposeStream = openStream(current, frame => {
         if (run !== generation) return;
         this.requestId = frame.requestId || this.requestId; this.state = reduce(this.state, frame);
         if (frame.type === 'session' && this.state.sessionId) {
           this.sessionId = this.state.sessionId;
-          if (!this.sessions.some(s => s.id === this.sessionId)) this.sessions.unshift({ id: this.sessionId, title: current.slice(0, 60), updatedAt: new Date().toISOString() });
+          if (!this.sessions.some(s => s.id === this.sessionId)) this.sessions.unshift({ id: this.sessionId, title: (quote ? `「${quote.text}」${current}` : current).slice(0, 60), updatedAt: new Date().toISOString() });
         }
         if (this.state.terminated) {
           this.running = false; disposeStream = null;
           void this.finishTurn(run);
         }
       }, { sessionId: this.sessionId || undefined, clientMessageId: crypto.randomUUID(),
-        knowledgeBaseIds: this.selectedKnowledgeBaseIds, pageIds: this.selectedPageIds, clarification });
+        knowledgeBaseIds: this.selectedKnowledgeBaseIds, pageIds: this.selectedPageIds, clarification,
+        quote: quote ? { kbId: quote.kbId, pageId: quote.pageId, text: quote.text } : undefined });
     },
     async finishTurn(run: number) {
       const id = this.sessionId;

@@ -62,10 +62,23 @@ public class AgenticAnswerService {
                                         String sessionId, String clientMessageId,
                                         String agentId, java.util.Set<Long> kbIds,
                                         java.util.Set<Long> pageIds, ClarificationReply reply) {
+        return answer(user, query, sessionId, clientMessageId, agentId, kbIds, pageIds, reply, null);
+    }
+
+    /**
+     * quote 为已按权限解析的划线引用：用户消息仍存原话、引用单独入库；
+     * 送给工作流的有效问题带上引用，意图识别、改写与工具规划照常进行。
+     */
+    public Flux<ChatStreamEvent> answer(CurrentUser user, String query,
+                                        String sessionId, String clientMessageId,
+                                        String agentId, java.util.Set<Long> kbIds,
+                                        java.util.Set<Long> pageIds, ClarificationReply reply, ChatQuote quote) {
         ChatSessionService.RunHandle run = null;
         if (sessions != null) {
             try {
-                run = sessions.begin(user, sessionId, clientMessageId, agentId, query);
+                run = quote == null
+                        ? sessions.begin(user, sessionId, clientMessageId, agentId, query)
+                        : sessions.begin(user, sessionId, clientMessageId, agentId, query, quote);
             } catch (IllegalStateException unavailable) {
                 if (!"database is unavailable".equals(unavailable.getMessage())) throw unavailable;
                 // 当可选的数据库离线时，「仅查询」流仍然可用。
@@ -90,7 +103,7 @@ public class AgenticAnswerService {
 
         // 路由状态：上一轮路由；若这是对反问的回答，校验后合成有效问题并收窄范围，且本次禁止再反问。
         PriorRoute prior = durableRun == null ? null : sessions.priorRoute(durableRun.runId());
-        String effectiveQuery = query;
+        String effectiveQuery = quote == null ? query : quote.compose(query);
         java.util.Set<Long> effectiveKbIds = kbIds == null ? java.util.Set.of() : kbIds;
         java.util.Set<Long> effectivePageIds = pageIds == null ? java.util.Set.of() : pageIds;
         boolean resumed = false;

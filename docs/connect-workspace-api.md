@@ -34,7 +34,7 @@ The implemented resource endpoints are:
 | Collaboration | `POST/GET/DELETE /invitations`, `POST /invitations/{token}/accept`, ownership-transfer create/accept/revoke |
 | Wiki interaction | statistics, page likes/favorites, comments/replies/comment likes, cursor-paginated `/comments/roots` and `/comments/roots/{rootId}/replies`, `POST .../visit` |
 | Mentions | `GET .../mention-candidates`, notifications list/unread-count/read/read-all |
-| Selection AI | `POST .../selection-question` as an independent SSE stream; `POST/GET .../anchors` for revision-aware selection links |
+| Selection AI | 划线后「问 AI」并入正常对话：`POST /api/v1/chat/stream` 的请求体可带 `quote: { kbId, pageId, text }`，服务端按读权限解析页面标题与所在段落后拼进本轮问题，照常走意图识别与按需检索；引用随用户消息存入 `chat_message.quote_json`，会话详情的消息带 `quote` 字段回显。原独立的 `.../selection-question` 已下线。`POST/GET .../anchors` for revision-aware selection links |
 
 ## DTO and error examples
 

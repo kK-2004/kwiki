@@ -60,9 +60,10 @@ public class ChatSessionService {
     public SessionDetail detail(CurrentUser user, String sessionUuid) {
         requireDb();
         Long id = sessionId(user, sessionUuid);
-        var messages = jdbc.query("SELECT id, role, content, created_at, run_id FROM (SELECT m.id, m.role, m.content, m.created_at, m.run_id FROM chat_message m "
+        var messages = jdbc.query("SELECT id, role, content, created_at, run_id, quote_json FROM (SELECT m.id, m.role, m.content, m.created_at, m.run_id, m.quote_json FROM chat_message m "
                         + "WHERE m.session_id = ? ORDER BY m.created_at DESC, m.id DESC LIMIT 200) recent ORDER BY created_at, id",
-                (rs, row) -> new MessageView(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getTimestamp(4).toInstant(), runRequestId(rs.getLong(5))), id);
+                (rs, row) -> new MessageView(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getTimestamp(4).toInstant(), runRequestId(rs.getLong(5)),
+                        quoteView(rs.getString(6))), id);
         String title = jdbc.queryForObject("SELECT title FROM chat_session WHERE id = ?", String.class, id);
         return new SessionDetail(sessionUuid, title, messages);
     }
@@ -114,6 +115,13 @@ public class ChatSessionService {
 
     @Transactional
     public RunHandle begin(CurrentUser user, String requestedSessionUuid, String clientMessageId, String agentId, String query) {
+        return begin(user, requestedSessionUuid, clientMessageId, agentId, query, null);
+    }
+
+    /** quote 非空时随用户消息一起入库；新会话标题以引用开头，便于在历史列表里辨认。 */
+    @Transactional
+    public RunHandle begin(CurrentUser user, String requestedSessionUuid, String clientMessageId, String agentId, String query,
+                           ChatQuote quote) {
         requireDb();
         String sessionUuid = requestedSessionUuid == null || requestedSessionUuid.isBlank()
                 ? UUID.randomUUID().toString() : requestedSessionUuid;
@@ -126,7 +134,7 @@ public class ChatSessionService {
                     (rs, row) -> new Object[] { rs.getLong(1), rs.getTimestamp(2) }, sessionUuid);
             if (!foreign.isEmpty()) throw new AccessDeniedException("session is unavailable");
             jdbc.update("INSERT INTO chat_session (uuid, user_id, title, agent_id) VALUES (?, ?, ?, ?)",
-                    sessionUuid, user.id(), truncate(query), agentId);
+                    sessionUuid, user.id(), truncate(quote == null ? query : quote.contextLine(query)), agentId);
             sessionId = jdbc.queryForObject("SELECT id FROM chat_session WHERE uuid = ? AND user_id = ?", Long.class, sessionUuid, user.id());
         }
         String clientId = clientMessageId == null || clientMessageId.isBlank() ? UUID.randomUUID().toString() : clientMessageId;
@@ -141,7 +149,8 @@ public class ChatSessionService {
         jdbc.update("INSERT INTO chat_run (uuid, session_id, user_id, client_message_id, request_id, status) VALUES (?, ?, ?, ?, ?, 'RUNNING')",
                 UUID.randomUUID().toString(), sessionId, user.id(), clientId, requestId);
         Long runId = jdbc.queryForObject("SELECT id FROM chat_run WHERE request_id = ?", Long.class, requestId);
-        jdbc.update("INSERT INTO chat_message (session_id, run_id, role, content) VALUES (?, ?, 'USER', ?)", sessionId, runId, query);
+        jdbc.update("INSERT INTO chat_message (session_id, run_id, role, content, quote_json) VALUES (?, ?, 'USER', ?, ?)",
+                sessionId, runId, query, quote == null ? null : quote.toJson());
         return new RunHandle(sessionUuid, clientId, requestId, sessionId, runId, false);
     }
 
@@ -151,9 +160,14 @@ public class ChatSessionService {
         // 助手消息可能包含引用，而这些引用对应的页面访问权限在该轮
         // 之后发生了变化。只有此前的用户提问可以安全复用，无需再通过
         // 文档授权服务逐条重新加载每个历史引用。
-        List<ChatTurn> rows = jdbc.query("SELECT m.role, m.content FROM chat_message m JOIN chat_run r ON r.session_id = m.session_id "
+        // 带划线引用的历史提问把引用文本拼回去，指代类追问（「它」「这段」）才能被正确改写。
+        List<ChatTurn> rows = jdbc.query("SELECT m.role, m.content, m.quote_json FROM chat_message m JOIN chat_run r ON r.session_id = m.session_id "
                         + "WHERE r.id = ? AND m.id < (SELECT MIN(id) FROM chat_message WHERE run_id = ?) AND m.role = 'USER' "
-                        + "ORDER BY m.id DESC LIMIT 12", (rs, row) -> new ChatTurn(rs.getString(1), truncateContext(rs.getString(2))), runId, runId);
+                        + "ORDER BY m.id DESC LIMIT 12", (rs, row) -> {
+                    ChatQuote quote = ChatQuote.fromJson(rs.getString(3));
+                    String content = quote == null ? rs.getString(2) : quote.contextLine(rs.getString(2));
+                    return new ChatTurn(rs.getString(1), truncateContext(content));
+                }, runId, runId);
         java.util.Collections.reverse(rows);
         return rows;
     }
@@ -221,6 +235,11 @@ public class ChatSessionService {
         }
     }
 
+    private static java.util.Map<String, Object> quoteView(String json) {
+        ChatQuote quote = ChatQuote.fromJson(json);
+        return quote == null ? null : quote.view();
+    }
+
     private void requireDb() { if (jdbc == null) throw new IllegalStateException("database is unavailable"); }
     private String truncate(String value) { if (value == null || value.isBlank()) return "新会话"; return value.trim().substring(0, Math.min(value.trim().length(), 300)); }
     private String truncateContext(String value) { if (value == null) return ""; return value.length() <= 2000 ? value : value.substring(0, 2000); }
@@ -234,7 +253,13 @@ public class ChatSessionService {
     public record SessionView(String id, String title, Instant createdAt, Instant updatedAt) {}
     public record SessionPage(List<SessionView> items, String nextCursor) {}
     /** requestId 将助手消息与它已存储的运行事件关联起来（活动回放）。 */
-    public record MessageView(long id, String role, String content, Instant createdAt, String requestId) {}
+    /** quote 为该条用户消息携带的划线引用（无则为 null）。 */
+    public record MessageView(long id, String role, String content, Instant createdAt, String requestId,
+                              java.util.Map<String, Object> quote) {
+        public MessageView(long id, String role, String content, Instant createdAt, String requestId) {
+            this(id, role, content, createdAt, requestId, null);
+        }
+    }
     public record SessionDetail(String id, String title, List<MessageView> messages) {}
     public record RunHandle(String sessionUuid, String clientMessageId, String requestId, long sessionId, long runId, boolean existing) {}
     public static final class RunConflictException extends RuntimeException {

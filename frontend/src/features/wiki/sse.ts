@@ -283,7 +283,7 @@ export function reduce(state: StreamState, frame: SseFrame): StreamState {
 export function openStream(
   query: string,
   onFrame: (frame: SseFrame) => void,
-  options: { sessionId?: string; clientMessageId?: string; agentId?: string; knowledgeBaseIds?: number[]; pageIds?: number[]; clarification?: ClarificationReply } = {},
+  options: { sessionId?: string; clientMessageId?: string; agentId?: string; knowledgeBaseIds?: number[]; pageIds?: number[]; clarification?: ClarificationReply; quote?: { kbId: number; pageId: number; text: string } } = {},
 ): () => void {
   const controller = new AbortController();
   const requestGeneration = getAuthGeneration();

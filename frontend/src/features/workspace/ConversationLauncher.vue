@@ -41,7 +41,7 @@
   </template>
 </template>
 <script setup lang="ts">
-import { nextTick, ref } from 'vue';
+import { nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useConversationStore } from './conversationStore';
 import ConversationMessages from './ConversationMessages.vue';
@@ -60,6 +60,8 @@ function closeHistoryPanel() {
   historyButton.value?.focus();
 }
 function open() { panel.value = 'messages'; store.restore(); void store.boot(); }
+/** 划线「问 AI」带入引用时，浮窗即使停在历史列表也切回消息视图，让引用出现在输入框上方。 */
+watch(() => store.quote, quote => { if (quote) panel.value = 'messages'; });
 
 /**
  * 新建会话完全委托全局 store；浮窗随后重新展开，

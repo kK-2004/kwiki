@@ -2,7 +2,8 @@ package com.kwiki.infrastructure.ai.registry;
 
 /**
  * 可独立分配模型的用途。默认参数与迁移前各 Bean 的硬编码一致：
- * 非流式用途 temperature 0.0，回答与划词问答 0.2。
+ * 非流式用途 temperature 0.0，回答生成 0.2。
+ * 划词提问已并入正常对话（走 ROUTER/ANSWER 等用途），不再单列用途。
  * embedding 不在此列：它随索引版本绑定，不能全局热切换。
  */
 public enum ModelPurpose {
@@ -13,7 +14,6 @@ public enum ModelPurpose {
     DIRECT_ANSWER("直接回答", "无需检索时的直答", ModelTag.CHAT, 0.0, false),
     QUALITY_ANALYZER("质量分析", "评估证据是否充分（v1/v2 共用）", ModelTag.CHAT, 0.0, false),
     ANSWER("回答生成", "基于证据的流式回答", ModelTag.CHAT, 0.2, false),
-    SELECTION_QUESTION("划词问答", "文档划词提问的流式回答", ModelTag.CHAT, 0.2, false),
     GRAPH_EXTRACTION("图谱抽取", "知识图谱实体与关系抽取", ModelTag.CHAT, 0.0, false),
     GRAPH_SUMMARY("社区摘要", "知识图谱社区摘要", ModelTag.CHAT, 0.0, false),
     VISION_SUMMARY("图片摘要", "多模态索引中的图片摘要", ModelTag.VISION, 0.0, false);

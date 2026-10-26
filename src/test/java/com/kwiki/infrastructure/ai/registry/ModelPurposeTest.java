@@ -17,7 +17,6 @@ class ModelPurposeTest {
             assertThat(purpose.defaultTemperature()).as(purpose.name()).isEqualTo(0.0);
         }
         assertThat(ModelPurpose.ANSWER.defaultTemperature()).isEqualTo(0.2);
-        assertThat(ModelPurpose.SELECTION_QUESTION.defaultTemperature()).isEqualTo(0.2);
     }
 
     @Test

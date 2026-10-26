@@ -58,11 +58,8 @@
     />
     <p v-if="selectionNotice" class="selection-notice" role="status">{{ selectionNotice }}</p>
     <div v-if="selectionText" class="selection-toolbar" :style="selectionToolbarStyle" @mousedown.prevent>
-      <button type="button" @click="questionOpen = true">问 AI</button>
+      <button type="button" @click="askAi">问 AI</button>
       <button type="button" @click="startComment">评论</button>
-    </div>
-    <div v-if="questionOpen" class="selection-modal" role="dialog" aria-label="划词问 AI">
-      <div class="selection-modal-card"><header><strong>问 AI</strong><button type="button" aria-label="关闭" @click="closeQuestion">×</button></header><p class="selection-quote">“{{ selectionText }}”</p><textarea v-model="question" placeholder="针对划词内容提问…" @keydown.enter.exact.prevent="askQuestion"></textarea><div class="selection-actions"><button type="button" @click="closeQuestion">取消</button><button v-if="asking" type="button" @click="stopQuestion">停止</button><button v-else type="button" :disabled="!question.trim()" @click="askQuestion">{{ questionError ? '重试' : '提问' }}</button></div><p v-if="questionError" class="state">{{ questionError }}</p><div v-if="answer" class="selection-answer">{{ answer }}</div></div>
     </div>
     <footer v-if="(backlinks ?? []).length" class="provenance" data-testid="page-backlinks">
       <span>被链接</span>
@@ -79,7 +76,8 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useWikiStore, normalizedError } from '../store';
-import { api, getAuthToken, setAuthToken } from '../api';
+import { useConversationStore } from '../../workspace/conversationStore';
+import { api, getAuthToken } from '../api';
 import { locateChunk, clearCitationHighlight, type ChunkLocation } from './locateChunk';
 import { OUTLINE_SELECTOR, outlineJump } from '../pageOutline';
 import type { CitationEntry } from '../sse';
@@ -103,6 +101,7 @@ const props = defineProps<{
 }>();
 
 const store = useWikiStore();
+const conversation = useConversationStore();
 const route = useRoute();
 const router = useRouter();
 const page = computed(() => store.page);
@@ -277,7 +276,7 @@ const selectedPath = computed(() =>
   store.selectedPageId == null ? null : findPath(store.tree, store.selectedPageId, []),
 );
 const displayTitle = computed(() => props.title ?? selectedPath.value?.at(-1)?.title ?? '');
-const selectionText = ref(''); const selectionNotice = ref(''); const selectionToolbarStyle = ref<Record<string, string>>({}); const questionOpen = ref(false); const question = ref(''); const answer = ref(''); const asking = ref(false); const questionError = ref(''); const questionController = ref<AbortController | null>(null);
+const selectionText = ref(''); const selectionNotice = ref(''); const selectionToolbarStyle = ref<Record<string, string>>({});
 const parentTitle = computed(() => {
   const path = selectedPath.value;
   if (!path || path.length < 2) {
@@ -311,10 +310,10 @@ function captureSelection(event: MouseEvent) {
   if (!rect) return;
   selectionText.value = text; selectionToolbarStyle.value = { left: `${Math.max(8, rect.left)}px`, top: `${Math.max(8, rect.top - 42)}px` };
 }
-function clearSelection() { selectionText.value = ''; closeQuestion(); }
-/** 选区被取消（点击空白处等）或移出正文时收起划词工具栏；问 AI 弹窗打开期间保留引用文本。 */
+function clearSelection() { selectionText.value = ''; }
+/** 选区被取消（点击空白处等）或移出正文时收起划词工具栏。 */
 function onSelectionChange() {
-  if (!selectionText.value || questionOpen.value) return;
+  if (!selectionText.value) return;
   const selection = window.getSelection();
   const container = contentRef.value?.$el;
   const inside = selection && !selection.isCollapsed && selection.rangeCount > 0 && container instanceof Element
@@ -331,8 +330,14 @@ function onScroll() {
   selectionToolbarStyle.value = { left: `${Math.max(8, rect.left)}px`, top: `${Math.max(8, rect.top - 42)}px` };
 }
 document.addEventListener('scroll', onScroll, { capture: true, passive: true });
-function closeQuestion() { questionController.value?.abort(); questionController.value = null; asking.value = false; questionOpen.value = false; onSelectionChange(); }
-function stopQuestion() { questionController.value?.abort(); questionController.value = null; asking.value = false; }
+/** 划线问 AI：把选中文本作为引用带到右下角「问问 kwiki」，按正常对话流程（意图识别、按需检索）回答。 */
+function askAi() {
+  const text = selectionText.value;
+  if (!text || !props.kbId || !props.pageId) return;
+  conversation.askWithQuote({ kbId: props.kbId, pageId: props.pageId, pageTitle: displayTitle.value || null, text });
+  window.getSelection()?.removeAllRanges();
+  clearSelection();
+}
 /** 划线评论：在选区旁弹出评论框（与页面底部的整页评论相互独立）。 */
 function startComment() {
   const selection = window.getSelection();
@@ -361,18 +366,6 @@ async function locateAnchor() {
   const range = document.createRange(); range.setStart(startNode, startOffset); range.setEnd(endNode, endOffset);
   const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
   (startNode.parentElement ?? container).scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-async function askQuestion() {
-  if (!props.kbId || !props.pageId || !selectionText.value || !question.value.trim() || asking.value) return;
-  asking.value = true; answer.value = ''; questionError.value = '';
-  questionController.value?.abort(); const controller = new AbortController(); questionController.value = controller;
-  try {
-    const response = await fetch(`/api/v1/knowledge-bases/${props.kbId}/pages/${props.pageId}/selection-question`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}) }, body: JSON.stringify({ selectedText: selectionText.value, query: question.value.trim() }), signal: controller.signal });
-    const renewed = response.headers.get('X-Auth-Token'); if (renewed) setAuthToken(renewed);
-    if (!response.ok || !response.body) throw new Error('selection question failed');
-    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
-    for (;;) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); let boundary = buffer.indexOf('\n\n'); while (boundary >= 0) { const raw = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2); const event = raw.match(/^event: (.+)$/m)?.[1]; const data = raw.match(/^data: (.+)$/m)?.[1]; if (event === 'token' && data) { try { answer.value += String((JSON.parse(data) as { text?: string }).text ?? ''); } catch { /* 忽略格式错误的帧 */ } } else if (event === 'error') throw new Error('selection question failed'); boundary = buffer.indexOf('\n\n'); } }
-  } catch (error) { if ((error as { name?: string })?.name !== 'AbortError') questionError.value = '问 AI 失败，请重试'; } finally { if (questionController.value === controller) questionController.value = null; asking.value = false; }
 }
 watch([() => props.anchorResolution?.anchorId, () => page.value?.revisionNo], () => { void locateAnchor(); }, { immediate: true });
 /**
@@ -422,7 +415,7 @@ watch(outlineJump, async (jump) => {
   container.querySelectorAll<HTMLElement>(OUTLINE_SELECTOR)[jump.index]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
-onBeforeUnmount(() => { document.removeEventListener('selectionchange', onSelectionChange); document.removeEventListener('scroll', onScroll, { capture: true }); invalidateCitation(); questionController.value?.abort(); stopIndexStatusPolling(); });
+onBeforeUnmount(() => { document.removeEventListener('selectionchange', onSelectionChange); document.removeEventListener('scroll', onScroll, { capture: true }); invalidateCitation(); stopIndexStatusPolling(); });
 </script>
 
 <style scoped>
@@ -585,22 +578,6 @@ onBeforeUnmount(() => { document.removeEventListener('selectionchange', onSelect
 .selection-toolbar { position:fixed; z-index:30; display:flex; gap:2px; padding:4px; border:1px solid var(--k-line); border-radius:var(--k-r); background:var(--k-canvas); box-shadow:var(--k-shadow); }
 .selection-toolbar button { border:0; border-radius:var(--k-r-sm); padding:6px 10px; background:transparent; color:var(--k-ink-2); font-size:13px; cursor:pointer; }
 .selection-toolbar button:hover { background:var(--k-surface-hover); color:var(--k-ink); }
-.selection-modal { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:20px; background:var(--k-overlay); }
-.selection-modal-card { width:min(520px,100%); max-height:min(80vh,620px); overflow:auto; padding:18px; border:1px solid var(--k-line); border-radius:var(--k-r-lg); background:var(--k-canvas); color:var(--k-ink); box-shadow:var(--k-shadow-float); }
-.selection-modal-card header { display:flex; justify-content:space-between; }
-.selection-modal-card header button { border:0; background:none; font-size:22px; color:var(--k-muted); cursor:pointer; }
-.selection-modal-card header button:hover { color:var(--k-ink); }
-.selection-quote { margin:14px 0; padding:10px 12px; border-left:3px solid var(--k-line-strong); color:var(--k-muted); }
-.selection-modal-card textarea { width:100%; min-height:70px; box-sizing:border-box; padding:10px; border:1px solid var(--k-line); border-radius:var(--k-r); background:var(--k-canvas); font:inherit; outline:none; }
-.selection-modal-card textarea:hover { border-color:var(--k-line-strong); }
-.selection-modal-card textarea:focus { border-color:var(--k-green); box-shadow:var(--k-focus-ring); }
-.selection-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
-.selection-actions button { padding:8px 13px; border:1px solid var(--k-line); border-radius:var(--k-r); background:var(--k-canvas); color:var(--k-ink); cursor:pointer; }
-.selection-actions button:hover { border-color:var(--k-line-strong); background:var(--k-surface); }
-.selection-actions button:last-child { background:var(--k-primary); border-color:var(--k-primary); color:var(--k-on-primary); }
-.selection-actions button:last-child:hover { background:var(--k-primary-hover); border-color:var(--k-primary-hover); }
-.selection-actions button:disabled { opacity:.5; }
-.selection-answer { margin-top:16px; padding-top:14px; border-top:1px solid var(--k-line); color:var(--k-ink-2); line-height:1.75; white-space:pre-wrap; }
 @media (max-width: 640px) {
   .title-row {
     display: block;

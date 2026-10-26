@@ -28,11 +28,21 @@ public class ChatController {
 
     private final AgenticAnswerService answers;
     private final CitationService citations;
+    private final ChatQuoteResolver quotes;
 
     public ChatController(AgenticAnswerService answers, CitationService citations) {
+        this(answers, citations, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ChatController(AgenticAnswerService answers, CitationService citations, ChatQuoteResolver quotes) {
         this.answers = answers;
         this.citations = citations;
+        this.quotes = quotes;
     }
+
+    /** 划线引用：只接收定位与文本，标题与段落由服务端按权限解析。 */
+    public record QuoteRequest(Long kbId, Long pageId, String text) {}
 
     public record ChatRequest(@NotBlank String query,
                               String sessionId,
@@ -40,22 +50,26 @@ public class ChatController {
                               String agentId,
                               java.util.Set<Long> knowledgeBaseIds,
                               java.util.Set<Long> pageIds,
-                              ClarificationReply clarification) {
+                              ClarificationReply clarification,
+                              QuoteRequest quote) {
         public ChatRequest(String query) {
-            this(query, null, null, null, java.util.Set.of(), java.util.Set.of(), null);
+            this(query, null, null, null, java.util.Set.of(), java.util.Set.of(), null, null);
         }
         public ChatRequest(String query, String sessionId, String clientMessageId, String agentId) {
-            this(query, sessionId, clientMessageId, agentId, java.util.Set.of(), java.util.Set.of(), null);
+            this(query, sessionId, clientMessageId, agentId, java.util.Set.of(), java.util.Set.of(), null, null);
         }
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     Flux<ServerSentEvent<String>> stream(
             @AuthenticationPrincipal CurrentUser user, @Valid @RequestBody ChatRequest request) {
-        Flux<ChatStreamEvent> events = request.sessionId() == null && request.clientMessageId() == null
+        // 引用在开流之前解析：无权访问或页面不存在时直接以 HTTP 错误拒绝，而不是在流里失败。
+        ChatQuote quote = request.quote() == null || quotes == null ? null
+                : quotes.resolve(user, ChatQuote.request(request.quote().kbId(), request.quote().pageId(), request.quote().text()));
+        Flux<ChatStreamEvent> events = request.sessionId() == null && request.clientMessageId() == null && quote == null
                 ? answers.answer(user, request.query())
                 : answers.answer(user, request.query(), request.sessionId(), request.clientMessageId(), request.agentId(),
-                        request.knowledgeBaseIds(), request.pageIds(), request.clarification());
+                        request.knowledgeBaseIds(), request.pageIds(), request.clarification(), quote);
         return events
                 .map(
                         event ->
