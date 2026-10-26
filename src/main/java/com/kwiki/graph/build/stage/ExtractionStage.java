@@ -189,13 +189,20 @@ public class ExtractionStage implements GraphBuildStage {
                     extractor.id(), extractor.promptVersion(), ctx.run().entityLinkingVersion());
             try {
                 result = retry.run(() -> extractor.extract(input), ctx.modelAttempts());
-            } catch (GraphBuildFailure failure) {
+            } catch (RuntimeException thrown) {
+                if (thrown instanceof java.util.concurrent.CancellationException cancelled) {
+                    throw cancelled;
+                }
+                // 未分类的运行时异常也落到失败块上，抽取缓存与子任务都能看到是哪个块
+                GraphBuildFailure failure = thrown instanceof GraphBuildFailure graph ? graph
+                        : GraphBuildFailure.retryable("EXTRACTION_FAILED", thrown.getClass().getSimpleName()
+                                + (thrown.getMessage() == null ? "" : ": " + thrown.getMessage()));
                 log.warn("graph extraction chunk failed run={} {}:{} chunk={} sourceChunk={} code={} retryable={} elapsedMs={} summary={}",
                         ctx.run().id(), source.resourceType(), source.resourceId(), source.chunkKey(),
                         sourceChunkId, failure.code(), failure.retryable(), elapsedMillis(chunkStarted),
                         failure.getMessage());
                 cache.markFailed(extractionId, failure.code(), String.valueOf(failure.getMessage()));
-                throw failure;
+                throw located(failure, source);
             }
             try {
                 GraphExtractionValidator.validate(input, result);
@@ -205,8 +212,8 @@ public class ExtractionStage implements GraphBuildStage {
                         sourceChunkId, invalid.getMessage());
                 cache.markFailed(extractionId, "EXTRACTION_INVALID",
                         String.valueOf(invalid.getMessage()));
-                throw GraphBuildFailure.permanent("EXTRACTION_INVALID",
-                        "抽取结果未通过结构校验：" + invalid.getMessage());
+                throw located(GraphBuildFailure.permanent("EXTRACTION_INVALID",
+                        "抽取结果未通过结构校验：" + invalid.getMessage()), source);
             }
             cache.markReady(extractionId, result);
         }
@@ -253,6 +260,18 @@ public class ExtractionStage implements GraphBuildStage {
                                    long sources, long cacheHits, long done, long stageStarted) {
         log.info("graph extraction {} run={} sources={} cacheHits={} modelExtracted={} elapsedMs={}",
                 outcome, run.id(), sources, cacheHits, done - cacheHits, elapsedMillis(stageStarted));
+    }
+
+    /**
+     * 让子任务的失败摘要带上失败块的身份（资源、chunkKey、sourceChunkId），管理端子任务列表即可看到
+     * 是哪个块失败；失败码与是否可重试保持不变。
+     */
+    static GraphBuildFailure located(GraphBuildFailure failure, GraphSourceChunk source) {
+        String summary = "块 " + source.resourceType() + ":" + source.resourceId()
+                + " chunk=" + source.chunkKey() + " sourceChunk=" + source.sourceChunkId()
+                + " 抽取失败：" + failure.getMessage();
+        return failure.retryable() ? GraphBuildFailure.retryable(failure.code(), summary)
+                : GraphBuildFailure.permanent(failure.code(), summary);
     }
 
     private static long elapsedMillis(long startedNanos) {

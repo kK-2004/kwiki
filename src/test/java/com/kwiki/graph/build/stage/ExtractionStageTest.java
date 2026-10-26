@@ -393,10 +393,32 @@ class ExtractionStageTest {
         RunContext ctx = new RunContext(run(), "owner-a", 3L, () -> false, progress -> {
         }, (timeout, willRetry) -> attempts.add(timeout + "/" + willRetry));
 
+        GraphSourceChunk source = child().toSourceChunk(5);
         assertThatThrownBy(() -> stage.execute(ctx, new RunArtifacts()))
-                .isInstanceOfSatisfying(GraphBuildFailure.class,
-                        failure -> assertThat(failure.code()).isEqualTo(GraphBuildFailure.MODEL_TIMEOUT));
+                .isInstanceOfSatisfying(GraphBuildFailure.class, failure -> {
+                    assertThat(failure.code()).isEqualTo(GraphBuildFailure.MODEL_TIMEOUT);
+                    assertThat(failure.retryable()).isTrue();
+                    // 子任务失败摘要带上失败块的身份
+                    assertThat(failure.getMessage()).contains("PAGE:1", "chunk=" + source.chunkKey(),
+                            "sourceChunk=" + source.sourceChunkId(), "超时");
+                });
         assertThat(attempts).containsExactly("true/true", "true/false");
+    }
+
+    @Test
+    void 未分类异常也记到失败块上并标记抽取缓存失败() {
+        GraphExtractionCache cache = missingCache();
+        ExtractionStage stage = stage(kbIdListing(), registryOf(pluginFailingThen(
+                        () -> new IllegalStateException("connection reset"), 5)),
+                cache, planner(), (kbId, candidates, context, version) -> candidates);
+
+        assertThatThrownBy(() -> stage.execute(new RunContext(run(), "owner-a", 3L, () -> false, progress -> {
+        }), new RunArtifacts()))
+                .isInstanceOfSatisfying(GraphBuildFailure.class, failure -> {
+                    assertThat(failure.code()).isEqualTo("EXTRACTION_FAILED");
+                    assertThat(failure.getMessage()).contains("PAGE:1", "IllegalStateException: connection reset");
+                });
+        verify(cache).markFailed(eq(77L), eq("EXTRACTION_FAILED"), org.mockito.ArgumentMatchers.contains("connection reset"));
     }
 
     /** 捕获指定类的日志（含 DEBUG），用完恢复级别。 */

@@ -204,6 +204,8 @@ KWIKI_GRAPH_CONTRACT_ES=http://localhost:9200 \
 
 - **租约释放**：子任务失败、取消、标记过期以及重试重新排队时，同时清空 `lease_owner` 与 `lease_expires_at`，重试后可立即被重新领取，不必等已取消那次执行的租约自然过期；`fencing_token` 不变，重新领取时 +1，仍在收尾的旧执行者续租失败后自行退出，其写入被隔离。
 
+- **定位失败块**：某个块重试耗尽或结构校验不通过时，子任务失败摘要写成「块 PAGE:42 chunk=… sourceChunk=… 抽取失败：原因」，管理端子任务列表「失败原因」列直接显示（失败码与是否可重试不变）；同一信息也在 WARN 日志 `graph extraction chunk failed` 与 `graph_extraction_result`（`state=FAILED`、`last_error_summary`）里。未分类的运行时异常归为可重试的 `EXTRACTION_FAILED`，同样记到对应块上。
+
 ### 10.5 构建日志
 
 - **INFO**（默认可见，`GraphBuildRunner` / `ExtractionStage` / `SummarizationStage`）：子任务开始（run、批次、知识库、graphVersion、起始状态与待执行阶段）、每个阶段开始与结束（耗时与产物计数：来源块、缓存命中、实体、关系、社区、摘要、快照）、抽取与摘要阶段汇总（缓存命中数、本次调用模型抽取的块数、耗时）、子任务就绪；过期、取消也各记一行。

@@ -33,6 +33,12 @@ describe("图构建执行器前端",()=>{
     expect(screen.getByText("就绪")).toBeTruthy();
   });
 
+  it("失败子任务显示失败码与包含块身份的失败原因",async ()=>{
+    mocks.graphRuns.mockResolvedValueOnce([{id:12,kbId:7,chunkIndexVersion:5,communityIndexVersion:6,communityPhysicalIndex:"kwiki-communities-v6-kb7",graphVersion:42,state:"FAILED",stage:"EXTRACTING",entityCount:0,relationCount:0,sourceCount:0,communityCount:0,extractor:"kwiki-extractor-1",communityDetector:"arcadedb-leiden-1",summarizer:"kwiki-summarizer-1",sourcesTotal:577,sourcesExtracted:41,extractionCacheHits:38,communitiesTotal:0,communitiesSummarized:0,errorCode:"MODEL_TIMEOUT",errorSummary:"块 PAGE:42 chunk=kb7:page:42:chunk:3 sourceChunk=sc_ab 抽取失败：抽取模型暂不可用：模型调用超时"}]);
+    await setup();
+    expect(await screen.findByText("MODEL_TIMEOUT：块 PAGE:42 chunk=kb7:page:42:chunk:3 sourceChunk=sc_ab 抽取失败：抽取模型暂不可用：模型调用超时")).toBeTruthy();
+  });
+
   it("子任务进度带出模型调用重试与超时次数",async ()=>{
     mocks.graphRuns.mockResolvedValueOnce([{id:12,kbId:7,chunkIndexVersion:5,communityIndexVersion:6,communityPhysicalIndex:"kwiki-communities-v6-kb7",graphVersion:42,state:"EXTRACTING",stage:"EXTRACTING",entityCount:0,relationCount:0,sourceCount:0,communityCount:0,extractor:"kwiki-extractor-1",communityDetector:"arcadedb-leiden-1",summarizer:"kwiki-summarizer-1",sourcesTotal:577,sourcesExtracted:0,extractionCacheHits:0,communitiesTotal:0,communitiesSummarized:0,modelRetries:4,modelTimeouts:5}]);
     await setup();

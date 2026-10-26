@@ -488,6 +488,12 @@ function showError(error: unknown) {
               <el-table-column label="进度" min-width="240">
                 <template #default="{ row }">{{ progressText(row) }}</template>
               </el-table-column>
+              <el-table-column label="失败原因" min-width="320">
+                <template #default="{ row }">
+                  <span v-if="row.errorCode" style="word-break: break-all">{{ row.errorCode }}：{{ row.errorSummary ?? "-" }}</span>
+                  <span v-else class="muted">-</span>
+                </template>
+              </el-table-column>
               <el-table-column label="插件组合" min-width="220">
                 <template #default="{ row }">{{ pluginBadge(row) }}</template>
               </el-table-column>

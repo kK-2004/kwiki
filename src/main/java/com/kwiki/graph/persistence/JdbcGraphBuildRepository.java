@@ -538,6 +538,11 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
      * 不释放的话重试的子任务要等已取消 / 已失败那次执行的租约自然过期（默认 2 分钟）才能再被领取。
      * fencing_token 不变：重新领取时会 +1，旧持有者的写入仍被隔离。
      */
+    /** 按列宽截断（error_code 200、error_summary 1000），避免过长的失败摘要让终态写入失败。 */
+    static String bounded(String value, int max) {
+        return value == null || value.length() <= max ? value : value.substring(0, max - 1) + "…";
+    }
+
     static final String RELEASE_LEASE = "lease_owner = NULL, lease_expires_at = NULL ";
 
     private static final String TERMINAL_STATES =
@@ -594,7 +599,7 @@ public class JdbcGraphBuildRepository implements GraphBuildRepository {
         return jdbc.update("UPDATE graph_build_run SET state = 'FAILED', error_code = ?, "
                         + "error_summary = ?, completed_at = CURRENT_TIMESTAMP(6), " + RELEASE_LEASE
                         + "WHERE id = ? AND lease_owner = ? AND fencing_token = ?",
-                errorCode, errorSummary, runId, owner, fencingToken) == 1;
+                bounded(errorCode, 200), bounded(errorSummary, 1000), runId, owner, fencingToken) == 1;
     }
 
     @Override

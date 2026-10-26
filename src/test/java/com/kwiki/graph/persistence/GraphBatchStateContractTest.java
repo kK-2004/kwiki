@@ -170,4 +170,14 @@ class GraphBatchStateContractTest {
         assertThat(runUpdate(jdbc)).contains("lease_owner IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(6)")
                 .contains("fencing_token = fencing_token + 1");
     }
+
+    @Test
+    void overlongFailureSummaryIsTruncatedToTheColumnWidth() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        new JdbcGraphBuildRepository(jdbc).failRun(12L, "owner-a", 3L, "EXTRACTION_INVALID", "x".repeat(5000));
+
+        verify(jdbc).update(contains("SET state = 'FAILED'"), eq("EXTRACTION_INVALID"),
+                org.mockito.ArgumentMatchers.argThat((String summary) -> summary.length() == 1000 && summary.endsWith("…")),
+                eq(12L), eq("owner-a"), eq(3L));
+    }
 }
