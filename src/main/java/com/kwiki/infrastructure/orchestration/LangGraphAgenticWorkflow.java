@@ -22,6 +22,9 @@ import org.bsc.langgraph4j.*;
 import org.bsc.langgraph4j.state.AgentState;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.context.environment.EnvironmentChangeEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 import reactor.core.publisher.*;
@@ -67,6 +70,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     /** 图增强仅在 kwiki.graph.enabled 时由装配注入；默认关闭，保持原检索路径。 */
     private static final org.slf4j.Logger log =
             org.slf4j.LoggerFactory.getLogger(LangGraphAgenticWorkflow.class);
+    private static final String AUTO_EXPAND_PARENTS = "kwiki.agentic.auto-expand-parents";
     private volatile com.kwiki.rag.retrieval.GraphRetrievalEnhancer graphEnhancer;
     /** 直答模型端口；缺失时 direct 节点直接转入检索。 */
     private volatile DirectAnswerPort directAnswer;
@@ -76,6 +80,12 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     private volatile boolean plannerEnabled;
     /** 评审 relevance 不高于该值，才开放 answer_directly / 触发固定阶梯的 *_PARENT 跳过；默认值写在代码里，由 Nacos 覆盖。 */
     private volatile double rerouteRelevanceThreshold = 0.2;
+    /**
+     * 生成前自动补父块：子块命中后先取去重父块再生成，而不是先只用子块生成、评审不过才补。
+     * 支持热更新：Nacos 推送后重新读取；每次 run 开始时取一次快照，run 内不变。
+     */
+    private volatile boolean autoExpandParents = true;
+    private volatile Environment environment;
     /** 质量评审节点时限：评审可开启思考（用途分配），默认 120s。 */
     private volatile java.time.Duration qualityDeadline = java.time.Duration.ofSeconds(120);
     private final ScheduledExecutorService timer =
@@ -234,6 +244,39 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         if (deadline != null && !deadline.isNegative() && !deadline.isZero()) this.qualityDeadline = deadline;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void configureAutoExpandParents(Environment environment) {
+        this.environment = environment;
+        reloadAutoExpandParents();
+    }
+
+    /** 配置中心推送后重新读取；值无法解析时保留原值并记 WARN。 */
+    @EventListener(EnvironmentChangeEvent.class)
+    public void onEnvironmentChange() {
+        reloadAutoExpandParents();
+    }
+
+    private void reloadAutoExpandParents() {
+        Environment env = environment;
+        if (env == null) {
+            return;
+        }
+        try {
+            boolean next = env.getProperty(AUTO_EXPAND_PARENTS, Boolean.class, true);
+            if (next != autoExpandParents) {
+                autoExpandParents = next;
+                log.info("{} refreshed to {}", AUTO_EXPAND_PARENTS, next);
+            }
+        } catch (RuntimeException e) {
+            log.warn("{} refresh rejected, keeping {}: {}", AUTO_EXPAND_PARENTS, autoExpandParents, e.getMessage());
+        }
+    }
+
+    /** 测试与手工装配用的注入入口。 */
+    public void useAutoExpandParents(boolean enabled) {
+        this.autoExpandParents = enabled;
+    }
+
     /** 测试与手工装配用的注入入口。 */
     public void useRerouteThreshold(double threshold) {
         this.rerouteRelevanceThreshold = threshold;
@@ -356,6 +399,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                                                                                 conversationHistory, sink, persistConversation,
                                                                                 kbIds, pageIds);
                                                                 s.routeInput = routeInput;
+                                                                s.autoExpandParents = autoExpandParents;
                                                                 reference.set(s);
                                                                 s.debugStage("workflow", "start", 0, () -> Map.of(
                                                                         "query", AgenticDebugLogger.boundedQuery(query),
@@ -713,6 +757,9 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                         : "检索命中 " + s.children.size() + " 个片段",
                 metrics,
                 s.lastDegradations.isEmpty() ? null : s.lastDegradations.get(0)));
+        if (s.autoExpandParents) {
+            expandParentsBeforeGeneration(s);
+        }
         s.next = "generate";
     }
 
@@ -786,7 +833,37 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     }
 
     private void retrieveParents(Session s) {
-        s.run.authorize();        s.parentFetchUsed++;
+        var outcome = fetchStageParents(s, s.usedParentKeys);
+        if (outcome.skipped()) {
+            s.recordStageFailure(outcome.reason());
+            advanceRecovery(s);
+            return;
+        }
+        s.parentEvidence = withUncoveredChildren(s, outcome.evidence(), s.children);
+        s.usedParentKeys.addAll(QaParentFetchService.keysOf(outcome.evidence()));
+        s.next = "generate";
+    }
+
+    /**
+     * 生成前自动补父块（固定阶梯）：子块检索后直接进入对应的 *_PARENT 阶段，用去重父块生成，
+     * 不再先只拿子块生成。父块全部已在本轮上下文里也照常提供（扩大阶段的父块多与基础阶段重叠）；
+     * 取不到父块或父块获取预算用尽时，子块以截断父块的形式进入上下文，阶段照样推进。
+     */
+    private void expandParentsBeforeGeneration(Session s) {
+        s.stage = s.stage.next();
+        List<ParentEvidence> parents = List.of();
+        if (s.parentFetchUsed < limits.parentFetches()) {
+            var outcome = fetchStageParents(s, Set.of());
+            parents = outcome.evidence();
+        }
+        s.parentEvidence = QaParentFetchService.withUncoveredChildren(parents, s.children);
+        s.usedParentKeys.addAll(QaParentFetchService.keysOf(parents));
+    }
+
+    /** 取当前阶段子块的父块并上报活动；跳过时 evidence 为空。 */
+    private QaParentFetchService.ParentStageOutcome fetchStageParents(Session s, Set<String> usedParentKeys) {
+        s.run.authorize();
+        s.parentFetchUsed++;
         if (s.parentFetchUsed > limits.parentFetches()) {
             throw new RunFailure("parent-budget-exhausted");
         }
@@ -798,26 +875,61 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
                 ActivityEvent.Phase.PARENT_FETCH, startedAt, "正在补充完整上下文"));
         var outcome = parentFetch.fetchParents(
                 s.run.scope, s.run, s.children, budget.parentLimit(),
-                retrievalBudgets.parentCharBudget(), s.usedParentKeys);
+                retrievalBudgets.parentCharBudget(), usedParentKeys);
         if (outcome.skipped()) {
-            s.recordStageFailure(outcome.reason());
             s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, s.stage.name(),
                     ActivityEvent.Phase.PARENT_FETCH, ActivityEvent.Status.SKIPPED, startedAt,
                     s.sinceMs(startedAt), "无新的完整上下文", Map.of(), outcome.reason()));
             s.debugStage("parent-fetch", "skipped", outcome.elapsedMs(), () -> Map.of(
                     "reason", outcome.reason()));
-            advanceRecovery(s);
-            return;
+            return outcome;
         }
-        s.parentEvidence = outcome.evidence();
-        s.usedParentKeys.addAll(QaParentFetchService.keysOf(outcome.evidence()));
         s.debugStage("parent-fetch", "complete", outcome.elapsedMs(), () -> Map.of(
                 "parentCount", outcome.parentCount()));
         s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, s.stage.name(),
                 ActivityEvent.Phase.PARENT_FETCH, ActivityEvent.Status.COMPLETED, startedAt,
                 s.sinceMs(startedAt), "补充 " + outcome.parentCount() + " 个完整段落",
                 Map.of("parentCount", outcome.parentCount()), null));
-        s.next = "generate";
+        return outcome;
+    }
+
+    /** 自动补父块开启时，把没被父块覆盖的子块补进父块上下文；关闭时保持只用父块。 */
+    private static List<ParentEvidence> withUncoveredChildren(Session s, List<ParentEvidence> parents,
+                                                              List<ChildEvidence> children) {
+        return s.autoExpandParents ? QaParentFetchService.withUncoveredChildren(parents, children) : parents;
+    }
+
+    /**
+     * 生成前自动补父块（planner）：证据池里尚无父块的子块先取父块再生成，
+     * planner 不必为补上下文单独规划一轮 expand_parents。
+     */
+    private void expandPoolParents(Session s) {
+        Set<String> used = s.pool.usedParentKeys();
+        List<ChildEvidence> uncovered = s.pool.children().stream()
+                .filter(child -> !used.contains(child.parentChunkKey()))
+                .toList();
+        if (uncovered.isEmpty() || s.pool.parentFetches() >= limits.parentFetches()) {
+            return;
+        }
+        s.run.authorize();
+        s.pool.useParentFetch();
+        String step = stepId(s, "parent");
+        long startedAt = s.nowMs();
+        s.emitActivity(ActivityEvent.started(step, null, s.queryRound, null,
+                ActivityEvent.Phase.PARENT_FETCH, startedAt, "正在补充完整上下文"));
+        var outcome = parentFetch.fetchParents(s.run.scope, s.run, uncovered,
+                retrievalBudgets.base().parentLimit(), retrievalBudgets.parentCharBudget(), used);
+        int added = outcome.skipped() ? 0 : s.pool.addParents(outcome.evidence());
+        s.debugStage("parent-fetch", outcome.skipped() ? "skipped" : "complete", outcome.elapsedMs(),
+                () -> outcome.skipped()
+                        ? Map.<String, Object>of("reason", outcome.reason())
+                        : Map.<String, Object>of("parentCount", added));
+        s.emitActivity(ActivityEvent.finished(step, null, s.queryRound, null,
+                ActivityEvent.Phase.PARENT_FETCH,
+                outcome.skipped() ? ActivityEvent.Status.SKIPPED : ActivityEvent.Status.COMPLETED,
+                startedAt, s.sinceMs(startedAt),
+                outcome.skipped() ? "无新的完整上下文" : "补充 " + added + " 个完整段落",
+                Map.of("parentCount", added), outcome.reason()));
     }
 
     private void generate(Session s) {
@@ -827,7 +939,7 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         }
         if (s.plannerMode()) {
             s.children = s.pool.children();
-            s.parentEvidence = s.pool.numberedParents();
+            s.parentEvidence = withUncoveredChildren(s, s.pool.numberedParents(), s.children);
             s.currentQuery = s.pool.currentQuery();
             s.stage = s.parentEvidence.isEmpty() ? AttemptStage.BASE_CHILD : AttemptStage.BASE_PARENT;
             s.generatedPoolVersion = s.pool.version();
@@ -972,13 +1084,24 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
     /** 规划：planner 只给出工具策略，校验通过的调用交给 execute 由代码执行。 */
     private void plan(Session s) {
         long startedAt = s.nowMs();
-        if (s.planRound >= limits.queryRounds() || !s.run.canModel() || !s.run.canTools(1)) {
+        // 本轮检索后回来决定是否补父块：同一轮内续规划，不占查询轮次
+        boolean continuing = s.continuePlanRound;
+        s.continuePlanRound = false;
+        if (continuing && (!s.run.canModel(2) || !s.run.canTools(1))) {
+            s.next = "generate"; // 预算只够生成：本轮证据直接用于生成
+            return;
+        }
+        if ((!continuing && s.planRound >= limits.queryRounds()) || !s.run.canModel() || !s.run.canTools(1)) {
             s.finishInsufficient("recovery-exhausted");
             return;
         }
-        s.planRound++;
-        s.queryRound = s.planRound;
-        String step = stepId(s, "plan");
+        if (!continuing) {
+            s.planRound++;
+            s.queryRound = s.planRound;
+            s.roundToolCount = 0;
+            s.roundReplanned = false;
+        }
+        String step = stepId(s, continuing ? "replan" : "plan");
         s.emitActivity(ActivityEvent.started(step, null, s.queryRound, null,
                 ActivityEvent.Phase.PLAN, startedAt, "正在规划检索策略"));
         var decision = planning.plan(new QaPlanningService.Input(
@@ -1068,10 +1191,9 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         s.pendingCalls = List.of();
         var context = new ToolExecutionContext(s.run, s.pool, s.query, s.conversationHistory,
                 graphSelection(s), s.queryRound);
-        int index = 0;
         for (var call : calls) {
             String name = call.call().name();
-            String step = stepId(s, "tool-" + (++index) + "-" + name);
+            String step = stepId(s, "tool-" + (++s.roundToolCount) + "-" + name);
             long startedAt = s.nowMs();
             ActivityEvent.Phase phase = toolPhase(name);
             s.emitActivity(ActivityEvent.started(step, null, s.queryRound, null, phase, startedAt,
@@ -1095,7 +1217,33 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
             return;
         }
         // 证据有更新才值得重新生成；否则回到规划，让 planner 基于新的观察再决定
-        s.next = s.pool.hasChildren() && s.pool.version() != s.generatedPoolVersion ? "generate" : "plan";
+        if (!s.pool.hasChildren() || s.pool.version() == s.generatedPoolVersion) {
+            s.next = "plan";
+        } else if (s.autoExpandParents) {
+            expandPoolParents(s);
+            s.next = "generate";
+        } else if (shouldOfferParents(s, calls)) {
+            // 未开启自动补父块：检索带来了尚无父块的子块，先回 planner，让它决定 expand_parents 还是直接生成
+            s.roundReplanned = true;
+            s.continuePlanRound = true;
+            s.next = "plan";
+        } else {
+            s.next = "generate";
+        }
+    }
+
+    /** 每轮至多续规划一次；本批已调用过 expand_parents、子块都已有父块或预算不足时直接生成。 */
+    private boolean shouldOfferParents(Session s, List<ToolRegistry.ValidatedAgentCall> calls) {
+        // 续规划要花一次 planner 调用，还得留一次给生成
+        if (s.roundReplanned || s.pool.parentFetches() >= limits.parentFetches()
+                || !s.run.canModel(2) || !s.run.canTools(1)) {
+            return false;
+        }
+        if (calls.stream().anyMatch(call -> AgentTools.EXPAND_PARENTS.equals(call.call().name()))) {
+            return false;
+        }
+        Set<String> used = s.pool.usedParentKeys();
+        return s.pool.children().stream().anyMatch(child -> !used.contains(child.parentChunkKey()));
     }
 
     private static ActivityEvent.Phase toolPhase(String tool) {
@@ -1370,7 +1518,14 @@ public class LangGraphAgenticWorkflow implements AgenticWorkflowPort {
         /** plan-execute 状态；planner 未启用时 pool 为 null。 */
         EvidencePool pool;
         int planRound, generatedPoolVersion = -1;
+        /** 本轮已执行的工具数，用于活动步骤编号；续规划后继续累加。 */
+        int roundToolCount;
+        /** 下一次 plan 属于同一轮的续规划（检索后决定是否补父块）。 */
+        boolean continuePlanRound;
+        boolean roundReplanned;
         boolean plannerDegraded;
+        /** run 开始时的 auto-expand-parents 快照。 */
+        boolean autoExpandParents;
         QualityAssessment lastReview;
         /** planner 已把本次 run 改成直答：direct 不得再升级回检索。 */
         boolean rerouted;

@@ -93,10 +93,13 @@ public final class AgenticTestSupportHarness {
                 0.95, 0.95, 0.95, true,
                 List.of(firstEvidenceId(input)), List.of(), List.of(), "sufficient", "全部达标");
         FeedbackRewritePort rewriter = input -> Optional.of("改写后的检索问题");
-        return new LangGraphAgenticWorkflow(
+        var workflow = new LangGraphAgenticWorkflow(
                 router, candidates, quality, rewriter, childRetrieval, parentFetch,
                 qaBudgets, scopes, versions, persistence, org.mockito.Mockito.mock(com.kwiki.rag.answer.CitationDisplayNameResolver.class), metrics, AgenticLimits.defaults(),
                 new AgenticDebugLogger(), 0.80, Optional.empty(), Optional.empty());
+        // 既有用例按显式父块阶段编写
+        workflow.useAutoExpandParents(false);
+        return workflow;
     }
 
     private static String firstEvidenceId(com.kwiki.rag.quality.QualityV2Input input) {

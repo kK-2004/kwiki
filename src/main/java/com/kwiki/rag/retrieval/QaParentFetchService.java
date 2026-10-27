@@ -9,16 +9,18 @@ import com.kwiki.wiki.access.ScopeVersionService;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * 父分块获取是 QA 门禁链路中一个独立的、需显式请求的阶段：
- * 只有在子分块阶段的候选未通过门禁之后，工作流才会
- * 获取该阶段所保留子分块的父分块。父分块按
+ * 父分块获取：工作流在生成前（kwiki.agentic.auto-expand-parents，默认开启）
+ * 或子分块阶段的候选未通过门禁之后，获取该阶段所保留子分块的父分块。父分块按
  * 首个命中的子分块顺序去重，受阶段父分块上限与
  * 固定的父分块字符预算约束，且每次获取都会重新校验
  * 授权作用域与生命周期排除项。当保留下来的子分块的
@@ -100,7 +102,43 @@ public class QaParentFetchService {
         return keys;
     }
 
-    private ChunkHit toHit(ChildEvidence child) {
+    /**
+     * 生成上下文只放父块时，没被任何父块正文覆盖的子块（超出父块上限或字符预算）会丢失：
+     * 把它们按所属父块分组，作为截断的父块（正文只含命中的子块，按原文位置排列）
+     * 追加在已有父块之后，firstHitOrder 顺延，引用与评审照常按父块处理。
+     */
+    public static List<ParentEvidence> withUncoveredChildren(List<ParentEvidence> parents,
+                                                             List<ChildEvidence> children) {
+        Map<String, ParentEvidence> byKey = new HashMap<>();
+        parents.forEach(parent -> byKey.putIfAbsent(parent.parentChunkKey(), parent));
+        Map<String, List<ChildEvidence>> uncovered = new LinkedHashMap<>();
+        for (ChildEvidence child : children) {
+            ParentEvidence parent = byKey.get(child.parentChunkKey());
+            if (parent != null && parent.body().contains(child.content())) {
+                continue;
+            }
+            uncovered.computeIfAbsent(child.parentChunkKey(), key -> new ArrayList<>()).add(child);
+        }
+        if (uncovered.isEmpty()) {
+            return parents;
+        }
+        List<ParentEvidence> all = new ArrayList<>(parents);
+        int order = parents.stream().mapToInt(ParentEvidence::firstHitOrder).max().orElse(-1) + 1;
+        for (List<ChildEvidence> group : uncovered.values()) {
+            ChildEvidence first = group.get(0);
+            List<ChildEvidence> inTextOrder = group.stream()
+                    .sorted(Comparator.comparingInt(ChildEvidence::charStart)).toList();
+            all.add(new ParentEvidence(
+                    first.parentChunkKey(), first.resourceType(), first.resourceId(),
+                    first.revisionId(), first.kbId(), first.headingPath(),
+                    inTextOrder.stream().map(ChildEvidence::content).collect(Collectors.joining("\n……\n")),
+                    true, order++,
+                    group.stream().map(QaParentFetchService::toHit).toList()));
+        }
+        return List.copyOf(all);
+    }
+
+    private static ChunkHit toHit(ChildEvidence child) {
         return new ChunkHit(
                 child.chunkKey(), child.parentChunkKey(), child.kbId(),
                 child.resourceType(), child.resourceId(), child.revisionId(),

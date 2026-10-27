@@ -210,6 +210,8 @@ public final class AgenticTestSupport {
                     new RetrievalBudgets(50, 40, 8, 3, 24000, java.time.Duration.ofSeconds(5)), new AgenticDebugLogger());
             ((com.kwiki.infrastructure.orchestration.LangGraphAgenticWorkflow) workflow)
                     .usePlanner(planning, dispatcher, true);
+            // planner 用例跟随生产默认：生成前自动补父块
+            ((com.kwiki.infrastructure.orchestration.LangGraphAgenticWorkflow) workflow).useAutoExpandParents(true);
             return planner;
         }
 
@@ -271,6 +273,8 @@ public final class AgenticTestSupport {
                     budgets, scopes, versions, persistence, org.mockito.Mockito.mock(com.kwiki.rag.answer.CitationDisplayNameResolver.class), metrics, AgenticLimits.defaults(),
                     logger, 0.80, Optional.empty(), Optional.empty());
             workflow.useDirectAnswer(direct);
+            // 既有用例按显式父块阶段（评审不过才补父块）编写；自动补父块由专门的用例开启
+            workflow.useAutoExpandParents(false);
             return new Harness(bm25, vector, parents, answer, quality, rewriter, direct,
                     childRetrieval, parentFetch, budgets, workflow);
         } catch (Exception e) {

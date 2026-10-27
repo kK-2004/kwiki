@@ -22,6 +22,15 @@ class StreamingAnswerLlmAdapterTest {
                 .contains("Bad: 'According to the material [P0]");
     }
 
+    @Test
+    void ignoresUnrelatedEvidenceSilently() {
+        assertThat(StreamingAnswerLlmAdapter.evidenceOnlyContract())
+                .contains("silently ignore the rest: never mention, summarize or cite them")
+                .contains("[P0] is about Company B and is unrelated to the question.'")
+                .contains("say so once in one sentence")
+                .doesNotContain("State missing knowledge");
+    }
+
     private StreamingAnswerLlmAdapter adapter(String partial, String complete, FinishReason reason) {
         var model = mock(StreamingChatModel.class);
         doAnswer(call -> {

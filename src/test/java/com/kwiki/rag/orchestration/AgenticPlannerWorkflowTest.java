@@ -71,6 +71,11 @@ class AgenticPlannerWorkflowTest {
                 child.resourceId(), child.revisionId(), "heading", "完整父段落 " + parentKey, 0, List.of(child)));
     }
 
+    /** 默认跟随生产配置开启自动补父块；验证显式 expand_parents 的用例关闭它。 */
+    void disableAutoExpandParents() {
+        ((com.kwiki.infrastructure.orchestration.LangGraphAgenticWorkflow) harness.workflow).useAutoExpandParents(false);
+    }
+
     static ChatStreamEvent done(List<ChatStreamEvent> events) {
         return events.getLast();
     }
@@ -92,16 +97,22 @@ class AgenticPlannerWorkflowTest {
     @Test
     void oneRoundPlanExecuteGenerateAndPublish() {
         setUp();
+        disableAutoExpandParents();
         corpus(hit("C1", "P1", 1, 11), hit("C2", "P2", 1, 12));
         harness.answer.scripted.add("基于证据的回答 [P0]");
-        planner.then(call("a", "search_chunks", SEARCH));
+        planner.then(call("a", "search_chunks", SEARCH)); // 续规划时队列已空 → 空计划 → 直接生成
 
         var events = run("什么是部署方式");
 
-        assertThat(done(events).payloadMap()).containsEntry("outcome", "completed");
+        assertThat(done(events).payloadMap()).containsEntry("outcome", "completed")
+                .containsEntry("attemptStage", "BASE_CHILD");
         assertThat(tokens(events)).isEqualTo("基于证据的回答 [P0]");
-        assertThat(planner.requests).hasSize(1);
+        assertThat(planner.requests).as("检索后回 planner 一次，决定是否补父块").hasSize(2);
         assertThat(toolNames(planner.requests.getFirst())).containsExactly("search_chunks", "rewrite_query");
+        var replan = planner.requests.get(1);
+        assertThat(toolNames(replan)).contains("expand_parents");
+        assertThat(replan.observation()).as("续规划不占查询轮次").containsEntry("round", 1)
+                .containsEntry("evidenceUnexamined", true);
         assertThat(harness.bm25.topKs).as("只有工具这一次检索，没有走固定阶梯").containsExactly(20);
         assertThat(harness.parents.requestedKeys).isEmpty();
         var phases = events.stream().filter(e -> e.type().equals("activity"))
@@ -135,21 +146,23 @@ class AgenticPlannerWorkflowTest {
     @Test
     void failedReviewReplansWithTheReviewAndExpandsToParents() {
         setUp();
+        disableAutoExpandParents();
         var child = hit("C1", "P1", 1, 11);
         corpus(child);
         stubParent("P1", child);
         harness.quality.passes = input -> input.candidate().evidenceLevel() == CandidateAnswer.EvidenceLevel.PARENT;
         harness.answer.scripted.add("子候选 [P0]");
         harness.answer.scripted.add("父候选完整回答 [P0]");
-        planner.then(call("a", "search_chunks", SEARCH)).then(call("b", "expand_parents", "{}"));
+        // 检索后的续规划先不补父块（空计划），评审不过后的下一轮再 expand_parents
+        planner.then(call("a", "search_chunks", SEARCH)).then().then(call("b", "expand_parents", "{}"));
 
         var events = run("什么是部署方式");
 
         assertThat(done(events).payloadMap()).containsEntry("outcome", "completed")
                 .containsEntry("attemptStage", "BASE_PARENT");
         assertThat(tokens(events)).isEqualTo("父候选完整回答 [P0]");
-        assertThat(planner.requests).hasSize(2);
-        var second = planner.requests.get(1);
+        assertThat(planner.requests).hasSize(3);
+        var second = planner.requests.get(2);
         assertThat(toolNames(second)).contains("expand_parents", "rewrite_query");
         @SuppressWarnings("unchecked")
         var review = (Map<String, Object>) second.observation().get("lastReview");

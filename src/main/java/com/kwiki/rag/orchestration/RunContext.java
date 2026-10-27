@@ -161,6 +161,11 @@ public final class RunContext implements AutoCloseable {
         return models.get() < limits.modelCalls();
     }
 
+    /** 是否还能再发起 count 次模型调用。 */
+    public boolean canModel(int count) {
+        return models.get() + count <= limits.modelCalls();
+    }
+
     public boolean canTools(int count) {
         return tools.get() + count <= limits.toolCalls();
     }

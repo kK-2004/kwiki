@@ -73,10 +73,22 @@ SSE 保留 seq/requestId/type，新增 tool/quality/retry；done 可含 outcome/
 
 - **流程**：`route →（需要检索）plan → execute → generate → quality`；质量门禁不过则带评审结果回到 `plan`，最多 `max-query-rounds`（3）轮，耗尽后回固定的“信息不足”文案。证据没有更新就不会重新生成，而是回到规划。
 - **plan**：`QaPlanningService` 构造有界观察摘要（问题、当前 query、证据摘录、上一轮评审、剩余预算；证据按不可信数据处理并脱敏限长），调用 planner，校验输出；非法则带原因重试 1 次。
-- **execute**：`AgentToolDispatcher` 逐个执行 `search_chunks` / `expand_parents` / `graph_expand` / `rewrite_query` / `ask_user`，结果写入 per-run 的 `EvidencePool`。生成时已扩展 parent 则用 parent 上下文（`[P#]` 按池内顺序重新编号），否则用 child。
+- **execute**：`AgentToolDispatcher` 逐个执行 `search_chunks` / `expand_parents` / `graph_expand` / `rewrite_query` / `ask_user`，结果写入 per-run 的 `EvidencePool`。生成时已扩展 parent 则用 parent 上下文（`[P#]` 按池内顺序重新编号），否则用 child；默认会在生成前自动补父块，见下节。
 - **ask_user**：必须单独成批；选项只能引用证据池里的子块，kbId / pageId 由服务端从证据派生；反问续跑的 run 不暴露该工具。以 `clarification` 事件（`source=planner`）结束本次 run，回答协议与路由反问一致。
 - **降级**：planner 输出两次非法或供应商故障 → 回固定阶梯（`retrieve → … → rewrite`），预算计数从证据池带过去，降级只发生一次，指标 `kwiki_planner_degraded_total{reason}`。取消 / 超时 / 授权变化 / 模型预算耗尽照常中止，不降级。
 - **日志**（`kwiki.agentic.debug`，DEBUG）：`phase=plan`（observation / rejected / calls / sufficient / degraded）、`phase=tool`（start / complete）、`phase=observe`（证据池增量）。
+
+## 生成前自动补父块
+
+`kwiki.agentic.auto-expand-parents=true`（默认开启）时，子块检索命中后先取去重父块再生成，不再先只用子块生成、评审不过才补父块。子块切得细，实体名（公司、患者、被告）往往只在文档开头，答案所在的子块单独看不出属于谁；父块把同一节或整篇小文档一起带上。
+
+- **固定阶梯**：子块检索后直接进入对应的 `BASE_PARENT` / `EXPANDED_PARENT` 阶段生成，每轮只有 base、expanded 两次父块级生成；扩大阶段的父块与基础阶段重叠时照常提供。`relevance ≤ 阈值` 的跳过父块阶段规则不再起作用（已经没有单独的父块阶段可跳）。
+- **planner**：`execute` 后要生成时，先给证据池里尚无父块的子块取父块（基础父块上限，计入 `max-parent-fetches`），不再回 planner；`expand_parents` 仍可用于指定子块。
+- **关闭时的 planner**：检索带来尚无父块的子块时，先回 planner 续规划一次（同一轮，不占 `max-query-rounds`；活动步骤为 `replan`），由它决定 `expand_parents` 还是空计划直接生成；本批已调用过 `expand_parents`、子块都已有父块、父块预算用尽或本轮已续规划过时直接生成。
+- **不丢子块**：超出父块上限或字符预算、没被任何父块正文覆盖的子块，按所属父块分组，作为截断父块（正文只含命中的子块，按原文位置排列）追加在父块之后、`[P#]` 顺延，引用与评审照常按父块处理。
+- **无关证据**：父块会把同模板的其他文档（其他公司、患者、案件）整段带进上下文，回答提示词（`StreamingAnswerLlmAdapter.evidenceOnlyContract`）要求只用能回答问题的证据，其余静默忽略，不提及、不总结、不引用，也不解释为何无关；缺信息时只用一句话说明。
+- **降级**：取不到父块或 `max-parent-fetches` 用尽时，子块以截断父块的形式进入上下文，不报错。
+- **配置**：关闭后恢复原有的显式父块阶段；在 Nacos 的应用配置里设置，支持热更新：推送后（`EnvironmentChangeEvent`）重新读取，无法解析的值保留原值并记 WARN，删除配置回到默认开启。每次问答开始时取一次快照，进行中的问答不受影响。
 
 ## 意图修正（reroute）
 
@@ -84,6 +96,6 @@ SSE 保留 seq/requestId/type，新增 tool/quality/retry；done 可含 outcome/
 
 - **规则兜底**：`KeywordRuleSet`（`rules-v2`）对整句的时间、日期、星期、天气类短问句（`realtime-zh` / `realtime-en`）直接判 `DIRECT_ANSWER`；「今天的会议时间」这类带「的」的知识库问题不会命中。整句锚定的实时规则标记为 terminal，命中后优先于其他关键词规则；因为是整句锚定，重复标点（如「现在几点了??」）同样直接命中，而「现在几点了？今天天气怎么样？」这类真正的复合句不会命中，仍交给 LLM。
 - **planner 改道**：`answer_directly` 工具必须单独成批，只在这些条件同时满足时才暴露：已检索过、上一轮评审 `relevance ≤ kwiki.agentic.reroute-relevance-threshold`（默认 `0.2`）、不是反问续跑。通过校验后 `s.route` 改为 `DIRECT_ANSWER`（`source=PLANNER`，写回 `chat_run` 路由状态），进入 `direct` 节点；改道后 direct 输出 `[[NEEDS_KNOWLEDGE]]`、为空或失败时不再升级回检索，以「信息不足」结束。
-- **固定阶梯**（planner 关闭或降级）：不自动改道（评审的 relevance≈0 分不清「与知识库无关」和「知识库里没检索到」，自动改道会让 direct 凭常识作答）；只在评审 `relevance ≤ 阈值` 时跳过 `BASE_PARENT` / `EXPANDED_PARENT`，直接扩大检索或改写。
+- **固定阶梯**（planner 关闭或降级）：不自动改道（评审的 relevance≈0 分不清「与知识库无关」和「知识库里没检索到」，自动改道会让 direct 凭常识作答）；只在评审 `relevance ≤ 阈值` 时跳过 `BASE_PARENT` / `EXPANDED_PARENT`，直接扩大检索或改写（仅在关闭生成前自动补父块时生效）。
 - **配置**：`kwiki.agentic.reroute-relevance-threshold`（默认 `0.2`）。`application.yml` 只保留 Nacos 引导项，需要调整时在 Nacos 的应用配置里设置。
 - **日志**（`kwiki.agentic.debug`，DEBUG）：`phase=plan` 的 `reroute`（`reason`、`relevance`、`fromIntent`、`toIntent`、`planRound`）；direct 在改道后失败时 `phase=direct` 的 `reroute-failed`。
